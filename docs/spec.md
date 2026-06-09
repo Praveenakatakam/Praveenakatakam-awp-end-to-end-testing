@@ -2,22 +2,47 @@
 
 ## 1. Purpose and Context
 
-This system automatically generates and maintains end-to-end functional tests for services across the onboarding, get-ready, create, deliver, and scoring/reporting domains, using ODCS data contracts, OpenAPI specs, UI specs, and service source repositories as input. Tests evolve as contracts change, are augmented by user-supplied natural-language scenarios, and produce auditable pass/fail reports linking failures back to logs. The MVP scope is a single cross-domain flow (onboarding → get-ready) with tests that compile, run, and produce a downloadable Excel report.
+This system automatically generates and maintains end-to-end functional tests for multiple cross-domain flows spanning the onboarding, get-ready, create, deliver, and scoring/reporting domains, using ODCS data contracts, OpenAPI specs, UI specs, and service source repositories as input. Tests evolve as contracts change, are augmented by user-supplied natural-language scenarios, and produce auditable pass/fail results rendered on a dashboard, with on-demand Excel download from the dashboard and links from failures back to logs.
 
-## 2. Out of Scope
+## 2. MVP Scope
+
+The first release proves the pipeline end-to-end on a narrow slice before expanding coverage. The "Out of Scope" section that follows covers items permanently excluded from the system; the "Deferred to later phases" list here covers items that are out of MVP but expected in later releases.
+
+**In for MVP:**
+
+- A single cross-domain flow: onboarding → get-ready (R-10).
+- Lineage-derived flow discovery for that pair only (R-07, R-09).
+- One named, explicit business-scenario flow as the golden-path scenario (R-08).
+- Generation of TypeScript test files that compile and run (R-11 through R-18).
+- LLM-translated user scenarios for that flow (R-19 through R-21).
+- LLM-assisted synthetic data conforming to the participating contracts (R-22 through R-25).
+- On-demand triggering via CLI and dashboard (R-26).
+- Concurrent runs with per-run UUID namespacing (R-24, R-27).
+- ODCS payload validation at every hop (R-31).
+- Event-driven async handling for the flow's async boundaries (R-29, R-30).
+- Failure classification across the three categories (R-34 through R-37).
+- Dashboard displaying run results and Excel/CSV export from the dashboard (R-39 through R-43, R-49).
+- Each test run operates on a newly generated, uniquely namespaced data set (R-24). No automated cleanup in MVP; data accumulates in non-prod and is accepted as a known limitation until the wipe feature ships.
+
+**Deferred to later phases:**
+
+- Additional cross-domain flows beyond onboarding → get-ready.
+- Scheduled or deploy-triggered runs.
+- SLA / latency / performance assertions.
+- Vendor integration coverage.
+- Integration with the human-authored test suite (lives in a separate repo).
+- Notifications (Slack, PagerDuty, tickets).
+- Multi-environment promotion (pre-prod, prod-shadow).
+- Automated cross-domain wipe job (with per-namespace failure isolation, dashboard visibility, and owner alerts) — captured in a separate future spec.
+
+## 3. Out of Scope
 
 - **Near-neighbor / single-service integration tests.** Owned by service teams.
-- **Human-authored test suites.** Will live in a separate repository; not invoked, ingested, or reported on by this system.
-- **Third-party vendor integration testing.** Vendor boundaries are open; flow stops at the vendor edge in v1.
-- **SLA / latency / performance assertions.** Reserved for a later phase.
-- **Production execution.** System runs against staging only in MVP.
+- **Production execution.** System runs against non-production environments only.
 - **Real or anonymized PII.** Only synthetic data, ever.
-- **Scheduled or deploy-triggered runs.** MVP is on-demand only.
-- **Notifications (Slack / PagerDuty / tickets).** Crossed out in the source diagram; explicitly deferred.
-- **Editing of generated tests by humans.** Generated tests are immutable to humans.
-- **Multi-environment promotion** (pre-prod, prod-shadow).
+- **Editing of generated tests by humans.** Generated tests are immutable to humans; human-authored tests live in a separate repository.
 
-## 3. Functional Requirements (EARS)
+## 4. Functional Requirements (EARS)
 
 ### Contract Registry & Source Introspection
 
@@ -83,18 +108,11 @@ This system automatically generates and maintains end-to-end functional tests fo
 - **R-39** — Every test result record SHALL include: run UUID, run start date/time, run end date/time, scenario name, use-case description (R-17), pass/fail, failure classification (R-34) when failed, and the deployed release/version label for each service that participated.
 - **R-40** — IF a test fails, THEN THE result record SHALL include a link to the relevant log or stack trace, scoped by correlation ID.
 - **R-41** — THE system SHALL persist all run results in a queryable results store.
-- **R-42** — WHEN a user requests an export from the UI, THE system SHALL generate an Excel (and CSV) file containing the columns in R-39 plus failure-link columns from R-40, and SHALL deliver it as a download.
-- **R-43** — WHILE a run is in progress, THE UI SHALL display the per-hop progress and any in-flight validations.
+- **R-42** — WHEN a user requests an export from the dashboard, THE system SHALL generate an Excel (and CSV) file containing the columns in R-39 plus failure-link columns from R-40, and SHALL deliver it as a download.
+- **R-43** — WHILE a run is in progress, THE dashboard SHALL display the per-hop progress and any in-flight validations.
+- **R-49** — THE system SHALL render completed run results on a dashboard, showing pass/fail per scenario, failure classification (R-34), use-case description (R-17), participating service versions (R-39), and failure links (R-40).
 
-### Data Lifecycle
-
-- **R-44** — Individual runs SHALL NOT clean up the synthetic data they produce.
-- **R-45** — THE system SHALL execute a cross-domain wipe job on a configurable cadence; the default cadence SHALL be weekly.
-- **R-46** — WHEN the wipe job runs, IT SHALL remove every record created by the system across all participating domains such that no residual artifact remains.
-- **R-47** — IF the wipe job fails for any domain, THEN THE system SHALL halt subsequent test runs, raise a visible failure state in the UI, and require operator acknowledgement before resuming.
-- **R-48** — WHILE the wipe job is running, new test-run triggers SHALL be queued and SHALL begin only after the wipe completes successfully.
-
-## 4. Non-Functional Requirements
+## 5. Non-Functional Requirements
 
 ### Security
 - **NFR-01** — No real PII, PHI, or production data SHALL exist in any staging environment touched by this system. (FERPA-aligned default.)
@@ -119,9 +137,8 @@ This system automatically generates and maintains end-to-end functional tests fo
 
 ### Maintainability
 - **NFR-14** — The mapping from observability backend to failure-link URL (R-40) SHALL be configurable per service, not hard-coded.
-- **NFR-15** — The wipe-job cadence (R-45) SHALL be operator-configurable without code changes.
 
-## 5. Edge Cases
+## 6. Edge Cases
 
 | # | Condition | Expected Behaviour |
 |---|-----------|--------------------|
@@ -133,15 +150,14 @@ This system automatically generates and maintains end-to-end functional tests fo
 | E-06 | Expected async event never arrives within configured wait | Mark hop as `infrastructure-failure` per R-37; downstream hops are skipped and recorded as `skipped: upstream-infra-failure`, not failed. |
 | E-07 | Two concurrent runs generate overlapping synthetic IDs by collision | Cannot occur — every record is tagged with a unique run UUID per R-24; collision is structurally prevented. |
 | E-08 | Service-team unit test in a repo (read as seed per R-05) contains realistic-looking but synthetic data | Treat as seed only; never replay verbatim against staging; LLM uses it as a pattern hint for new synthetic data. |
-| E-09 | Wipe job partially succeeds (some domains clean, others not) | Halt new runs per R-47; report which domains are dirty; require operator ack. |
-| E-10 | User triggers a run during a wipe | Queue per R-48; UI shows expected start time. |
-| E-11 | Generated test file compiles but throws at runtime due to an environment misconfiguration | Classify as `infrastructure-failure` (R-37), not a bug in the test or the service. |
-| E-12 | Service repo contains no OpenAPI/ODCS files | Abort generation for that service per R-06; report names the missing artifact. |
-| E-13 | UI spec exists but UI is unreachable during run | Hop fails as `infrastructure-failure`; downstream hops skipped (E-06 pattern). |
-| E-14 | Contract changes between scenario submission and run start | Use the contract version current at run start; report records the version used. |
-| E-15 | IdP token expires mid-run | Orchestrator refreshes via the single IdP (R-28); if refresh fails, classify remaining hops as `infrastructure-failure`. |
+| E-09 | Residual data from a prior run is encountered by a later run (no MVP wipe) | Per-run UUID namespacing (R-24) keeps the new run's data isolated; residual data is ignored by assertions. Accumulation is a known MVP limitation. |
+| E-10 | Generated test file compiles but throws at runtime due to an environment misconfiguration | Classify as `infrastructure-failure` (R-37), not a bug in the test or the service. |
+| E-11 | Service repo contains no OpenAPI/ODCS files | Abort generation for that service per R-06; report names the missing artifact. |
+| E-12 | UI spec exists but UI is unreachable during run | Hop fails as `infrastructure-failure`; downstream hops skipped (E-06 pattern). |
+| E-13 | Contract changes between scenario submission and run start | Use the contract version current at run start; report records the version used. |
+| E-14 | IdP token expires mid-run | Orchestrator refreshes via the single IdP (R-28); if refresh fails, classify remaining hops as `infrastructure-failure`. |
 
-## 6. Open Questions
+## 7. Open Questions
 
 These need decisions before implementation begins.
 
@@ -154,9 +170,7 @@ These need decisions before implementation begins.
 - **OQ-07 — Generated-tests repository governance.** One repo for all generated tests vs one per domain; PR-based commits vs direct push; CODEOWNERS for the generated repo.
 - **OQ-08 — UI-automation tool choice** (Playwright, Cypress, other) — needed before R-32 can be implemented.
 - **OQ-09 — Results store technology.** DynamoDB, RDS, S3+Athena — affects R-41, R-42, and NFR-11.
-- **OQ-10 — Wipe-job mechanism per domain.** Does every participating service expose a delete/purge endpoint scoped by run-UUID tag? If not, what is the fallback for R-46?
-- **OQ-11 — Idempotency expectations within a wipe period.** If the same scenario is re-run within a week, do we expect identical results? What if state from prior runs influences the system under test?
-- **OQ-12 — Operator-acknowledgement mechanism for R-47.** UI button? CLI command? Who is the authorized operator?
-- **OQ-13 — Versioning of the test-generator itself.** When the generator changes, must we record which generator version produced each test, alongside contract version?
-- **OQ-14 — Quarantine / flaky-test handling.** Out of MVP, but worth deciding before users start trusting the suite.
-- **OQ-15 — UI scope for MVP.** R-26, R-42, R-43, and R-47 all imply a UI. Is the MVP UI a thin internal tool, or does it have its own design pass?
+- **OQ-10 — Idempotency expectations across runs.** Since MVP has no cleanup, residual data from prior runs persists in non-prod. Per-run namespacing (R-24) isolates new data, but if a SUT's behavior depends on accumulated state (counts, aggregates, search indexes), re-running the same scenario may not produce identical results. What guarantees, if any, do we make?
+- **OQ-11 — Versioning of the test-generator itself.** When the generator changes, must we record which generator version produced each test, alongside contract version?
+- **OQ-12 — Quarantine / flaky-test handling.** Out of MVP, but worth deciding before users start trusting the suite.
+- **OQ-13 — Dashboard scope for MVP.** R-26, R-42, R-43, and R-49 all imply a dashboard. Is the MVP dashboard a thin internal tool, or does it get its own design pass?
