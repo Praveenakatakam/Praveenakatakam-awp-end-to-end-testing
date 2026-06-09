@@ -1,0 +1,26 @@
+name: 'Setup PNPM and Install'
+description: 'Setup node environment and pnpm'
+inputs:
+  node_version:
+    required: true
+    description: (Major) Node version to use
+  pnpm_version:
+    required: true
+    description: (Full) PNPM version to use
+  skip_install:
+    required: false
+    description: 'Skip installing dependencies'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: ${{ inputs.pnpm_version }}
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: 'pnpm'
+    - if: "${{ !inputs.skip_install }}"
+      run: pnpm i --frozen-lockfile
+      shell: bash

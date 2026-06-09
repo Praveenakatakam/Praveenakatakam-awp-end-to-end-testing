@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: awp-end-to-end-testing
+  title: Authentic Work Platform - End-to-end Testing
+  description: Mechanism to certify Authentic Work Platform prior to release
+  annotations:
+    github.com/project-slug: collegeboard-software/awp-end-to-end-testing
+    github.com/team-slug: collegeboard-software/dg-admin
+    backstage.io/techdocs-ref: dir:.docs
+    backstage.io/adr-location: docs/adr
+spec:
+  type: component
+  owner: group:github/dg-admin
+  lifecycle: experimental
+  system: system:default/121
