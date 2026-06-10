@@ -1,562 +1,490 @@
-# Technical Design — E2E Test Generator for ODCS-Bound Services
+# Technical Design: E2E Test Generator for ODCS-Bound Services
 
-**Status:** Draft for review. No code has been written. Approve before implementation begins.
+Companion to `spec.md`. **Status: draft for review. No code written yet.** Approve §0 decisions and §7 conflicts before implementation begins.
 
-This document is a proposed implementation of the requirements in `spec.md`. It reflects the
-six resolved requirements-side OQs and the six technical OQ recommendations from prior triage
-(OQ-02, OQ-03, OQ-04, OQ-06, OQ-07, OQ-08, OQ-09). Where a recommendation is not yet
-confirmed, it is called out in **§8 Decisions still needed**.
+## 0. Decisions baked into this design
+
+Resolved during the design-review pass. Flag any to revisit.
+
+| Ref | Decision |
+|-----|----------|
+| R-01 | "Latest released" = ODCS registry `released` tag (decoupled from deployment) |
+| R-05a / OQ-04 | Deployed version labels sourced from an internal deployment registry |
+| R-12 / OQ-07 | One generated-tests repo, direct push from generator bot identity |
+| R-24 | Run-UUID embedded as **prefix**: `e2e-<run-uuid>-<originalId>` |
+| R-29 | Event channel name declared in ODCS contract via custom extension property |
+| R-32 / OQ-08 | **Playwright Test** for UI automation (also chosen as the generated-test framework) |
+| R-41 / OQ-09 | **DynamoDB** for the Results Store |
+| OQ-02 | **Amazon Bedrock + Claude** (Sonnet 4.6 default; Opus 4.7 for scenario translation R-20) |
+| OQ-03 | **CloudWatch Logs + X-Ray** as observability backend; per-service NFR-14 template still parameterized |
+| OQ-06 | **Serverless, event-driven**: Lambda + SQS + SNS + EventBridge; Fargate only for Playwright runtime |
+
+Default-accepted answers (R-03, R-06, R-08, R-19a, R-21, R-25, R-30a, R-34, R-38, OQ-01, OQ-05, OQ-10, OQ-11, OQ-13) carry forward from the open-questions review and surface in the relevant sections below.
 
 ---
 
 ## 1. Architecture Overview
 
-### 1.1 Two run types
+### 1.1 Two lifecycles
 
-The system has two distinct run modes triggered through the same entrypoint:
+The system has two distinct lifecycles, coupled only by the generated-tests repo and the EventBridge bus:
 
-- **Generation run** — pulls inputs, calls the LLM, produces TypeScript test files, commits
-  them. No SUTs are touched.
-- **Execution run** — runs already-generated test files against SUTs in topological order,
-  validates payloads against ODCS, records results.
+- **Generation lifecycle** — produces synthetic data + Playwright Test specs for a (flow, scenario) pair. Triggered by contract changes, scenario submissions, or explicit regeneration. Output: committed test files in the generated-tests repo + a `tests.ready` event.
+- **Execution lifecycle** — runs previously-generated tests against staging services hop by hop, validates ODCS contracts, classifies failures. Triggered by a user-initiated run. Output: a Results Store record + dashboard updates.
 
-A generation run does not imply an execution run. CI for the generated repo runs execution
-runs on a separate trigger.
+A generation run does not auto-trigger execution. An execution run uses whatever generation is current in the repo at run-start.
 
-### 1.2 Component map
+### 1.2 Component map (event-driven)
 
 ```
-                    ┌──────────┐       ┌───────────────┐
-                    │   CLI    │       │   Dashboard   │
-                    └────┬─────┘       └───────┬───────┘
-                         │                     │
-                         ▼                     ▼
-                    ┌──────────────────────────────────┐
-                    │      API Gateway (REST + WSS)    │
-                    └─────────────┬────────────────────┘
-                                  │
-              ┌───────────────────┼──────────────────────┐
-              ▼                   ▼                      ▼
-        ┌──────────┐       ┌──────────────┐       ┌──────────────┐
-        │   Run    │       │   Scenario   │       │    Export    │
-        │ Service  │       │    Intake    │       │   Service    │
-        │ (Lambda) │       │   (Lambda)   │       │   (Lambda)   │
-        └────┬─────┘       └──────┬───────┘       └──────┬───────┘
-             │                    │                      │
-             │                    ▼                      ▼
-             │             ┌─────────────┐         ┌──────────┐
-             │             │  Bedrock    │         │ DynamoDB │
-             │             │  Sonnet 4.6 │◀────────┤(read API)│
-             │             └─────────────┘         └──────────┘
-             ▼
-   ┌───────────────────────┐
-   │   Step Functions      │
-   │   (state machine)     │──────────────────────────────┐
-   └──┬─────────────────┬──┘                              │
-      │                 │                                  │
-      │ generation run  │ execution run                    │
-      ▼                 ▼                                  │
-┌──────────────┐  ┌──────────────────┐                    │
-│ Test         │  │  Orchestrator    │                    │
-│ Generator    │  │   (Fargate task) │                    │
-│ (Fargate)    │  │  + Playwright    │                    │
-└──┬───────────┘  └────┬─────────────┘                    │
-   │                   │                                   │
-   ├─► Bedrock         ├─► IdP (OIDC)                      │
-   ├─► Contract Reg.   ├─► SUT API (HTTP)                  │
-   ├─► Service repos   ├─► SUT UI (Playwright)             │
-   ├─► Deployment sys. ├─► SNS/SQS/EventBridge             │
-   ├─► Data Factory    ├─► Data Factory ◄──────┐           │
-   ├─► Gen-tests repo  └─► Failure Classifier  │           │
-   │     (Git push)         (in-process)       │           │
-   │                                            │           │
-   ▼                                            │           │
-┌──────────────┐                                │           │
-│ Gen-tests    │  ◄─── (CI runs tests) ─────────┘           │
-│ repo (GH)    │                                            │
-└──────────────┘                                            │
-                                                             │
-   All components ──► CloudWatch Logs + X-Ray + Metrics      │
-   All write paths ─► DynamoDB Results Store ────────────────┘
+   CLI ──┐
+         ├──► API Gateway (REST + WSS) ──► API Lambda ──► EventBridge bus
+Dashboard┘                                                       │
+                                                                 │
++────────────────────────────────────────────────────────────────┼───────────────+
+│  Generation lifecycle (event choreography)                     │               │
+│                                                                ▼               │
+│   run.requested ──► Resolver λ ─► run.inputs.ready ─► FlowDiscovery λ          │
+│                                                       │                        │
+│                                            flow.ready ▼                        │
+│                                            ScenarioTranslator λ (Bedrock Opus) │
+│                                                       │                        │
+│                                       scenario.ready  ▼                        │
+│                                            DataFactory λ (Bedrock Sonnet)      │
+│                                                       │                        │
+│                                              data.ready ▼                      │
+│                                            TestGenerator λ (Bedrock + tsc)     │
+│                                                       │                        │
+│                                            tests.ready ▼                       │
++────────────────────────────────────────────────────────┼──────────────────────+
+                                                         │
++────────────────────────────────────────────────────────┼──────────────────────+
+│  Execution lifecycle (event choreography)              ▼                       │
+│                                                                                │
+│   run.start ─► HopExecutor (API hop) λ ──┐                                     │
+│                                          ├─► hop.completed ─► next HopExecutor │
+│       HopExecutor (UI hop) → Fargate ────┘                                     │
+│                                                                                │
+│   SUT SNS/SQS/EventBridge ─► EventBridgeBridge λ ─► hop.event-received         │
+│   EventBridge Scheduler ──► hop.timeout (per R-30/R-30a)                       │
+│                                                                                │
+│   FailureClassifier λ (R-34–R-37) ─► writes classification + skip cascade      │
++────────────────────────────────────────────────────────────────────────────────+
+
+Cross-cutting:
+  DynamoDB (Runs / HopResults / TestResults / Scenarios / Flows / TestArtifacts / Contracts / ServiceConfig)
+  S3 (payload archive, exports)
+  Secrets Manager (NFR-02)
+  CloudWatch Logs + X-Ray (NFR-12, NFR-14)
+  API Gateway WSS for R-43 live dashboard push
 ```
 
 ### 1.3 Component responsibilities
 
-| Component | Responsibility | Runtime | Maps to |
-|-----------|----------------|---------|---------|
-| **CLI** | Trigger runs from terminal/CI; show progress | Local Node bin | R-26 |
-| **Dashboard** | Trigger runs; show in-flight + completed; export | React (S3+CF) | R-26, R-42, R-43, R-49 |
-| **Run Service** | Accept `POST /runs`, allocate UUID, start Step Function | Lambda | R-26, R-38 |
-| **Scenario Intake** | Accept NL scenarios, persist, hand to Generator | Lambda | R-19, R-19a |
-| **Export Service** | Generate xlsx/csv exports, return presigned URL | Lambda | R-42, R-42a |
-| **Step Functions** | Top-level state machine for each run | Step Functions | R-09, R-27 |
-| **Test Generator** | Fetch inputs, call LLM, produce TS files, commit | Fargate task | R-01–R-18 |
-| **Orchestrator** | Drive hops, validate payloads, classify failures, write results | Fargate task | R-09, R-28–R-37 |
-| **Data Factory** | Synthesize ODCS-conformant values on demand at test runtime | Lambda | R-22–R-25 |
-| **Failure Classifier** | Pure function: failure → category | In-process lib | R-34–R-37 |
-| **Results Store** | Persist + query results | DynamoDB | R-39–R-41 |
+| Component | Runtime | Responsibility | Reqs |
+|-----------|---------|----------------|------|
+| **API Lambda** | Lambda | Accept REST requests; emit events; return run UUIDs synchronously | R-19, R-26 |
+| **Resolver Lambda** | Lambda | Fetch ODCS contracts (registry `released` tag), OpenAPI, UI specs, source repos, deploy versions; persist `RunInputs` | R-01–R-06, R-05a |
+| **FlowDiscovery Lambda** | Lambda | Build dependency graph from ODCS lineage; accept named-flow definitions; detect cycles; deterministic topological sort by service name | R-07–R-09 |
+| **ScenarioTranslator Lambda** | Lambda + Bedrock (Opus 4.7) | Translate NL scenarios to structured artifact; reject low-confidence or contract-violating | R-19–R-21 |
+| **DataFactory Lambda** | Lambda + Bedrock (Sonnet 4.6) | Generate ODCS-valid synthetic records on-demand at test runtime; embed `e2e-<run-uuid>-` prefix on every identifier | R-22–R-25 |
+| **TestGenerator Lambda** | Lambda + Bedrock (Sonnet 4.6) | Emit `@generated` Playwright Test spec files per (hop, scenario); run `tsc --noEmit`; commit to tests repo | R-11–R-18, R-20 |
+| **HopExecutor (API)** | Lambda | Load + invoke the Playwright Test spec for one hop using `--grep <hop-id>`; validate outbound + inbound ODCS; record `HopResult`; publish hop event | R-29–R-33 |
+| **HopExecutor (UI)** | Fargate task | Same as API HopExecutor but with Playwright browser runtime; spawned by a HopExecutor Lambda dispatcher | R-32 |
+| **EventBridgeBridge Lambda** | Lambda | Subscribe (BEFORE publishing hop runs) to SUT-declared channels per ODCS extension; bridge SUT events to internal `hop.event-received` events | R-29 |
+| **Watchdog** | EventBridge Scheduler + Lambda | Fire `hop.timeout` after the per-service maximum-wait elapses without an event | R-30, R-30a |
+| **FailureClassifier Lambda** | Lambda | Subscribe to `hop.failed`; assign exactly one of 5 categories; persist; emit skip cascade | R-34–R-37 |
+| **Results Store** | DynamoDB | Persist runs, hops, scenarios, test artifacts; GSIs cover R-41 query dimensions | R-39, R-41 |
+| **Dashboard** | React SPA (S3 + CloudFront) | Live progress via WSS (R-43); completed runs (R-49); export (R-42) | R-26, R-42, R-43, R-49 |
 
 ### 1.4 Communication patterns
 
-- **Synchronous HTTPS (JSON):** CLI/Dashboard → API Gateway → Lambdas. Generator/Orchestrator → external services (Contract Registry, IdP, SUT APIs, Bedrock, GitHub).
-- **Asynchronous (Step Functions task tokens):** Step Functions waits on Fargate task completion via `WAIT_FOR_TASK_TOKEN`.
-- **Asynchronous (events):** Orchestrator subscribes to SNS/SQS/EventBridge via SDK; receives via Lambda fan-out or direct SDK poll.
-- **Real-time push to Dashboard:** API Gateway WebSocket. Orchestrator publishes hop state transitions; Dashboard subscribes per `run_uuid`. (Satisfies R-43.)
-- **Logs/Traces:** every component emits structured JSON to CloudWatch Logs; X-Ray captures spans via OTel auto-instrumentation.
+- **Synchronous HTTPS** only at the API edge. `POST /runs` returns in milliseconds; the actual work is event-driven.
+- **Event choreography** for all internal flow. EventBridge bus is the spine. No Step Functions in MVP — each Lambda subscribes to its trigger event and publishes the next event itself, with DLQ on failure.
+- **Subscribe-before-publish (R-29)** enforced structurally: when hop N's setup runs, it invokes EventBridgeBridge to create subscriptions for hop N+1's expected SUT events *before* hop N publishes its trigger payload.
+- **WebSocket push for R-43**: API Gateway WSS endpoint. HopExecutors emit hop state transitions to a per-runUuid WSS channel. Dashboard subscribes per open run. No polling on the dashboard path.
+- **Fargate carve-out**: UI hops use Fargate because Playwright + Chromium is heavyweight (10 GB ephemeral ceiling on Lambda is brittle for full browser runs). HopExecutor Lambda detects `webUi: true` on the target service and dispatches to Fargate via ECS RunTask; the Fargate task publishes the `hop.completed` event itself.
 
 ---
 
 ## 2. Data Models
 
-### 2.1 DynamoDB tables
+DynamoDB. On-demand billing, PITR enabled, TTL on closed-run records at 90 days (NFR-11).
 
-Single-region, on-demand capacity, TTL on `expires_at` (90 days per NFR-11).
+### 2.1 Tables
 
-**Table `runs`**
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `run_uuid` (PK) | string | UUIDv7 (sortable by time) |
-| `run_type` | string | `generation` \| `execution` |
-| `status` | string | `pending` \| `running` \| `passed` \| `failed` \| `aborted` |
-| `start_ts` | string | ISO-8601 UTC |
-| `end_ts` | string | ISO-8601 UTC, absent until done |
-| `flow_id` | string | FK to Flows |
-| `scenario_id` | string | FK to Scenarios (null if all scenarios) |
-| `correlation_id` | string | Allocated per R-38 |
-| `service_versions` | map<string,string> | service_id → version label (R-05a) |
-| `expires_at` | number | epoch sec; TTL field |
+#### `Runs`
+- **PK**: `runUuid` (UUIDv7, time-sortable).
+- Attributes: `status` (`pending`|`generating`|`executing`|`passed`|`failed`|`aborted`), `flowId`, `scenarioId`, `correlationId` (= `runUuid`), `startedAt`, `completedAt`, `serviceVersions` (`{serviceName: deployedVersionLabel}`), `failureClassification`, `summary` (counts), `dateBucket` (`YYYY-MM` for GSI partitioning), `expiresAt`.
+- **GSI-1** `byScenario`: PK = `scenarioId`, SK = `startedAt`. (R-41 query-by-scenario.)
+- **GSI-2** `byClassification`: PK = `failureClassification`, SK = `startedAt`. (R-41 query-by-classification.)
+- **GSI-3** `byDateBucket`: PK = `dateBucket`, SK = `startedAt`. (R-41 query-by-date-range, hot-key safe.)
 
-- GSI `by_status`: PK = `status`, SK = `start_ts`. For "what's running now" queries.
-- GSI `by_scenario`: PK = `scenario_id`, SK = `start_ts`.
+#### `HopResults`
+- **PK**: `runUuid`, **SK**: `hopSeq` (zero-padded).
+- Attributes: `serviceName`, `state` (`queued`|`in_flight`|`complete`|`skipped`|`failed`), `outboundValidation`, `inboundValidation`, `startedAt`, `completedAt`, `failureLink`, `payloadInRef` (S3 key), `payloadOutRef`, `expiresAt`.
 
-**Table `hops`**
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `run_uuid` (PK) | string | |
-| `hop_seq` (SK) | number | 0-indexed position in topological order |
-| `service_id` | string | |
-| `status` | string | `queued` \| `in_flight` \| `complete` \| `skipped` \| `failed` |
-| `classification` | string? | one of the five R-34 categories, when failed |
-| `start_ts`, `end_ts` | string | |
-| `inbound_payload_ref` | string | S3 key (payloads can be large) |
-| `outbound_payload_ref` | string | S3 key |
-| `failure_link` | string? | per R-40 / NFR-14 |
-| `expires_at` | number | TTL |
+#### `TestResults`
+- **PK**: `runUuid`, **SK**: `testCaseId` = `<scenarioId>#<hopSeq>#<caseType>` (caseType ∈ `happy`|`boundary:<field>`|`negative:<rule>`).
+- Attributes: `passFail`, `classification`, `useCaseDescription` (R-17), `failureLink` (R-40), `assertionDetails`, `expiresAt`.
 
-**Table `results`** *(denormalized for fast read on the dashboard)*
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `run_uuid` (PK) | string | |
-| `scenario_name` (SK) | string | |
-| `pass_fail` | string | `pass` \| `fail` |
-| `classification` | string? | |
-| `use_case_description` | string | R-17 |
-| `service_versions` | map | R-39 |
-| `failure_link` | string? | R-40 |
-| `expires_at` | number | TTL |
+#### `Scenarios`
+- **PK**: `scenarioId`.
+- Attributes: `sourceText`, `status` (`pending`|`translated`|`rejected`|`registered`), `translation` (steps + dataRequirements), `confidence`, `unresolvedReferences`, `rejectionReason`, `createdAt`, `submitter`.
 
-- GSI `by_classification`: PK = `classification`, SK = `start_ts`. For R-41 query-by-classification.
-- GSI `by_scenario_name`: PK = `scenario_name`, SK = `start_ts`. For R-41 query-by-scenario.
+#### `Flows`
+- **PK**: `flowId`.
+- Attributes: `name`, `source` (`lineage`|`named`), `services` (ordered topo list, stable-sorted by name), `definitionRef`, `registeredAt`.
 
-**Table `scenarios`**
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `scenario_id` (PK) | string | |
-| `source` | string | `lineage` \| `named` \| `user` |
-| `nl_text` | string? | for `user` source |
-| `translated_artifact` | map | { steps[], data_requirements[] } |
-| `status` | string | `pending` \| `translated` \| `rejected` \| `committed` |
-| `rejection_reason` | string? | structured explanation per R-21 |
-| `flow_id` | string | FK |
+#### `TestArtifacts`
+- **PK**: `artifactPath` (e.g., `flows/onboarding-getready/scenario-001/hop-02--happy.test.ts`).
+- Attributes: `generatorVersion`, `generationTimestamp`, `sourceContractVersions` (`{serviceName: contractVersion}`), `scenarioId`, `hopSeq`, `compileStatus`, `lastRunUuid`.
 
-**Table `flows`**
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `flow_id` (PK) | string | |
-| `source` | string | `lineage` \| `named` |
-| `services` | list<string> | service IDs in topological order |
-| `definition_ref` | string? | for `named` flows, where the def was submitted from |
+#### `Contracts`
+- **PK**: `serviceName`, **SK**: `contractVersion`.
+- Attributes: `odcsBody`, `openApiBody`, `uiSpecBody`, `fetchedAt`, `releasedTagAtFetch`.
 
-**Table `service_config`** *(small static table)*
-| Attribute | Type | Notes |
-|-----------|------|-------|
-| `service_id` (PK) | string | |
-| `repo_url` | string | |
-| `deployment_system_ref` | map | how to look up deployed version |
-| `failure_link_template` | string | per NFR-14 |
-| `async_timeout_ms` | number | per R-30a (default 60_000) |
-| `ui_base_url` | string? | for R-32 (Playwright nav target) |
+#### `ServiceConfig`
+- **PK**: `serviceName`.
+- Attributes: `webUi` (bool, satisfies R-03 default D1), `failureLinkTemplate` (NFR-14), `asyncTimeoutMs` (R-30a, default 60 000), `uiBaseUrl`, `deployRegistryRef`.
 
 ### 2.2 S3 layout
 
 ```
 s3://awp-e2e-{env}/
-  runs/{run_uuid}/
-    inputs/                  -- snapshot of all artifacts (R-01..R-05)
+  runs/{runUuid}/
+    inputs/
       contracts/{svc}.odcs.json
       openapi/{svc}.openapi.yaml
       ui-spec/{svc}.yaml
-      repo-extract/{svc}/    -- subset of repo files
-    payloads/
-      {hop_seq}/in.json
-      {hop_seq}/out.json
-    logs/                    -- structured run logs (mirror of CW Logs)
-  exports/
-    {export_id}.xlsx
-    {export_id}.csv
+      repo-extract/{svc}/...
+    payloads/{hopSeq}/in.json
+    payloads/{hopSeq}/out.json
+  exports/{exportId}.{xlsx|csv}
 ```
 
-### 2.3 Generated-tests repo layout
+### 2.3 Identifier conventions
+
+- **Run UUID** — RFC-4122 v7 (time-sortable; preferred over v4 for DynamoDB partitioning).
+- **Synthetic identifier (R-24)** — `e2e-<runUuid>-<originalIdFromContract>`. Wipe predicate: `begins_with('e2e-')`.
+- **Correlation ID (R-38)** — equals `runUuid`; propagated via the W3C `traceparent` header.
+- **Artifact path (R-14a)** — `flows/<flowId>/scenario-<scenarioId>/hop-<paddedHopSeq>--<caseType>.test.ts`. Deterministic; regeneration overwrites the same path.
+
+### 2.4 Relationships
 
 ```
-awp-generated-tests/
-  README.md
-  .github/workflows/test.yml
-  flows/
-    onboarding-to-get-ready/
-      scenarios/
-        happy-path/
-          {hop-seq}-{service}.test.ts
-        named-{scenario-name}/
-          ...
+Run (1) ── (1) Flow
+Run (1) ── (1) Scenario      (scenarios are reusable across runs)
+Run (1) ── (N) HopResult
+Run (1) ── (N) TestResult
+TestResult (N) ── (1) TestArtifact     (by artifactPath)
+TestArtifact (1) ── (N) Contract       (one per participating service version)
 ```
-
-Every `.test.ts` file begins with the `// @generated` header (R-13) carrying generator
-version, generation timestamp, source-contract version, and scenario ID.
 
 ---
 
 ## 3. API Surface
 
-REST API behind API Gateway with IdP-issued JWT auth.
+REST behind API Gateway with IAM/JWT auth. WebSocket endpoint for R-43.
 
-### 3.1 Runs
+### 3.1 REST endpoints
 
-```
-POST /runs
-  body: { type: "generation"|"execution", flow_id: string, scenario_id?: string }
-  201:  { run_uuid: string, status: "pending" }
-  401:  { error: "unauthenticated" }
-  400:  { error: "validation", detail: { ... } }
+| Method | Path | Purpose | Returns |
+|--------|------|---------|---------|
+| `POST` | `/runs` | Trigger a run (R-26) | `{ runUuid, status: "pending" }` |
+| `GET` | `/runs/{runUuid}` | Run summary (R-49) | Run + latest HopResults |
+| `GET` | `/runs?status=&scenario=&classification=&from=&to=&cursor=` | Query (R-41) | `{ runs, nextCursor }` |
+| `GET` | `/runs/{runUuid}/export?format=xlsx\|csv` | Download (R-42) | 302 → pre-signed S3 URL |
+| `POST` | `/scenarios` | Submit NL scenario (R-19) | `{ scenarioId, status: "pending" }` |
+| `GET` | `/scenarios/{scenarioId}` | Translation status | Scenario record |
+| `POST` | `/flows` | Register a named flow (R-08) | `{ flowId }` or 400 `{ error: "unknown_service", svc }` (R-08a) |
+| `GET` | `/flows` | List registered flows | Flow[] |
 
-GET /runs/{run_uuid}
-  200:  Run + hops[] (latest known state)
-  404:  { error: "not_found" }
-
-GET /runs?status=&scenario=&from=&to=&limit=&cursor=
-  200:  { runs: Run[], next_cursor?: string }
-
-GET /runs/{run_uuid}/export?format=xlsx|csv
-  302:  Location: presigned S3 URL (15-min expiry)
-  408:  { error: "export_timeout" }              -- per R-42a
-```
-
-### 3.2 Scenarios
-
-```
-POST /scenarios
-  body: { nl_text: string, flow_id: string }
-  201:  { scenario_id, status: "pending" }
-  400:  { error: "empty"|"too_long", limit: 4000 }   -- per R-19a
-
-GET /scenarios/{scenario_id}
-  200:  Scenario (status, translated_artifact|rejection_reason)
-```
-
-### 3.3 Flows
-
-```
-GET  /flows                       200: Flow[]
-POST /flows  body: NamedFlowDef   201: Flow  | 400: { error: "unknown_service", svc }
-```
-
-### 3.4 WebSocket — Dashboard live updates
+### 3.2 WebSocket — live dashboard (R-43)
 
 ```
 wss://.../live
-  client → server: { action: "subscribe", run_uuid }
-  server → client: { run_uuid, hop_seq, status, ts } on every transition
+  client → server: { action: "subscribe", runUuid }
+  server → client: { runUuid, hopSeq, state, ts } on every transition
 ```
 
-### 3.5 Internal: Data Factory (called from generated test code at runtime)
+### 3.3 Internal: Data Factory (called from generated test code at runtime)
 
 ```
 POST /internal/data-factory/values
-  body: { run_uuid, contract_ref, fields: FieldSpec[] }
-  200:  { values: Record<string, any> }
-  422:  { error: "data_generation", retries_exhausted: true }   -- per R-25
+  body: { runUuid, contractRef, fields: FieldSpec[] }
+  200:  { values: Record<string, unknown> }
+  422:  { error: "data_generation", retriesExhausted: true }   -- per R-25
 ```
 
-This endpoint is reachable only from within the run's network (Fargate task's VPC).
+VPC-internal only; reachable from HopExecutors and Fargate tasks.
+
+### 3.4 Selected payload shapes
+
+```ts
+type RunRequest = { type: "generation" | "execution"; flowId: string; scenarioId?: string };
+type RunResponse = { runUuid: string; status: "pending"; correlationId: string };
+
+type ScenarioRequest = { text: string; flowId: string };  // text ≤ 4000 chars (D4)
+type ScenarioResponse = { scenarioId: string; status: "pending" };
+
+type NamedFlowDef = { name: string; services: string[]; definitionRef?: string };
+```
+
+### 3.5 Internal event envelopes
+
+EventBridge bus `e2e-test-generator`. Envelope shape:
+
+```ts
+type Envelope<T> = {
+  eventId: string;
+  eventType: string;             // e.g., "run.requested"
+  occurredAt: string;            // ISO-8601 UTC
+  runUuid?: string;
+  correlationId: string;
+  payload: T;
+};
+```
+
+Event vocabulary: `run.requested`, `run.inputs.ready`, `run.aborted`, `flow.ready`, `flow.cycle-detected`, `scenario.ready`, `scenario.rejected`, `data.ready`, `tests.ready`, `tests.compile-failed`, `run.start`, `hop.started`, `hop.completed`, `hop.failed`, `hop.timeout`, `hop.event-received`, `run.completed`.
+
+### 3.6 CLI
+
+Thin wrapper over the REST API. Commands: `run`, `scenario submit`, `flow register`, `runs list`, `run show <uuid>`, `export <uuid>`. Auth via `aws sso` profile, SigV4-signed.
 
 ---
 
-## 4. Tech Stack with NFR Justification
+## 4. Tech Stack & NFR Mapping
 
-| Choice | Why |
-|--------|-----|
-| **TypeScript everywhere** | Generated tests are TS (R-11). One language across system + tests reduces context-switching for the team that owns both. |
-| **AWS CDK (TS)** | Repo is already a CDK TS template. Honors NFR-04 (least-privilege IAM) by composing scoped role constructs. |
-| **API Gateway REST + WebSocket** | REST for CRUD; WSS for R-43 in-flight progress. Native IAM/JWT integration honors NFR-02 (secrets stay in Secrets Manager and IAM, not in app code). |
-| **Step Functions** | Hop-by-hop topological execution (R-09) maps directly to a state machine. Built-in observability satisfies NFR-12/NFR-13 with no extra code. |
-| **Fargate for long-running work** | Generator and Orchestrator both exceed Lambda's 15-minute ceiling and need a persistent file system for repo clones + Playwright. Configurable concurrency satisfies NFR-09 (10 concurrent runs) without per-Lambda quota pressure. |
-| **Lambda for short-lived work** | Run Service, Scenario Intake, Export Service, Data Factory — all bounded latency, stateless. NFR-07 export ≤30s fits comfortably. |
-| **Bedrock + Claude Sonnet 4.6 (translation) + Haiku 4.5 (per-field data)** | Bedrock keeps data inside AWS account (NFR-03 — no external retention). Sonnet handles R-20 translation ambiguity. Haiku handles R-23 high-volume per-field generation cheaply. Prompt caching of contract context cuts both cost and latency, supporting NFR-06 (≤60s translation). |
-| **DynamoDB** | R-41 query surface (4 dimensions) maps exactly to PK + 3 GSIs. TTL satisfies NFR-11 (90-day retention) with no scheduled job. Single-digit-ms reads support R-43 dashboard refresh. |
-| **S3 for payloads + exports** | DynamoDB item-size limit (400KB) is below realistic ODCS payload sizes. Hop payloads live in S3 keyed by run_uuid + hop_seq. |
-| **Playwright Test** | R-32 UI driving. Native TS, multi-browser, parallel-by-default, robust cross-origin handling. |
-| **GitHub for generated-tests repo** | Existing infra. Pre-receive hook (deployed as a GitHub App or branch-protection check) enforces R-14 by rejecting any push whose touched files contain `// @generated` and whose author is not the generator service account. |
-| **CloudWatch Logs + X-Ray** | NFR-12 (structured logs), NFR-13 (metrics), R-38 (correlation ID propagation via W3C `traceparent`). Failure-link templates per NFR-14 emit CloudWatch Logs Insights URLs filtered by correlation ID. |
-| **Okta/Ping (existing IdP) via OIDC** | R-28. Single token exchange at run start; reused across hops via the Orchestrator's in-memory token cache. |
-| **AWS Secrets Manager** | NFR-02. IdP client secret, GitHub PAT, Bedrock not-required (uses IAM), Contract Registry creds. |
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Language | TypeScript on Node 20 | Aligns with R-11 generated tests; one runtime for generator + tests; mature Playwright/AWS SDK support |
+| IaC | AWS CDK (TypeScript) | Same language as application; native Lambda/EventBridge/DynamoDB constructs; NFR-04 IAM scoping via composable roles |
+| Compute (short-lived) | AWS Lambda (Node 20) | All event handlers, API edge, Data Factory, classifier. NFR-09: account default concurrency far exceeds 10 |
+| Compute (UI hops) | AWS Fargate | Playwright + Chromium needs persistent FS and >Lambda memory; one task per UI hop |
+| Eventing | EventBridge bus + SQS DLQs | NFR-09 scale; SQS DLQs give visibility for R-12a/R-41a exhausted retries |
+| Scheduling | EventBridge Scheduler | Per-service Watchdog timers (R-30) without a custom scheduler |
+| Persistence | DynamoDB on-demand | NFR-11 TTL retention; GSIs cover R-41's four query dimensions; ms-latency reads for R-43 |
+| Object storage | S3 | Payloads exceeding DynamoDB 400 KB item limit; export artifacts |
+| LLM | Bedrock + Claude — Sonnet 4.6 (data + generation) + Opus 4.7 (R-20 scenario translation) | NFR-03 in-AWS retention boundary; prompt caching reduces cost on repeated contract-shaped prompts |
+| Secrets | AWS Secrets Manager | NFR-02; rotation built-in |
+| Observability | CloudWatch Logs + X-Ray; NFR-14 templates in SSM Parameter Store | NFR-12/13 satisfied; `traceparent` propagated via X-Ray (R-38) |
+| UI automation + test framework | Playwright Test | OQ-08; doubles as the generated-test framework (see §7.7) |
+| Tests repo | One private GitHub repo, generator-bot identity has write, humans read-only | Branch protection allows pushes only from the bot principal — enforces R-14 without a separate pre-receive hook |
+| IdP | Existing OIDC IdP (Okta/Ping) | R-28 single token exchange + R-28a refresh |
+| Dashboard | React SPA on S3 + CloudFront | Static hosting; SigV4-signed REST + WSS |
 
-### NFR-by-NFR mapping
+### NFR-by-NFR
 
-- **NFR-01** No real PII — enforced by R-22/R-22a (data sources allowlist) + proposed NFR-15 (PII scan).
-- **NFR-02** No secrets in code/logs — Secrets Manager + structured logger that redacts known-key fields.
-- **NFR-03** No prompt retention outside AWS — Bedrock with model invocation logging *disabled*.
-- **NFR-04** Least privilege — separate IAM roles per Lambda/Fargate task, scoped resources.
-- **NFR-05** No hard-coded creds in generated tests — code-review on the generator's templates; static scan in CI.
-- **NFR-06** Translation ≤60s — Sonnet + cached contract context. Budgeted with timeout.
-- **NFR-07** Export ≤30s for 10k rows — parallel scan on `results` table, in-memory aggregation.
-- **NFR-08** Validation ≤100ms — Ajv compiled validators cached per ODCS version.
-- **NFR-09** 10 concurrent runs — Step Functions standard workflows; Fargate task concurrency cap configurable.
-- **NFR-10** 10-service flows — Step Functions Map state.
-- **NFR-11** 90-day retention — DynamoDB TTL.
-- **NFR-12** Structured logs — JSON logger with mandatory fields (run_uuid, scenario, correlation_id).
-- **NFR-13** Run-level metrics — CloudWatch Metrics emitted from Orchestrator on every run completion.
-- **NFR-14** Per-service failure-link template — `service_config` table column.
+- **NFR-01 / R-22a** — Bedrock prompts never receive real data. Static PII-pattern scan in CI on the seed-test extraction step blocks accidental prod data from reaching the LLM context (see §7.5 below).
+- **NFR-02** — Secrets Manager + structured logger that redacts known-key fields. Banned-symbol lint pass rejects literals.
+- **NFR-03** — Bedrock-only LLM path; no egress; verified via VPC endpoint policy. Model invocation logging *disabled*.
+- **NFR-04** — One IAM role per Lambda/Fargate task, scoped to staging account + scoped resources. Tests-repo write is a separate role.
+- **NFR-05** — Generated code reads endpoint URLs and tokens from env; tsc + lint rules reject literals.
+- **NFR-06** — Bedrock Opus with prompt caching of contract context expected ≤ 30 s typical; 60 s timeout.
+- **NFR-07** — Export Lambda renders xlsx/csv in background, pre-signs S3 URL; 30 s timeout.
+- **NFR-08** — Ajv-compiled ODCS validators cached per contract version; expected single-digit-ms per hop.
+- **NFR-09** — Lambda concurrency at default account limits supports ≫10 concurrent runs; DynamoDB on-demand auto-scales.
+- **NFR-10** — Flow depth bounded by event-chain length, not runtime.
+- **NFR-11** — DynamoDB TTL on Runs/HopResults/TestResults at 90 days.
+- **NFR-12 / 13** — Structured JSON logs include runUuid + scenarioId + correlationId; CloudWatch Metrics emitted by classifier and run-end Lambdas.
+- **NFR-14** — Per-service `failureLinkTemplate` in `ServiceConfig` table; CloudWatch Logs Insights URL filtered by correlation ID by default.
 
 ---
 
 ## 5. Integration Boundaries (each becomes an integration test)
 
-Numbered IB-XX for traceability. Each is a test target.
-
-| ID | Boundary | Protocol | Test focus |
-|----|----------|----------|------------|
-| IB-01 | CLI ↔ API Gateway | HTTPS REST | Auth flow, error mapping |
-| IB-02 | Dashboard ↔ API Gateway (REST) | HTTPS REST | CORS, auth, payload shape |
+| ID | Boundary | Protocol | Integration-test focus |
+|----|----------|----------|------------------------|
+| IB-01 | CLI ↔ API Gateway (REST) | HTTPS | Auth, error mapping |
+| IB-02 | Dashboard ↔ API Gateway (REST) | HTTPS + CORS | List/query/export shapes |
 | IB-03 | Dashboard ↔ API Gateway (WSS) | WebSocket | Subscribe, receive transitions, reconnect |
-| IB-04 | API Gateway ↔ Run Service Lambda | Lambda proxy | Run start happy + error paths |
-| IB-05 | Run Service ↔ Step Functions | SDK | `StartExecution` with run input shape |
-| IB-06 | Step Functions ↔ Test Generator (Fargate) | `RunTask` + task token | Task launch, success, failure, timeout |
-| IB-07 | Step Functions ↔ Orchestrator (Fargate) | `RunTask` + task token | Same as above |
-| IB-08 | Test Generator ↔ Bedrock | HTTPS SDK | Throttling retry, model timeout, response parsing |
-| IB-09 | Test Generator ↔ Contract Registry | HTTPS | Latest-semver-tag selection, 404 → R-06 abort |
-| IB-10 | Test Generator ↔ Service repos (GitHub) | Git over HTTPS | Clone at deployed commit, missing-repo → R-06 |
-| IB-11 | Test Generator ↔ Deployment system | HTTPS *(OQ-04 pending)* | Version-label retrieval, 404 → R-06 |
-| IB-12 | Test Generator ↔ Generated-tests repo | Git push | Push success, conflict → R-12a retry, hook reject → log |
-| IB-13 | Orchestrator ↔ IdP | OIDC HTTPS | Single token exchange (R-28), refresh on expiry (R-28a) |
-| IB-14 | Orchestrator ↔ SUT API | HTTPS | 2xx, 5xx → R-37, schema validation per R-31 |
-| IB-15 | Orchestrator ↔ SUT UI | Playwright | Selector stability, navigation success, timeout → R-37 |
-| IB-16 | Orchestrator ↔ SNS/SQS/EventBridge | AWS SDK | Subscribe before publish (R-29), subscribe failure (R-29a), event arrives, event times out (R-37) |
-| IB-17 | Orchestrator ↔ Failure Classifier | In-process | Table-driven over all five categories |
-| IB-18 | Orchestrator ↔ Results Store | DynamoDB SDK | Write success, throttle retry (R-41a), eventual consistency on read |
-| IB-19 | Generated test code ↔ Data Factory | HTTPS REST (in-VPC) | Field generation, retry on validation (R-25), exhaustion → R-25 fail |
-| IB-20 | Dashboard ↔ Read API ↔ DynamoDB | HTTPS + SDK | List/filter/paginate, GSI hit ratios |
-| IB-21 | Export Service ↔ S3 (presigned URL) | SDK | URL expiry, large file streaming, NFR-07 timeout |
-| IB-22 | All components ↔ CloudWatch Logs | SDK / OTel | Mandatory fields present (NFR-12), correlation ID propagation (R-38) |
+| IB-04 | API Lambda ↔ EventBridge | SDK | `run.requested` lands with correct envelope |
+| IB-05 | Resolver ↔ Contract Registry | HTTPS | `released` tag resolves to a concrete version; 404 → R-06 abort |
+| IB-06 | Resolver ↔ Internal Deployment Registry | HTTPS | Returns deployed version label per service (R-05a) |
+| IB-07 | Resolver ↔ Service repos | Git over HTTPS | Clones at deployed-version commit (R-04) |
+| IB-08 | Resolver ↔ UI-spec source | HTTPS | UI spec fetched only when `webUi: true` (R-03, D1) |
+| IB-09 | FlowDiscovery ↔ Contract Registry lineage | HTTPS | Builds graph; rejects cycle (R-07a) |
+| IB-10 | ScenarioTranslator ↔ Bedrock (Opus) | SDK | Translates NL; emits confidence + unresolvedReferences (D5) |
+| IB-11 | DataFactory ↔ Bedrock (Sonnet) | SDK | Field validates against ODCS; retries on invalid (R-25) |
+| IB-12 | TestGenerator ↔ Bedrock (Sonnet) | SDK | Emits compilable Playwright specs for happy/boundary/negative (R-16) |
+| IB-13 | TestGenerator ↔ `tsc --noEmit` | Subprocess | Rejects non-compiling output before commit (R-18) |
+| IB-14 | TestGenerator ↔ generated-tests repo | HTTPS Git | Direct push as bot identity (R-12); branch protection rejects non-bot pushes (R-14); retry on 5xx (R-12a) |
+| IB-15 | HopExecutor ↔ IdP | OIDC | Single token per run (R-28); refresh-on-expiry (R-28a) |
+| IB-16 | HopExecutor ↔ SUT API | HTTPS | ODCS outbound + inbound validation (R-31); 5xx → R-37 |
+| IB-17 | HopExecutor (UI dispatcher) ↔ Fargate | ECS RunTask | Task launches; emits `hop.completed` |
+| IB-18 | Fargate Playwright ↔ SUT UI | HTTPS browser | UI selector stability, navigation, timeout → R-37 |
+| IB-19 | EventBridgeBridge ↔ SUT SNS/SQS/EventBridge | SDK subscribe | Subscription created BEFORE publishing hop (R-29); subscribe fail → R-29a |
+| IB-20 | Watchdog ↔ EventBridge Scheduler | SDK | Timer fires at per-service timeout (R-30a) |
+| IB-21 | HopExecutor ↔ FailureClassifier | EventBridge | All five categories classified; downstream skip cascade (R-37) |
+| IB-22 | All Lambdas ↔ DynamoDB | SDK | Idempotent writes on `(runUuid, hopSeq)`; retry on throttle (R-41a) |
+| IB-23 | Generated test ↔ Data Factory (run-time) | HTTPS REST in-VPC | Field generation with run-UUID embedding; retry exhaustion (R-25) |
+| IB-24 | Export Lambda ↔ S3 | SDK | Pre-signed URL; 30 s render bound (R-42a, NFR-07) |
+| IB-25 | All Lambdas ↔ CloudWatch Logs | SDK / OTel | Mandatory fields (NFR-12); `traceparent` propagation (R-38) |
+| IB-26 | FailureLink resolver ↔ SSM | SDK | Per-service template resolves to a URL (NFR-14) |
+| IB-27 | All secrets-consuming code ↔ Secrets Manager | SDK | No literal secrets in logs or generated code (NFR-02, NFR-05) |
 
 ---
 
 ## 6. Failure Modes per Boundary
 
-For each IB, what can fail and the configured response. (Reference R-XX = matches an existing
-spec requirement; *no req* = handled here, propose adding to spec if you agree.)
+| IB | Failure | Classification | Response |
+|----|---------|----------------|----------|
+| IB-05 | Contract Registry 404 / unreachable | n/a (pre-run) | Abort run; `run.aborted` event names artifact (R-06) |
+| IB-05 | Registry returns no `released` tag for a service | n/a (pre-run) | Abort run with reason `no_released_tag` (R-06) |
+| IB-06 | Deployment registry missing version | n/a (pre-run) | Abort (R-06) |
+| IB-07 | Clone failure / commit not found | n/a (pre-run) | Abort (R-06) |
+| IB-08 | UI spec 404 on UI-bearing service | n/a (pre-run) | Abort (R-06) |
+| IB-08 | UI spec 404 on non-UI service | n/a | Continue (D2) |
+| IB-09 | Lineage cycle | n/a (pre-run) | Abort; cycle path in report (R-07a) |
+| IB-10 | Bedrock throttle | n/a | SDK backoff; on exhaustion reject scenario with `llm_unavailable` |
+| IB-10 | Translation low-confidence or unresolved refs | n/a | Reject scenario; structured explanation (R-21, D5) |
+| IB-11 | Bedrock value fails ODCS | `data-generation` after 3 retries | R-25 |
+| IB-12 | TestGenerator Bedrock error / malformed output | `test-bug` on (hop, scenario); other pairs continue | R-11a |
+| IB-13 | Compile error | `test-bug` | R-18; no commit |
+| IB-14 | Git push 5xx / network | `infrastructure-failure` after bounded retry | R-12a |
+| IB-14 | Branch protection rejects (human attempted modification) | n/a | Log + run-report entry; no retry (see §7.1) |
+| IB-15 | IdP exchange fails | `infrastructure-failure` for all hops | R-28 |
+| IB-15 | Refresh fails mid-run | `infrastructure-failure` on remaining hops | R-28a |
+| IB-16 | SUT 5xx / unreachable | `infrastructure-failure`; downstream `skipped` | R-37 |
+| IB-16 | Outbound payload invalid | `contract-violation`; not sent | R-31, R-35 |
+| IB-16 | Inbound schema-invalid | `contract-violation` | R-35 |
+| IB-16 | Inbound schema-valid but rule-invalid | `business-rule-violation` | R-36 |
+| IB-17 | Fargate `RunTask` fails | `infrastructure-failure` | R-37 |
+| IB-18 | Playwright cannot reach base URL | `infrastructure-failure` | R-37 |
+| IB-18 | Selector not found / unexpected page state | `infrastructure-failure` | R-37 (treat as env misconfig per E-10) |
+| IB-19 | Subscribe fails | `infrastructure-failure`; downstream `skipped` | R-29a |
+| IB-19 | Event arrives after Watchdog fires | Treated as not-arrived | R-37; discarded by run-correlation filter |
+| IB-20 | Watchdog fires before event | `infrastructure-failure` on hop; downstream `skipped` | R-37 |
+| IB-22 | DynamoDB throttle / 5xx | Bounded retry; critical alert on exhaustion | R-41a |
+| IB-23 | Data Factory retries exhausted | `data-generation` | R-25 |
+| IB-24 | Export render > 30 s | n/a | Cancel + structured error | R-42a, NFR-07 |
+| IB-25 | CloudWatch Logs write fails | n/a | Best-effort; fallback to stderr; do not fail run |
+| All | Unhandled Lambda exception | `infrastructure-failure` | DLQ + CloudWatch alarm; run marked `aborted` |
 
-| IB | Failure | Response |
-|----|---------|----------|
-| IB-01/02 | API GW 5xx, throttling | Client exponential backoff; surface to user after N retries (*no req — propose UI policy*) |
-| IB-04 | Run Service Lambda timeout (29s ceiling) | Should be impossible — Run Service only validates + kicks off Step Function. If hit: 504 to client. |
-| IB-05 | Step Functions `StartExecution` throttled | Retry with backoff inside Run Service Lambda; on exhaustion, 503 to client. |
-| IB-06/07 | Fargate task fails to start | Step Functions catches, classifies `infrastructure-failure` (R-37 generalized). Records run as aborted. |
-| IB-08 | Bedrock throttle | SDK exponential backoff; on exhaustion (per scenario) classify `data-generation` (R-25) or, for translation, reject scenario with reason `llm_unavailable` (extends R-21). |
-| IB-08 | Bedrock returns malformed JSON | Retry up to N=3 with reformulated prompt; on exhaustion treat as R-21 rejection (translation) or R-25 fail (data). |
-| IB-09 | Contract Registry 404 | R-06 abort. |
-| IB-09 | Contract Registry returns no semver tags for a service | R-06 abort with reason `no_semver_tags`. *(Sub-question from SF-01.)* |
-| IB-10 | Service repo unreachable / commit not found | R-06 abort. |
-| IB-11 | Deployment system unreachable | R-06 abort. *(Depends on OQ-04.)* |
-| IB-12 | Git push 5xx / network | R-12a retry + `infrastructure-failure`. |
-| IB-12 | Pre-receive hook rejects push (human attempted to modify generated file in same PR) | Log + emit run-report entry; do not retry. *(Edge case — propose adding as R-12b.)* |
-| IB-13 | IdP token request 5xx | Retry up to 3; on exhaustion abort run as `infrastructure-failure`. |
-| IB-13 | Token expires mid-run | R-28a refresh; on refresh failure cascade to remaining hops. |
-| IB-14 | SUT 5xx, network error | R-37 `infrastructure-failure`; downstream hops `skipped`. |
-| IB-14 | SUT 4xx with valid schema | R-36 `business-rule-violation`. |
-| IB-14 | SUT response fails schema | R-35 `contract-violation`. |
-| IB-15 | Playwright cannot reach base URL | R-37 `infrastructure-failure`. |
-| IB-15 | Selector not found / unexpected page state | R-37 `infrastructure-failure` (treat as environment misconfig per E-10). |
-| IB-16 | SNS subscribe fails | R-29a `infrastructure-failure`; skip downstream. |
-| IB-16 | Event never arrives within R-30 bound | R-37 `infrastructure-failure`. |
-| IB-18 | DynamoDB throttle / 5xx | R-41a retry + critical alert on exhaustion. |
-| IB-19 | Data Factory exhausts retries | R-25 fail test with `data-generation`. |
-| IB-21 | Export takes >30s | R-42a cancel + structured error. |
-| IB-22 | CloudWatch Logs write fails | Best-effort; do not fail the run. Emit fallback to stderr. *(Propose adding as NFR-16.)* |
-
----
-
-## 7. Spec issues I cannot implement cleanly
-
-These are conflicts or under-specifications that need a decision before I can build. Each
-maps to a specific requirement or pair.
-
-### 7.1 ODCS-vs-OpenAPI version skew (R-01 ↔ R-02/R-04)
-
-**Problem:** R-01 fetches the **latest semver-tagged** ODCS contract from the registry. R-02
-and R-04 fetch OpenAPI specs and source from the **deployed-version commit** in each service's
-repo. These can diverge.
-
-**Concrete failure case:** Service A has ODCS v1.5 in the registry, deployed code is at v1.3.
-A generated test exercises a field that v1.5 added but v1.3 doesn't return. R-31 will fire
-`contract-violation` on every run — not because the SUT is broken, but because the contract is
-ahead of the code.
-
-**Possible resolutions:**
-- **(a)** Accept the divergence and treat persistent `contract-violation` as the system telling
-  service teams "your deployed code lags your contract." This is the strongest interpretation
-  of R-01 Option 2 ("ahead of deployed is intentional, catches drift early").
-- **(b)** Add a tolerance: if a deployed service responds successfully under the *deployed*
-  ODCS version, treat it as a pass with an informational note. Adds complexity.
-- **(c)** Reverse R-01: fetch ODCS at the deployed-version commit instead. Removes the drift
-  signal but eliminates the false-positive class.
-
-**My recommendation:** (a) plus a new requirement — when a service's deployed ODCS version is
-behind the registry's latest, surface that in the run report as a non-fatal annotation
-("service A deployed at v1.3, contract latest v1.5") so users see the drift explicitly rather
-than just seeing repeated `contract-violation`s.
-
-### 7.2 R-22 / R-22a invariants without a detection mechanism
-
-**Problem:** Already flagged in `spec-test-skeletons.md`. "Data Factory produces only synthetic
-data" has no observable THEN clause. Without a detection mechanism, the requirement is
-unenforceable at test time.
-
-**Recommendation:** Add **NFR-15** — "THE Data Factory SHALL fail-closed if a static-pattern
-PII scan flags any generated value. The scan SHALL run on every generated record before it
-leaves the Data Factory." Implementation: a small regex/dictionary check (SSN patterns, names
-from a curated College Board real-data corpus shouldn't appear, etc.) — fail the test with
-`data-generation` and a distinct sub-code `pii_pattern_detected`. Needs your approval.
-
-### 7.3 R-05 compound — six artifact classes in one requirement
-
-**Problem:** Already flagged. Each of the six (seed tests, OpenAPI, ODCS, repo metadata,
-source, requirement docs) has its own absence behavior. Currently R-05 treats them as a single
-extraction; failure modes are smeared.
-
-**Recommendation:** Split into R-05.a–f. Each gets its own pair: required-presence assertion +
-absence behavior. The absence behavior for some (e.g., CODEOWNERS missing) is *not* a R-06
-abort — generation can proceed. Others (OpenAPI missing) *are* R-06 aborts. Today the spec
-doesn't distinguish.
-
-### 7.4 R-29 depends on SF-03 not yet confirmed
-
-**Problem:** R-29 reads channel names from the ODCS contract's `events` section. SF-03 notes
-we haven't confirmed whether the ODCS schema supports `events`. Until confirmed, async hops in
-the MVP flow (onboarding → get-ready) are blocked.
-
-**Recommendation:** Drive SF-03 first action item — confirm with the ODCS schema owner before
-the implementation milestone for R-29 begins.
-
-### 7.5 R-32 hop semantics — service-driver or interaction-driver?
-
-**Problem:** R-32 says "WHERE a service is registered as exposing a Web UI…drive the hop via
-UI-automation." R-33 says "WHERE a service exposes only an API…drive via HTTP." But a hop is
-*an interaction between two services*. If service A is API-only and triggers service B (which
-has a UI), the hop "A → B" needs the HTTP client for the call into A and the UI driver for B's
-post-conditions. The spec implicitly assumes one driver per hop.
-
-**Recommendation:** Reinterpret R-32/R-33 as **per-interaction** rather than per-service. Each
-hop has an inbound interaction (how we send to it) and an outbound observation (how we verify
-its side-effects on the next service). The choice of driver depends on the *direction-and-
-target*, not on a global service property. I can rewrite R-32/R-33 if you confirm this read.
-
-### 7.6 R-43 needs a real-time push channel — not in spec
-
-**Problem:** R-43 says "WHILE a run is in progress, THE Dashboard SHALL display per-hop
-progress." That implies near-real-time updates. The spec doesn't say *how* (polling? push?).
-Polling would mean a "what's running" query every few seconds per active run; push needs a
-WebSocket or SSE channel.
-
-**Recommendation:** Add to spec — "Orchestrator SHALL publish hop state transitions to a
-WebSocket channel keyed by run_uuid; Dashboard SHALL subscribe to the channel for each open
-run." Or, if cheaper is preferred, "Dashboard SHALL poll `GET /runs/{run_uuid}` at most every
-3s while a run is in `running` state." Need your call. (My design assumes WebSocket.)
-
-### 7.7 Generated test runtime model — implicit in spec
-
-**Problem:** The spec says the Test Generator produces TypeScript test files (R-11). It also
-says the Orchestrator traverses services in topological order (R-09). It does *not* say
-whether the Orchestrator imports and invokes the generated test files in order, or whether
-each generated test file runs independently and the Orchestrator just coordinates timing.
-
-**Recommendation:** Each generated `.test.ts` file is a Playwright Test spec. The Orchestrator
-launches Playwright with a custom reporter that emits hop transitions to the Results Store + WSS,
-and with a `topological-order` runner config that gates hop N on hop N-1's pass. This keeps
-the generated tests human-runnable (a developer can `npx playwright test` the generated repo
-locally) while satisfying R-09's "in topological order" mandate. Worth adding as a sentence
-in the spec.
-
-### 7.8 Data Factory: design-time or run-time?
-
-**Problem:** R-23 says "WHEN the Data Factory generates a value…" — but *when* does that
-happen? At test-generation time (values baked into the .test.ts files) or at test-run time
-(values fetched by the test from the Data Factory API)? Both are defensible:
-
-- **Design-time baking** — simpler runtime, but R-24 requires the *run* UUID embedded; the
-  generator doesn't know the future run UUID. Forces post-fetch substitution.
-- **Run-time fetching** — naturally satisfies R-24 (run UUID known when the call is made),
-  but the Data Factory must be on the critical path of every test run.
-
-**Recommendation:** Run-time fetching. The generator emits placeholder calls in the test
-files (`const customerId = await dataFactory.value('customer.id')`), and the Data Factory
-Lambda materializes the value at test runtime with the current run UUID baked in. This is the
-shape I designed in §3.5. Worth making explicit in the spec (could be R-23 or a new R-23a).
+**Skip cascade (R-37)**: when FailureClassifier marks a hop as `infrastructure-failure`, it publishes `hop.failed` with `cascadeSkip: true`. Downstream HopExecutors observe the flag via the runUuid event-history index and write `state: skipped, reason: upstream-infra-failure` without invoking the SUT.
 
 ---
 
-## 8. Decisions still needed before implementation begins
+## 7. Spec items I cannot implement cleanly — surfacing now
 
-Carried forward from prior open-question triage:
+These are real tensions hit during design. Each needs a tiebreaker before code.
 
-| OQ | Question | My recommendation | Confirmed? |
-|----|----------|-------------------|------------|
-| OQ-02 | LLM provider/model | Bedrock + Sonnet 4.6 (translation) + Haiku 4.5 (per-field data) | No |
-| OQ-03 | Observability backend | CloudWatch Logs + X-Ray; `traceparent` for R-38 | No |
-| OQ-04 | Deployed-version source | **Need AWP-specific answer — what does AWP use?** | No |
-| OQ-06 | Where the system runs in AWS | Step Functions + Lambda (short) + Fargate (Generator/Orchestrator) | No |
-| OQ-07 | Generated-tests repo governance | Direct push to one repo with pre-receive hook | No |
-| OQ-08 | UI automation | Playwright Test | No |
-| OQ-09 | Results store | DynamoDB with the table design in §2.1 | No |
+### 7.1 R-14 conflicts with R-12's own commits
 
-New decisions surfaced by this design pass:
+R-14 says the repo SHALL reject changes to `@generated` files. R-12 is the generator pushing to those files.
 
-| ID | Question | My recommendation |
-|----|----------|-------------------|
-| D-01 | Resolution of §7.1 ODCS-vs-OpenAPI skew | Accept divergence; add drift annotation to run reports |
-| D-02 | Approve NFR-15 (PII scan) per §7.2 | Yes — fail-closed `pii_pattern_detected` |
-| D-03 | Split R-05 per §7.3 | Yes — R-05.a–f with per-class absence behavior |
-| D-04 | Drive SF-03 (ODCS `events`) first per §7.4 | Yes — week-1 task |
-| D-05 | R-32/R-33 per-interaction reinterpretation (§7.5) | Yes — rewrite R-32/R-33 |
-| D-06 | R-43 push vs poll (§7.6) | WebSocket push |
-| D-07 | Generated-test runtime model (§7.7) | Playwright Test + topological-order reporter |
-| D-08 | Data Factory at run-time, not design-time (§7.8) | Run-time; add R-23a |
+**Resolution**: scope R-14 by identity. Branch protection allows pushes to `main` only from the generator-bot's IAM-mapped principal (e.g., a GitHub App ID). Humans, including admins, cannot bypass. Effective wording: *"…SHALL reject the change unless authored by the generator's bot identity."* Recommend a spec edit.
 
-Plus the **9 default-table items** from the prior triage (OQ-01, OQ-05, OQ-10, OQ-11, OQ-12,
-R-06, R-19a=4000, R-25 retries=3, R-34 five-category taxonomy) — still awaiting accept/override.
+### 7.2 R-15 regeneration scope is under-specified when scenarios span hops
+
+R-15 says regenerate "that specific test file" when "any ODCS, OpenAPI, or UI specification version referenced by a generated test changes." Each scenario produces files per (hop, caseType). If service B's OpenAPI changes:
+- Strict reading: regenerate only the hop-B files for every scenario.
+- Loose reading: regenerate every file referencing service B.
+
+**Resolution**: strict. `TestArtifacts.sourceContractVersions` is the authoritative dependency map; regenerate exactly the artifacts whose map mentions a changed version. Document as the canonical R-15 interpretation.
+
+### 7.3 ODCS-vs-OpenAPI version skew (R-01 ↔ R-02/R-04)
+
+R-01 fetches the **`released`-tagged** ODCS from the registry. R-02 and R-04 fetch OpenAPI and source from the **deployed-version commit**. These can diverge.
+
+Concrete failure: service A's ODCS is at v1.5 (released), deployed code is v1.3. A generated test exercises a v1.5-only field. R-31 fires `contract-violation` every run — not because the SUT is broken, but because the contract is ahead of the code.
+
+**Options**:
+- **(a)** Accept the divergence as a feature: persistent `contract-violation` is the system telling teams "your deployed code lags your contract." Strong interpretation of R-01.
+- **(b)** Tolerate it: if the deployed service responds successfully under its deployed ODCS version, treat as pass with informational note. Adds complexity.
+- **(c)** Reverse R-01: fetch ODCS at deployed commit. Removes the drift signal but eliminates false-positive class.
+
+**Recommendation**: (a) plus a new requirement — when a service's deployed ODCS version is behind the registry's latest, surface that in the run report as a non-fatal annotation, so users see drift explicitly rather than just repeated `contract-violation`s.
+
+### 7.4 R-43 needs a real-time push channel; spec doesn't say push or poll
+
+R-43 implies near-real-time updates. The spec is silent on transport.
+
+**Resolution**: WebSocket push. HopExecutors publish state transitions to API Gateway WSS keyed by runUuid. Already in the design (§1.4, §3.2). Recommend a spec sentence to make this explicit; if you prefer cheaper, polling at ≥3 s intervals also works but loses live feel.
+
+### 7.5 R-22a "no production data" vs R-05 seed-test extraction
+
+R-05 extracts service-team tests as "seed-only" pattern hints (E-08 flags they may contain realistic data). R-22a prohibits reading any source containing real data. If a service-team test contains a real student ID checked in by mistake, R-22a is transitively violated.
+
+**Resolution**: add **NFR-15** — a fail-closed static PII-pattern scan runs on every seed-test body before it's used as Bedrock prompt context. Patterns: SSN-shaped, real student-ID format, names from a curated College Board real-data corpus. On detection, the seed is dropped and the run continues; on chronic detection per service, an alert fires. Needs your approval.
+
+### 7.6 R-28 single-token vs long async waits
+
+R-28 mandates one IdP exchange per run; R-28a allows one refresh before the next hop. With 10-hop flows and per-hop waits up to R-30 timeouts, total run wall-time can exceed token TTL multiple times. Spec wording handles per-hop boundaries but not waits *within* a hop.
+
+**Resolution**: proactive refresh at hop-start if token TTL < hop timeout + safety margin. Counts as "refresh before the next hop." On refresh failure, classify remaining hops as `infrastructure-failure` per R-28a. No spec change needed.
+
+### 7.7 Generated-test runtime model — spec is implicit
+
+Spec says tests "compile and run" and that the Orchestrator traverses services in topological order, but doesn't say *who* runs them.
+
+**Resolution**: each generated `.test.ts` is a **Playwright Test spec** with a tag identifying its (flow, scenario, hop). Each HopExecutor invokes `npx playwright test --grep <hop-id>` against a checked-out commit of the generated repo. The HopExecutor is the runtime; Playwright Test provides the assertion library, fixtures (request/page), and reporter API. Hop ordering is enforced by the event chain (`hop.completed` → next HopExecutor), not by Playwright's runner. This preserves developer ergonomics (a dev can `npx playwright test` the generated repo locally for a full run) and the event-driven choreography.
+
+### 7.8 R-32 vs R-33: per-service or per-interaction driver?
+
+R-32 says "WHERE a service is registered as exposing a Web UI…drive the hop via UI-automation." R-33 says "WHERE a service exposes only an API…drive via HTTP." But a hop is an interaction *between* two services. If service A is API-only and triggers service B (which has a UI), the hop "A → B" needs HTTP to call A and UI driver to verify B's post-conditions.
+
+**Resolution**: reinterpret R-32/R-33 as **per-interaction**, not per-service. Each hop has an inbound interaction (how we send it) and an outbound observation (how we verify side-effects). Driver choice depends on direction-and-target, not a global service property. Recommend rewriting R-32/R-33 along these lines.
+
+### 7.9 Data Factory: design-time or run-time?
+
+R-23 says "WHEN the Data Factory generates a value…" but never says *when*. Two readings:
+- **Design-time baking** — simpler runtime, but R-24 requires the *run* UUID embedded, which the generator doesn't know.
+- **Run-time fetching** — naturally satisfies R-24, but Data Factory is on every test's critical path.
+
+**Resolution**: run-time. Generated tests call `await dataFactory.value('customer.id')`; the Data Factory Lambda materializes the value at run time with the current run UUID prefix. The internal endpoint is in §3.3. Recommend making this explicit as a new R-23a.
+
+### 7.10 R-13 header tracks contract version; R-15 ignores generator version
+
+R-13 records `generator version`. R-15 regenerates only on *spec* change. If we upgrade the generator (better prompts, bug fixes), no test regenerates — tests drift relative to the generator.
+
+**Resolution**: extend R-15 trigger to include `generatorVersion ≠ current` as a regeneration condition, on a slow cadence (e.g., once per generator minor-version bump). Bounded by a "max regenerations per run" guard to prevent thundering herds.
+
+### 7.11 OQ-13 "thin internal" dashboard does non-trivial UI work
+
+R-43 live progress + R-42 export + R-49 per-scenario detail together imply ~4 routes and a real polling/WSS layer. "Thin" is doing a lot of work.
+
+**Resolution**: accept thin = "internal-only, no brand polish, no UX design pass." Four screens: Runs list, Run detail (R-49), Live progress (R-43), Submit scenario (R-19). Export is a button on Run detail, not a separate screen.
 
 ---
 
-## Approval checklist for next step
+## 8. Out-of-scope reminders (spec §3)
+
+This design does **not** include: near-neighbor unit tests, production execution, real-PII handling, human editing of generated tests, or deferred items in spec §2 (additional flows, scheduled runs, SLA assertions, vendor coverage, human-test integration, notifications, multi-env promotion, automated cleanup/wipe).
+
+---
+
+## 9. Decisions still pending implementation kickoff
+
+| ID | Question | Recommendation |
+|----|----------|----------------|
+| D-01 | §7.3 ODCS-vs-OpenAPI skew | Accept divergence; add drift annotation to run reports |
+| D-02 | §7.5 PII scan (NFR-15) | Yes — fail-closed `pii_pattern_detected` |
+| D-03 | §7.4 R-43 WSS push (vs poll) | WSS push |
+| D-04 | §7.7 generated tests = Playwright Test specs | Yes |
+| D-05 | §7.8 R-32/R-33 per-interaction rewrite | Yes |
+| D-06 | §7.9 Data Factory at run-time, add R-23a | Yes |
+| D-07 | §7.10 generator-version triggers regeneration | Yes, slow cadence |
+| D-08 | §7.11 dashboard scope = 4 screens | Yes |
+
+Plus operational details to confirm during kickoff (not architecturally blocking):
+- Exact internal deployment registry endpoint + auth
+- Final ODCS extension-property name for event channels
+- SSM parameter naming convention for NFR-14 templates
+- GitHub App identifier for the generator bot principal
+
+---
+
+## Approval checklist
 
 Before any code is written, please confirm or override:
 
-1. The seven OQs in §8 (technical OQs from prior triage).
-2. The eight D-01..D-08 design decisions in §8.
-3. The 9 defaults from the prior triage.
-4. The architecture in §1 (two run types, component map, Step Functions + Fargate split).
-5. The DynamoDB schema in §2.1.
-6. The API surface in §3.
+1. The 10 decisions in §0.
+2. The 8 D-01..D-08 design decisions in §9.
+3. The architecture in §1 (event-driven choreography, two lifecycles, Fargate for UI hops only).
+4. The DynamoDB schema in §2.1.
+5. The API surface in §3.
+6. The default-accepted answers from prior open-questions triage (R-19a=4000, R-25 retries=3, traceparent header, 5-category taxonomy, etc.).
 
-Once approved, I'll update `spec.md` to absorb the new requirements (NFR-15, R-05.a–f,
-R-23a, R-32/R-33 rewrite, R-43 transport clause) and then begin implementation in milestones
-to be agreed.
+Once approved, I'll update `spec.md` to absorb the new requirements (NFR-15, R-23a, R-32/R-33 rewrite, R-43 transport clause, R-14 identity scope) and propose milestone scoping.
