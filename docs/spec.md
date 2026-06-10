@@ -50,11 +50,11 @@ The first release proves the pipeline end-to-end on a narrow slice before expand
 
 ### Contract Registry & Source Introspection
 
-- **R-01** — WHEN a user triggers a generation run, THE Contract Registry Client SHALL fetch the latest released ODCS contract for every service in the target flow.
-  - ⚠ resolve: define "latest released" (registry tag? semver? deployment-pinned?).
+- **R-01** — WHEN a user triggers a generation run, THE Contract Registry Client SHALL fetch, for every service in the target flow, the ODCS contract whose semver tag is highest in the Contract Registry.
+  - Depends on **SF-01** (semver-tagging discipline by service teams) — see `spec-followups-service-teams.md`.
 - **R-02** — WHEN the Test Generator begins generation for a service, THE Test Generator SHALL fetch that service's OpenAPI specification from its source repository at the deployed-version commit.
-- **R-03** — WHERE a service is registered as exposing a Web UI, THE Test Generator SHALL fetch that service's UI specification.
-  - ⚠ resolve: where is "exposes Web UI" declared (contract registry flag? manifest?).
+- **R-03** — WHERE a service's source repository contains a UI specification file at the conventional path, THE Test Generator SHALL fetch that UI specification and SHALL treat the service as UI-bearing for R-32.
+  - Depends on **SF-02** (canonical UI-spec path/format and service-team adoption) — see `spec-followups-service-teams.md`.
 - **R-04** — WHEN the Test Generator begins generation for a service, THE Test Generator SHALL clone or update a working copy of that service's source repository at the deployed-version commit.
 - **R-05** — THE Test Generator SHALL extract the following artifacts from each service repository's deployed-version commit: (a) existing service-team tests, marked seed-only; (b) OpenAPI files; (c) ODCS files; (d) repository metadata (CODEOWNERS, README, deploy config); (e) source code; (f) requirement documents (`*.md` under `docs/`, `spec/`, or `requirements/`).
 - **R-05a** — WHEN a generation run starts, THE Test Generator SHALL retrieve the deployed release/version label for each participating service from the deployment system.
@@ -93,16 +93,14 @@ The first release proves the pipeline end-to-end on a narrow slice before expand
 - **R-19a** — IF the submitted scenario is empty or exceeds a bounded character limit, THEN THE Scenario Intake component SHALL reject the submission with a structured error.
   - ⚠ resolve: set bounded character limit.
 - **R-20** — WHEN a natural-language scenario is accepted, THE Test Generator SHALL invoke the configured LLM to translate it into a structured artifact containing executable test steps and synthetic data requirements conforming to the participating ODCS contracts.
-- **R-21** — IF an LLM-translated scenario is ambiguous, references entities not in any participating contract, or specifies data that would violate an ODCS contract, THEN THE Test Generator SHALL reject it with a structured explanation naming the offending fragment and SHALL NOT commit a test file for that scenario.
-  - ⚠ resolve: define "ambiguous" — likely LLM low-confidence flag or self-reported uncertainty. Make the detection rule explicit.
+- **R-21** — IF an LLM-translated scenario reports self-confidence below 0.7, OR its `steps` field is empty, OR its `data_requirements` field is empty, OR it references entities not in any participating contract, OR it specifies data that would violate an ODCS contract, THEN THE Test Generator SHALL reject it with a structured explanation naming the offending fragment and SHALL NOT commit a test file for that scenario.
 
 ### Data Factory
 
 - **R-22** — THE Data Factory SHALL produce synthetic data only.
 - **R-22a** — THE Data Factory SHALL NOT read, copy, or reference any data source containing real student or production data.
 - **R-23** — WHEN the Data Factory generates a value for an ODCS field, THE Data Factory SHALL invoke the configured LLM with the field's type, range, format, and quality rules and SHALL validate the returned value against those constraints before emitting it.
-- **R-24** — WHEN the Data Factory emits a synthetic record, THE Data Factory SHALL embed the run's UUID in every identifier field of that record, in a documented format.
-  - ⚠ resolve: define embedding format (prefix? suffix? sub-field?).
+- **R-24** — WHEN the Data Factory emits a synthetic record, THE Data Factory SHALL format every identifier field as `run-{uuid8}-{original-shape}`, where `{uuid8}` is the first 8 hexadecimal characters of the run's UUID and `{original-shape}` is a value satisfying the field's ODCS constraints. WHERE a field's length constraint cannot accommodate both the prefix and a non-empty original shape, THE Data Factory SHALL emit `run-{uuid8}` alone.
 - **R-25** — IF a value produced by the Data Factory fails ODCS validation, THEN THE Data Factory SHALL re-invoke the LLM up to N retries (configurable, default 3) and SHALL fail the affected test with classification `data-generation` if validation still fails after the Nth retry.
 
 ### Orchestrator & Execution
@@ -111,8 +109,8 @@ The first release proves the pipeline end-to-end on a narrow slice before expand
 - **R-27** — THE Orchestrator SHALL support at least N concurrent runs (see NFR-09) such that records produced by one run never appear in another run's assertions.
 - **R-28** — WHEN a run starts, THE Orchestrator SHALL exchange credentials with the configured IdP exactly once and SHALL reuse the resulting token across all hops in that run.
 - **R-28a** — IF the IdP token expires mid-run, THEN THE Orchestrator SHALL refresh it once before the next hop; if refresh fails, THE Orchestrator SHALL classify remaining hops as `infrastructure-failure`.
-- **R-29** — WHEN a flow hop emits an event consumed by a downstream service, THE Orchestrator SHALL subscribe to the SNS/SQS/EventBridge channel declared in that hop's contract before publishing the trigger payload.
-  - ⚠ resolve: confirm "declared in that hop's contract" — i.e., channel name lives in the ODCS contract; if not, name the source-of-truth.
+- **R-29** — WHEN a flow hop emits an event consumed by a downstream service, THE Orchestrator SHALL subscribe to the channel declared in the emitting service's ODCS contract `events` section before publishing the trigger payload.
+  - Depends on **SF-03** (ODCS schema support for an `events` section) — see `spec-followups-service-teams.md`.
 - **R-29a** — IF subscription to the declared channel fails, THEN THE Orchestrator SHALL classify the hop as `infrastructure-failure` and SHALL skip downstream hops per R-37.
 - **R-30** — THE Orchestrator SHALL apply a per-service maximum-wait timeout to each async hop.
 - **R-30a** — THE per-service maximum-wait timeout SHALL be configurable per service via a documented configuration source.
@@ -339,4 +337,4 @@ These need decisions before implementation begins.
 - **OQ-10 — Idempotency expectations across runs.** Since MVP has no cleanup, residual data from prior runs persists in non-prod. Per-run namespacing (R-24) isolates new data, but if a SUT's behavior depends on accumulated state (counts, aggregates, search indexes), re-running the same scenario may not produce identical results. What guarantees, if any, do we make?
 - **OQ-11 — Versioning of the test-generator itself.** When the generator changes, must we record which generator version produced each test, alongside contract version?
 - **OQ-12 — Quarantine / flaky-test handling.** Out of MVP, but worth deciding before users start trusting the suite.
-- **OQ-13 — Dashboard scope for MVP.** R-26, R-42, R-43, and R-49 all imply a dashboard. Is the MVP dashboard a thin internal tool, or does it get its own design pass?
+- **OQ-13 — Dashboard scope for MVP.** *Resolved: thin internal tool. Implements R-26 (trigger), R-43 (in-flight progress), R-49 (completed-run rendering), R-42 (export), with IdP SSO. No charts, no filters beyond date and scenario, no user accounts beyond SSO.*
