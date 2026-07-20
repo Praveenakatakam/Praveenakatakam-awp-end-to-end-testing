@@ -1,0 +1,240 @@
+# ODCS v3.1.0 data contract — OneRoster v1.2 `org` (Organization)
+# This contract is the SINGLE SOURCE OF TRUTH for the data model, API payloads,
+# and SNS message. It is validated against contract/odcs-v3.1.0.schema.json (T-02a)
+# and compiled to contract/org.schema.json for runtime validation (T-03).
+# Enum constraints are expressed as data-quality rules (R-05): each enum property
+# carries a `quality` entry of type `library` with `arguments.validValues` — the
+# authoritative machine-readable allowed set that T-03 compiles into JSON Schema.
+
+# --- Fundamentals ---
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: 5d8f2b4a-org-oneroster-v12
+name: OneRoster v1.2 Org
+status: active
+tenant: example
+domain: education
+dataProduct: rostering-org
+tags:
+  - education
+  - rostering
+  - oneroster
+  - odcs
+  - example
+
+description:
+  purpose: >-
+    Reference ODCS data contract for the OneRoster v1.2 Organization entity,
+    shared as the oracle for the DynamoDB model, the API request/response
+    payloads, and the CDC message published to SNS.
+  limitations: >-
+    Single entity (org) only. parent/children are validated for shape, not
+    referential existence. Not a OneRoster Rostering Service binding.
+  usage: >-
+    Consumed by the API (inbound + outbound validation) and the publisher
+    Lambda (message validation) via a JSON Schema compiled from this contract.
+
+# --- Schema (with nested data-quality rules) ---
+schema:
+  - name: org
+    logicalType: object
+    physicalName: Orgs
+    physicalType: table
+    description: A OneRoster v1.2 organization (district, school, department, etc.).
+    businessName: Organization
+    tags: [oneroster, org]
+    quality:
+      - type: library
+        metric: duplicateValues
+        mustBe: 0
+        description: sourcedId must be unique across all orgs.
+        dimension: uniqueness
+    properties:
+      - name: sourcedId
+        logicalType: string
+        physicalType: S
+        required: true
+        unique: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Globally unique identifier for the org (OneRoster GUID).
+        logicalTypeOptions:
+          minLength: 1
+        quality:
+          - type: library
+            metric: duplicateValues
+            mustBe: 0
+            dimension: uniqueness
+            description: Primary key uniqueness.
+      - name: status
+        logicalType: string
+        physicalType: S
+        required: true
+        description: OneRoster BaseStatusEnum.
+        logicalTypeOptions:
+          pattern: ^(active|tobedeleted)$
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            dimension: conformity
+            description: "Allowed values (BaseStatusEnum): active, tobedeleted."
+            arguments:
+              validValues: [active, tobedeleted]
+      - name: dateLastModified
+        logicalType: date
+        physicalType: S
+        required: true
+        description: Server-set ISO-8601 UTC timestamp of the last modification.
+        logicalTypeOptions:
+          format: date-time
+      - name: metadata
+        logicalType: object
+        physicalType: M
+        required: false
+        description: Optional OneRoster metadata extension container.
+      - name: name
+        logicalType: string
+        physicalType: S
+        required: true
+        description: Organization name.
+        logicalTypeOptions:
+          minLength: 1
+      - name: type
+        logicalType: string
+        physicalType: S
+        required: true
+        description: OneRoster OrgTypeEnum (restricted to the 6 standard values — D-6).
+        logicalTypeOptions:
+          pattern: ^(department|school|district|local|state|national)$
+        customProperties:
+          - property: gsiPartitionKey
+            value: byType
+            description: Backs GET /orgs?type= via the byType GSI (R-17b).
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            dimension: conformity
+            description: "Allowed values (OrgTypeEnum): department, school, district, local, state, national."
+            arguments:
+              validValues: [department, school, district, local, state, national]
+      - name: identifier
+        logicalType: string
+        physicalType: S
+        required: false
+        description: Optional locally-assigned external identifier.
+      - name: parent
+        logicalType: object
+        physicalType: M
+        required: false
+        description: GUIDRef to the parent org (shape-only validation — D-8; requires sourcedId).
+        logicalTypeOptions:
+          required: [sourcedId]
+        customProperties:
+          - property: guidRef
+            value: org
+            description: OneRoster GUIDRef; T-03 compiles this to { sourcedId, type?, href? }.
+      - name: children
+        logicalType: array
+        physicalType: L
+        required: false
+        description: Array of GUIDRefs to child orgs (shape-only validation — D-8).
+        logicalTypeOptions:
+          uniqueItems: true
+        customProperties:
+          - property: guidRef
+            value: org
+            description: Each item is an org GUIDRef { sourcedId, type?, href? }.
+
+# --- Servers (where the data lives) ---
+servers:
+  - server: orgs-api
+    type: api
+    location: https://api.example.com/v1
+    environment: production
+    description: HTTP API serving org CRUD; validates payloads in+out against this contract.
+  - server: orgs-table
+    type: custom
+    environment: production
+    description: DynamoDB table `Orgs` (PK sourcedId, GSI byType, streams NEW_AND_OLD_IMAGES).
+    customProperties:
+      - property: engine
+        value: dynamodb
+
+# --- Support & communication channels ---
+support:
+  - channel: email
+    url: mailto:odcs-example@example.com
+    description: Data product support inbox.
+  - channel: docs
+    url: https://example.com/odcs-example/docs
+    tool: web
+    description: Project documentation.
+
+# --- Pricing ---
+price:
+  priceAmount: 0
+  priceCurrency: USD
+  priceUnit: per-1000-requests
+
+# --- Team ---
+team:
+  name: Rostering Platform Team
+  description: Owns the OneRoster org data product.
+  members:
+    - username: naimish
+      name: Naimish Shah
+      role: owner
+    - username: data_steward
+      role: data-steward
+      description: Governs contract conformance.
+
+# --- Roles ---
+roles:
+  - role: OrgReader
+    access: read
+    description: Read-only access to org data (maps to Cognito reader group).
+  - role: OrgWriter
+    access: write
+    description: Create/replace/delete orgs (maps to Cognito writer group).
+
+# --- Service-level agreement ---
+slaDefaultElement: org.dateLastModified
+slaProperties:
+  - property: latency
+    value: 300
+    unit: ms
+    driver: operational
+    description: API read/write p95 latency target (NFR-1).
+  - property: freshness
+    value: 5
+    unit: s
+    driver: operational
+    element: org.dateLastModified
+    description: Write-to-SNS end-to-end p95 (NFR-1).
+  - property: generalAvailability
+    value: 99.9
+    unit: percent
+    driver: operational
+    description: API availability target.
+
+# --- Authoritative definitions / references ---
+authoritativeDefinitions:
+  - url: https://www.imsglobal.org/spec/oneroster/v1p2
+    type: businessDefinition
+    description: OneRoster v1.2 Rostering information model (org entity).
+  - url: https://bitol-io.github.io/open-data-contract-standard/v3.1.0/
+    type: tutorial
+    description: Open Data Contract Standard v3.1.0.
+
+# --- Custom properties ---
+customProperties:
+  - property: oneRosterEntity
+    value: org
+  - property: oneRosterVersion
+    value: "1.2"
+  - property: cdcEventTypes
+    value: INSERT,MODIFY
+    description: Only INSERT and MODIFY are published to SNS (R-31, R-32).

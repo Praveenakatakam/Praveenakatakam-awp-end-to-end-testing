@@ -1,0 +1,23 @@
+# Spack Environment for odcs-contract-registry
+# Provides the Node.js toolchain (TypeScript / SST v2) via Spack's shared store.
+spack:
+  specs:
+  - "node-js@22.4.0 ^openssl@3.3:"
+  - "python@3.12.5 +ssl +zlib +ctypes"
+  view: true
+  concretizer:
+    unify: when_possible
+  config:
+    build_jobs: 8
+  packages:
+    all:
+      compiler: [apple-clang@17.0.0]
+      variants: cflags="-O3 -march=native" cxxflags="-O3 -march=native"
+    apple-clang:
+      externals:
+      - spec: apple-clang@17.0.0
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/clang
+            cxx: /usr/bin/clang++

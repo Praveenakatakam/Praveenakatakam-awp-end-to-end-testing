@@ -1,13 +1,12 @@
-*.js
-!jest.config.js
-*.d.ts
-node_modules
-
-# CDK asset staging directory
-.cdk.staging
-cdk.out
-
-
-
-.nx/cache
-.nx/workspace-data
+node_modules/
+.sst/
+.spack-env/
+.venv/
+dist/
+.build/
+cdk.out/
+*.log
+.env
+.env.*
+.DS_Store
+.idea/
