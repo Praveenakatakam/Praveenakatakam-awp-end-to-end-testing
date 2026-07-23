@@ -1,2 +1,43 @@
 packages:
   - 'packages/*'
+
+# Link internal "@registry/*" deps (declared with "*") to local workspace
+# packages instead of fetching from the registry. npm workspaces did this by
+# default; pnpm 10 defaults link-workspace-packages to false.
+linkWorkspacePackages: true
+
+# Security overrides — pin transitive deps to patched versions.
+# pnpm reads overrides from here (or pnpm.overrides in package.json), NOT from
+# npm's top-level "overrides" field. Nested npm overrides ({ "sst": { ... } })
+# are expressed with pnpm's "parent>child" selector syntax.
+overrides:
+  '@smithy/types': 4.15.1
+  '@smithy/config-resolver': 4.4.0
+  '@babel/core': 7.29.6
+  '@babel/runtime': 7.26.10
+  '@babel/plugin-transform-modules-systemjs': 7.29.4
+  adm-zip: 0.6.0
+  ajv: 8.18.0
+  axios: 1.18.0
+  cross-spawn: 7.0.6
+  diff: 8.0.3
+  esbuild: 0.25.0
+  fast-jwt: 6.2.4
+  fast-uri: 3.1.4
+  fast-xml-parser: 5.10.1
+  flatted: 3.4.2
+  follow-redirects: 1.16.0
+  form-data: 4.0.6
+  kysely: 0.28.17
+  micromatch: 4.0.8
+  minimatch: 10.2.3
+  picomatch: 2.3.2
+  tmp: 0.2.6
+  undici: 6.27.0
+  uuid: 11.1.1
+  yaml: 2.8.3
+  'sst>aws-cdk-lib': 2.261.0
+  'sst>ajv': 8.18.0
+  'sst>fast-uri': 3.1.4
+  'sst>fast-xml-parser': 5.10.1
+  'sst>kysely': 0.28.17
