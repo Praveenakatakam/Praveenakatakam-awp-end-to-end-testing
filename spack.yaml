@@ -3,6 +3,7 @@
 spack:
   specs:
   - "node-js@22.4.0 ^openssl@3.3:"
+  - "npm@9.3.1 ^node-js@22.4.0"
   - "python@3.12.5 +ssl +zlib +ctypes"
   view: true
   concretizer:

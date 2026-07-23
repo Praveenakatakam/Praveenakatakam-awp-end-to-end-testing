@@ -3,9 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "sst dev",
     "deploy": "sst deploy",
@@ -50,10 +48,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
-    "tsx": "^4.16.2",
     "aws-cdk-lib": "^2.246.0",
     "constructs": "^10.5.0",
     "sst": "^2.43.7",
+    "syncpack": "^15.3.2",
+    "tsx": "^4.16.2",
     "typescript": "^5.4.5",
     "vitest": "^3.2.6"
   }
