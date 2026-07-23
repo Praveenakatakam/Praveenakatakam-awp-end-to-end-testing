@@ -1,5 +1,23 @@
+# Build output
 dist
 coverage
+.build
+cdk.out
+
+# Dependencies & tool stores (not source)
 node_modules
-README.md
+.pnpm-store
+.tools
+.claude
+
+# Framework / env dirs
+.sst
+.spack-env
+.venv
+
+# Generated artifacts (produced by generate-tests, not hand-authored)
+generated-tests
+
+# Lockfiles & docs kept as-authored
 pnpm-lock.yaml
+README.md

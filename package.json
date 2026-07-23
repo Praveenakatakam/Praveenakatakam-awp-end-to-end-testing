@@ -8,21 +8,31 @@
     "dev": "sst dev",
     "deploy": "sst deploy",
     "remove": "sst remove",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc -p packages/web/tsconfig.json --noEmit",
+    "build": "pnpm --recursive --if-present build",
     "test": "sst bind vitest run",
     "test:offline": "vitest run",
-    "test:web": "npm --workspace @registry/web test",
-    "test:all": "npm run test:offline && npm run test:web",
+    "test:web": "pnpm --filter @registry/web test",
+    "test:unit": "pnpm run test:offline && pnpm run test:web",
+    "test:all": "pnpm run test:unit",
     "generate-tests": "sst bind tsx scripts/generate-tests.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.12.12",
     "aws-cdk-lib": "^2.246.0",
     "constructs": "^10.5.0",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.6",
     "sst": "^2.43.7",
     "syncpack": "^15.3.2",
     "tsx": "^4.16.2",
     "typescript": "^5.4.5",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^3.2.6"
   }
 }
