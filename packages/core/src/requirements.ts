@@ -36,9 +36,12 @@ const REQ_SECTION_HEADING = /^##\s+(?:\d+\.?\s*)?Functional Requirements\b/i;
 // Any other level-2 heading closes the section.
 const L2_HEADING = /^##\s+\S/;
 // Sub-headings (### … through ###### …) within the section become the current `section`.
-const SUB_HEADING = /^#{3,6}\s+(.+?)\s*$/;
+// Capture greedily to end-of-line and trim in code: a lazy `(.+?)\s*$` tail lets the
+// group and the trailing `\s*` overlap (`.` matches whitespace), which CodeQL flags as
+// polynomial-time backtracking on uncontrolled input.
+const SUB_HEADING = /^#{3,6}\s+(.+)$/;
 // A requirement bullet: "- **R-nn** — text" (em-dash or hyphen separator).
-const REQ_BULLET = /^[-*]\s+\*\*(R-\d+[a-z]?)\*\*\s*[—–-]\s*(.+?)\s*$/;
+const REQ_BULLET = /^[-*]\s+\*\*(R-\d+[a-z]?)\*\*\s*[—–-]\s*(.+)$/;
 
 function deriveEarsType(text: string): EarsType {
   const m = /^(WHEN|IF|WHILE|WHERE)\b/.exec(text);
@@ -89,7 +92,8 @@ export function parseRequirements(specMarkdown: string): ParsedRequirement[] {
     const bullet = REQ_BULLET.exec(line);
     if (!bullet) continue;
 
-    const [, id, text] = bullet;
+    const [, id, rawText] = bullet;
+    const text = rawText.trim();
     const modality = deriveModality(text);
     out.push({
       id,
