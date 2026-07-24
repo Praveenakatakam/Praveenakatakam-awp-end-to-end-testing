@@ -8,10 +8,10 @@
  * the group. Split into a pure `performGeneration` (injected repo) so it is
  * unit-testable offline, mirroring `refresh.ts`.
  */
-import { generateArtifacts, type CatalogContract, type Skip } from "@registry/testgen";
-import type { CatalogEntry } from "./repository.js";
-import { repository } from "./repository.js";
-import { log } from "./log.js";
+import { generateArtifacts, type CatalogContract, type Skip } from '@registry/testgen';
+import type { CatalogEntry } from './repository.js';
+import { repository } from './repository.js';
+import { log } from './log.js';
 
 export interface GenerationSummary {
   runId: string;
@@ -30,24 +30,20 @@ export interface GenRepo {
 }
 
 /** Load the current catalog, generate, persist, summarise. Never crawls (R-81). */
-export async function performGeneration(
-  repo: GenRepo,
-  runId: string,
-  startedAt: string,
-): Promise<GenerationSummary> {
+export async function performGeneration(repo: GenRepo, runId: string, startedAt: string): Promise<GenerationSummary> {
   const entries = await repo.listEntries();
-  log.info("generate.start", { runId, entries: entries.length });
+  log.info('generate.start', { runId, entries: entries.length });
 
   const catalog: CatalogContract[] = [];
   for (const e of entries) {
-    const rawYaml = (await repo.getRaw(e.source, e.id)) ?? "";
+    const rawYaml = (await repo.getRaw(e.source, e.id)) ?? '';
     catalog.push({
       source: e.source,
       entity: e.entity,
       id: e.id,
       declaredVersion: e.declaredVersion,
       contentHash: e.currentHash,
-      validation: e.validation === "invalid" ? "invalid" : "valid",
+      validation: e.validation === 'invalid' ? 'invalid' : 'valid',
       rawYaml,
     });
   }
@@ -56,8 +52,8 @@ export async function performGeneration(
   const endedAt = new Date(nowMs()).toISOString();
 
   const counts = {
-    conformance: artifacts.manifest.tests.filter((t) => t.kind === "conformance").length,
-    compat: artifacts.manifest.tests.filter((t) => t.kind === "compat").length,
+    conformance: artifacts.manifest.tests.filter((t) => t.kind === 'conformance').length,
+    compat: artifacts.manifest.tests.filter((t) => t.kind === 'compat').length,
     skipped: artifacts.manifest.skipped.length,
   };
 
@@ -86,7 +82,7 @@ export async function performGeneration(
     artifactS3Key,
   });
 
-  log.info("generate.done", { runId, endedAt, ...counts });
+  log.info('generate.done', { runId, endedAt, ...counts });
   return { runId, startedAt, endedAt, counts, skipped: artifacts.manifest.skipped };
 }
 
@@ -95,7 +91,7 @@ export async function handler(): Promise<{ statusCode: number; headers: Record<s
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = new Date().toISOString();
   const summary = await performGeneration(repository, runId, startedAt);
-  return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(summary) };
+  return { statusCode: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify(summary) };
 }
 
 // `Date.now()` isolated so it is the single wall-clock touch point.

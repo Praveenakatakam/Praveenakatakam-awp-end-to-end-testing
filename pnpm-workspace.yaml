@@ -11,11 +11,11 @@ linkWorkspacePackages: true
 # npm's top-level "overrides" field. Nested npm overrides ({ "sst": { ... } })
 # are expressed with pnpm's "parent>child" selector syntax.
 overrides:
-  '@smithy/types': 4.15.1
-  '@smithy/config-resolver': 4.4.0
   '@babel/core': 7.29.6
-  '@babel/runtime': 7.26.10
   '@babel/plugin-transform-modules-systemjs': 7.29.4
+  '@babel/runtime': 7.26.10
+  '@smithy/config-resolver': 4.4.0
+  '@smithy/types': 4.15.1
   adm-zip: 0.6.0
   ajv: 8.18.0
   axios: 1.18.0
@@ -32,12 +32,16 @@ overrides:
   micromatch: 4.0.8
   minimatch: 10.2.3
   picomatch: 2.3.2
+  'sst>ajv': 8.18.0
+  aws-cdk-lib: 2.238.0
+  constructs: 10.3.0
+  'sst>aws-cdk-lib': 2.238.0
+  'sst>fast-uri': 3.1.4
+  'sst>fast-xml-parser': 5.10.1
+  'sst>kysely': 0.28.17
   tmp: 0.2.6
   undici: 6.27.0
   uuid: 11.1.1
   yaml: 2.8.3
-  'sst>aws-cdk-lib': 2.261.0
-  'sst>ajv': 8.18.0
-  'sst>fast-uri': 3.1.4
-  'sst>fast-xml-parser': 5.10.1
-  'sst>kysely': 0.28.17
+patchedDependencies:
+  '@aws-cdk/toolkit-lib@1.1.1': patches/@aws-cdk__toolkit-lib@1.1.1.patch

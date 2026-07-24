@@ -10,7 +10,7 @@
  * unit-testable without network or Octokit internals. `createOctokitApi` wires
  * the real client (fine-grained PAT from the SST Secret GITHUB_TOKEN).
  */
-import type { SourceConfig } from "./sources.js";
+import type { SourceConfig } from './sources.js';
 
 /** A single entry from a recursive git tree listing. */
 export interface TreeEntry {
@@ -55,17 +55,17 @@ export interface SourceCrawl {
   specRef?: SpecRef;
 }
 
-const CONTRACT_GLOB = /^contract\/[^/]+\.odcs\.ya?ml$/i;
-const SPEC_DOC_PATH = /^docs\/spec\.md$/i;
+const CONTRACT_GLOB = /\.odcs\.ya?ml$/i;
+const SPEC_DOC_PATH = /(?:^|\/)spec\.md$/i;
 
 /** True for a tree entry that is a contract source file (R-03, excludes *.schema.json). */
 export function isContractFile(entry: TreeEntry): boolean {
-  return entry.type === "blob" && CONTRACT_GLOB.test(entry.path);
+  return entry.type === 'blob' && CONTRACT_GLOB.test(entry.path);
 }
 
 /** True for the source repo's EARS requirements document (`docs/spec.md`, R-100). */
 export function isSpecDoc(entry: TreeEntry): boolean {
-  return entry.type === "blob" && SPEC_DOC_PATH.test(entry.path);
+  return entry.type === 'blob' && SPEC_DOC_PATH.test(entry.path);
 }
 
 /**
@@ -106,7 +106,7 @@ export async function crawlSource(api: GitHubApi, source: SourceConfig): Promise
  */
 export function createOctokitApi(token: string): GitHubApi {
   // Lazy import so the pure core (and its tests) never load Octokit.
-  const OctokitP = import("@octokit/rest").then(({ Octokit }) => new Octokit({ auth: token }));
+  const OctokitP = import('@octokit/rest').then(({ Octokit }) => new Octokit({ auth: token }));
   return {
     async branchHeadSha(owner, repo, branch) {
       const octokit = await OctokitP;
@@ -115,17 +115,17 @@ export function createOctokitApi(token: string): GitHubApi {
     },
     async tree(owner, repo, commitSha) {
       const octokit = await OctokitP;
-      const { data } = await octokit.git.getTree({ owner, repo, tree_sha: commitSha, recursive: "true" });
+      const { data } = await octokit.git.getTree({ owner, repo, tree_sha: commitSha, recursive: 'true' });
       return (data.tree ?? []).map((t) => ({
-        path: t.path ?? "",
-        sha: t.sha ?? "",
-        type: t.type ?? "",
+        path: t.path ?? '',
+        sha: t.sha ?? '',
+        type: t.type ?? '',
       }));
     },
     async blob(owner, repo, sha) {
       const octokit = await OctokitP;
       const { data } = await octokit.git.getBlob({ owner, repo, file_sha: sha });
-      return Buffer.from(data.content, (data.encoding as BufferEncoding) ?? "base64").toString("utf8");
+      return Buffer.from(data.content, (data.encoding as BufferEncoding) ?? 'base64').toString('utf8');
     },
   };
 }

@@ -33,10 +33,10 @@ export interface EntityApiTarget {
 /** `source label → entity → target`. Absent entities are skipped for conformance. */
 export const API_MAP: Record<string, Record<string, EntityApiTarget>> = {
   publisher: {
-    org: { path: "/orgs", baseUrlEnv: "PUBLISHER_API_URL", tokenEnv: "PUBLISHER_TOKEN", recordsAt: "items" },
+    org: { path: '/orgs', baseUrlEnv: 'PUBLISHER_API_URL', tokenEnv: 'PUBLISHER_TOKEN', recordsAt: 'items' },
   },
   consumer: {
-    class: { path: "/me/classes", baseUrlEnv: "CONSUMER_API_URL", tokenEnv: "CONSUMER_TOKEN", recordsAt: "items" },
+    class: { path: '/me/classes', baseUrlEnv: 'CONSUMER_API_URL', tokenEnv: 'CONSUMER_TOKEN', recordsAt: 'items' },
   },
 };
 

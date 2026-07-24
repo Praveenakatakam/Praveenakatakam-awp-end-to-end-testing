@@ -10,8 +10,8 @@
  * Reuses the shared property model (`normalizeContractSchema`) so this check and
  * the semantic differ (R-53) cannot drift.
  */
-import { normalizeContractSchema } from "@registry/core";
-import type { CompatProp } from "./manifest.js";
+import { normalizeContractSchema } from '@registry/core';
+import type { CompatProp } from './manifest.js';
 
 export interface CompatViolation {
   /** `entity.property`. */
@@ -48,10 +48,10 @@ export function checkCompat(consumerDoc: unknown, publisherDoc: unknown): Compat
     const pub = publisher.props.get(req.name);
     if (!pub) {
       violations.push({ path: `${entity}.${req.name}`, reason: `required by consumer but absent in publisher` });
-    } else if ((pub.logicalType ?? "") !== (req.logicalType ?? "")) {
+    } else if ((pub.logicalType ?? '') !== (req.logicalType ?? '')) {
       violations.push({
         path: `${entity}.${req.name}`,
-        reason: `type mismatch: consumer '${req.logicalType ?? ""}' vs publisher '${pub.logicalType ?? ""}'`,
+        reason: `type mismatch: consumer '${req.logicalType ?? ''}' vs publisher '${pub.logicalType ?? ''}'`,
       });
     }
   }

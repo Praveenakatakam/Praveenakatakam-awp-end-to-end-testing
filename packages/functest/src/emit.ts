@@ -11,23 +11,21 @@
  * `it.todo` a future runner (or a human) fills in. Running these stays out of
  * scope (D-56); this component generates and stores them.
  */
-import type { FunctionalTestPlan } from "./plan.js";
+import type { FunctionalTestPlan } from './plan.js';
 
 const HEADER =
-  "// GENERATED — DO NOT EDIT. Regenerate via `npm run generate-tests -- --functional` (see generated-tests/functional/manifest.json).";
+  '// GENERATED — DO NOT EDIT. Regenerate via `npm run generate-tests -- --functional` (see generated-tests/functional/manifest.json).';
 
-function comment(lines: string[], indent = ""): string {
-  return lines.map((l) => `${indent}// ${l}`).join("\n");
+function comment(lines: string[], indent = ''): string {
+  return lines.map((l) => `${indent}// ${l}`).join('\n');
 }
 
 export function emitFunctionalTest(plan: FunctionalTestPlan, index: number): string {
-  const reqs = plan.requirementIds.join(", ");
+  const reqs = plan.requirementIds.join(', ');
   const setup = plan.setup.length
-    ? comment(["Setup / preconditions:", ...plan.setup.map((s) => `  - ${s.description}`)])
-    : comment(["Setup / preconditions: none"]);
-  const assertionTodos = plan.assertions
-    .map((a) => `  it.todo(${JSON.stringify(`[${a.service}] ${a.assertion}`)});`)
-    .join("\n");
+    ? comment(['Setup / preconditions:', ...plan.setup.map((s) => `  - ${s.description}`)])
+    : comment(['Setup / preconditions: none']);
+  const assertionTodos = plan.assertions.map((a) => `  it.todo(${JSON.stringify(`[${a.service}] ${a.assertion}`)});`).join('\n');
   const title = `functional: ${plan.title}`;
   const itName = `${plan.trigger.method} ${plan.trigger.path} → CDC → consumer reflects change`;
 
@@ -51,7 +49,7 @@ ${comment(
     `TRIGGER (${plan.trigger.source}/${plan.trigger.entity}): ${plan.trigger.method} ${plan.trigger.path}`,
     `payload shape: ${plan.trigger.payloadShape}`,
   ],
-  "    ",
+  '    '
 )}
     const res = await fetch(\`\${publisherBase}${plan.trigger.path}\`, {
       method: ${JSON.stringify(plan.trigger.method)},
@@ -59,10 +57,10 @@ ${comment(
       // body: JSON.stringify(/* ${plan.trigger.payloadShape} */),
     });
     expect(res.ok, \`${plan.trigger.method} ${plan.trigger.path} → \${res.status}\`).toBe(true);
-${comment([`PROPAGATION (cdc): ${plan.propagation.waitFor}`], "    ")}
+${comment([`PROPAGATION (cdc): ${plan.propagation.waitFor}`], '    ')}
   });
 
-${comment(["Post-propagation assertions — a runner fills these in (D-56):"], "  ")}
+${comment(['Post-propagation assertions — a runner fills these in (D-56):'], '  ')}
 ${assertionTodos}
 });
 `;

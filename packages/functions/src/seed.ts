@@ -11,13 +11,13 @@ import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   AdminAddUserToGroupCommand,
-} from "@aws-sdk/client-cognito-identity-provider";
-import { Config } from "sst/node/config";
-import { log } from "./log.js";
+} from '@aws-sdk/client-cognito-identity-provider';
+import { Config } from 'sst/node/config';
+import { log } from './log.js';
 
 export const DEMO_USERS = [
-  { username: "reader@demo", groups: ["reader"] },
-  { username: "writer@demo", groups: ["writer", "reader"] },
+  { username: 'reader@demo', groups: ['reader'] },
+  { username: 'writer@demo', groups: ['writer', 'reader'] },
 ] as const;
 
 const defaultClient = new CognitoIdentityProviderClient({});
@@ -25,7 +25,7 @@ const defaultClient = new CognitoIdentityProviderClient({});
 export async function seedUsers(
   userPoolId: string,
   password: string,
-  client: CognitoIdentityProviderClient = defaultClient,
+  client: CognitoIdentityProviderClient = defaultClient
 ): Promise<{ seeded: string[] }> {
   for (const user of DEMO_USERS) {
     try {
@@ -33,11 +33,11 @@ export async function seedUsers(
         new AdminCreateUserCommand({
           UserPoolId: userPoolId,
           Username: user.username,
-          MessageAction: "SUPPRESS", // no invitation email
-        }),
+          MessageAction: 'SUPPRESS', // no invitation email
+        })
       );
     } catch (err) {
-      if ((err as { name?: string }).name !== "UsernameExistsException") throw err;
+      if ((err as { name?: string }).name !== 'UsernameExistsException') throw err;
       // Already seeded — fall through to (re)apply password + groups.
     }
 
@@ -47,7 +47,7 @@ export async function seedUsers(
         Username: user.username,
         Password: password,
         Permanent: true,
-      }),
+      })
     );
 
     for (const group of user.groups) {
@@ -56,11 +56,11 @@ export async function seedUsers(
           UserPoolId: userPoolId,
           Username: user.username,
           GroupName: group,
-        }),
+        })
       );
     }
     // Username + groups only — the password is never logged (NFR-2, NFR-5).
-    log.info("seed.user", { username: user.username, groups: user.groups });
+    log.info('seed.user', { username: user.username, groups: user.groups });
   }
   return { seeded: DEMO_USERS.map((u) => u.username) };
 }

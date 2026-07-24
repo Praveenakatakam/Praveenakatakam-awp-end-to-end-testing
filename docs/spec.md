@@ -13,7 +13,7 @@
 >
 > **v0.5.2 (2026-07-16) — second health-check pass (fresh-eyes, independent auditors); hardening + accuracy, no requirement behaviour weakened.** Code fixes: the requirements fault isolation (R-105a) now covers the **`docs/spec.md` fetch** — its bytes are read inside the isolated block (not eagerly in `crawlSourceFull`), so a transient spec-doc read error no longer discards the source's already-cataloged contracts; the snapshot BatchWrite now **retries `UnprocessedItems`** (R-107/NFR-4); the parser **keeps the section-heading number** (R-102). Text corrections (code was already right): R-114's S3 object is addressed by **{source}** (not "{source, content hash}"); D-43's redaction is **"the places"** (two sites — source- and requirements-failure `reason`); R-105 clarifies whole-source-crawl failure vs an isolated spec-doc read/parse error. Design §1/§3 aligned to reality.
 >
-> **v0.5.1 (2026-07-16) — Requirements Catalog health-check remediation (recipe Step 11):** ratifies the **absent-`docs/spec.md` = wipe-to-zero** semantics — a reachable source with no requirements document has its requirement snapshot **removed** (latest-snapshot, D-45), while a *fetch failure* still keeps the prior snapshot (unobserved state). Also adds **fault isolation for the requirements crawl**: a requirements parse/store failure no longer fails the source's contract crawl — it is recorded as a failed requirements outcome and logged. Changes: R-105 rewritten; **R-105a** (requirements-failure isolation) and edge cases **E-36/E-37** added; E-29 tightened; both `crawl.requirements.done` and `crawl.requirements.failed` added to the D-43 log taxonomy; design §10.2/§10.3 corrected (`putRequirements` signature, `wipeRequirements`, the two events). No contract-path behaviour changed.
+> **v0.5.1 (2026-07-16) — Requirements Catalog health-check remediation (recipe Step 11):** ratifies the **absent-`docs/spec.md` = wipe-to-zero** semantics — a reachable source with no requirements document has its requirement snapshot **removed** (latest-snapshot, D-45), while a _fetch failure_ still keeps the prior snapshot (unobserved state). Also adds **fault isolation for the requirements crawl**: a requirements parse/store failure no longer fails the source's contract crawl — it is recorded as a failed requirements outcome and logged. Changes: R-105 rewritten; **R-105a** (requirements-failure isolation) and edge cases **E-36/E-37** added; E-29 tightened; both `crawl.requirements.done` and `crawl.requirements.failed` added to the D-43 log taxonomy; design §10.2/§10.3 corrected (`putRequirements` signature, `wipeRequirements`, the two events). No contract-path behaviour changed.
 >
 > **v0.5.0 (2026-07-15) — adds the Requirements Catalog component** (§3.10, R-100…R-114; E-29…E-35; D-44…D-48): the registry now also crawls each source repo's **`docs/spec.md`**, extracts its **EARS requirements**, and catalogs/serves them (API + SPA) alongside the ODCS contracts it already tracks. Requirements are cataloged **per source, latest-snapshot with a change flag** (no append-only history, deliberately unlike contracts — D-45), **independently** (no cross-repo requirement diff — D-47), in the **same `POST /refresh`** pass (D-44). Existing requirements R-01/R-03/R-10/R-12 and NFR-5 gain cross-references; no contract-path behaviour changed.
 >
@@ -21,13 +21,13 @@
 >
 > **v0.4.1 (2026-07-15) — `generate-tests` CLI UX (D-35, R-91a):** the CLI now requires only a credential; non-secret endpoint coordinates auto-resolve (env > `generate-tests.config.json` > `.sst/outputs.json`), and the credential comes from env, a gitignored `.env`, or an interactive prompt.
 >
-> **v0.4.0 adds the Test Generator component** (§3.9, R-80…R-93; NFR-8; E-19…E-26; OQ-10…OQ-14; D-23…D-29): a contract-driven end-to-end **test generator** that reads the discovered catalog and emits live-API-conformance and cross-app-compatibility tests into this repo. **Generation + storage only**; *running* the generated tests on demand is future work (§2).
+> **v0.4.0 adds the Test Generator component** (§3.9, R-80…R-93; NFR-8; E-19…E-26; OQ-10…OQ-14; D-23…D-29): a contract-driven end-to-end **test generator** that reads the discovered catalog and emits live-API-conformance and cross-app-compatibility tests into this repo. **Generation + storage only**; _running_ the generated tests on demand is future work (§2).
 
 ---
 
 ## 1. Purpose and Context
 
-This is a reference AWS application that implements an **ODCS contract registry**: a service that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling the two sibling reference repositories — [`awp-odcs-publishing`](https://github.com/collegeboard-personal/awp-odcs-publishing) (the *publisher*) and [`awp-odcs-consuming`](https://github.com/collegeboard-personal/awp-odcs-consuming) (the *consumer*) — **on demand** via the GitHub API.
+This is a reference AWS application that implements an **ODCS contract registry**: a service that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling the two sibling reference repositories — [`awp-odcs-publishing`](https://github.com/collegeboard-personal/awp-odcs-publishing) (the _publisher_) and [`awp-odcs-consuming`](https://github.com/collegeboard-personal/awp-odcs-consuming) (the _consumer_) — **on demand** via the GitHub API.
 
 Each repository carries its own copy of four OneRoster v1.2 ODCS contracts — `org`, `user`, `class`, `enrollment`. Today these copies are **vendored independently and have already diverged** (`org` is identical across both; `user`/`class`/`enrollment` differ). The registry's job is to make that divergence **visible and queryable**: it catalogs **both apps' variants as they are, without reconciling them**, so a human or downstream tool can see exactly which contract each app publishes/consumes and where they disagree.
 
@@ -38,7 +38,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 ## 2. Out of Scope (this system will NOT do)
 
 - **Reconciling or merging divergent contracts.** The registry catalogs the publisher's and consumer's variants side by side; producing a single canonical contract per entity is explicitly out of scope (see §1, D-2).
-- **Modifying the two source repositories.** The registry only *reads* them via the GitHub API. Wiring either app to consume contracts *from* the registry is future work (D-3).
+- **Modifying the two source repositories.** The registry only _reads_ them via the GitHub API. Wiring either app to consume contracts _from_ the registry is future work (D-3).
 - **Accepting contracts pushed in by clients** (`POST /contracts` upload). Contracts enter the registry **only** by crawling the configured source repos; there is no client-side publish/upload API (D-4).
 - **Crawling arbitrary or user-supplied repositories at request time.** The set of source repos is fixed configuration (the two example apps). Adding a repo is a config/redeploy action, not a runtime API (D-5).
 - **Compiling ODCS YAML to runtime JSON Schema.** Each app already compiles its own `*.schema.json`; the registry stores and serves the ODCS **source** documents (and, WHERE present, the app-compiled schema as an opaque attached blob — D-11), but does not run the compiler itself.
@@ -47,7 +47,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 - **Multi-region, multi-tenant, or multi-account deployment.** Single region, single account.
 - **Scheduled / automatic crawling.** Crawls are triggered manually via the authenticated refresh endpoint; a cron schedule is out of scope for v1 (see OQ-6).
 - **Public/anonymous access.** All endpoints (read and write) require Cognito authentication (D-6).
-- **Running the generated tests.** The Test Generator (§3.9) and the functional generator (§3.11) *generate and store* end-to-end tests only. Executing them — on demand, on a schedule, or in CI — is a **separate future feature** and is out of scope here (D-29, D-56). The generated Vitest files are therefore intentionally excluded from the registry's own unit test suites (R-93).
+- **Running the generated tests.** The Test Generator (§3.9) and the functional generator (§3.11) _generate and store_ end-to-end tests only. Executing them — on demand, on a schedule, or in CI — is a **separate future feature** and is out of scope here (D-29, D-56). The generated Vitest files are therefore intentionally excluded from the registry's own unit test suites (R-93).
 - **Byte-identical determinism of LLM-synthesised functional tests.** The §3.11 functional generator uses an LLM, which is non-deterministic; its determinism guarantee is limited to **re-rendering a cached plan** (R-119/R-119a), not to the LLM synthesis step. R-88's byte-identical guarantee is scoped to the §3.9 deterministic generator; it does **not** cover §3.11 plan synthesis (D-52).
 - **Generating tests for arbitrary or uncataloged contracts.** The generator only reads contracts already in the catalog (populated by a prior crawl, R-10); it does not crawl GitHub itself, and it will not generate tests for repos/contracts outside the configured sources (R-81, D-5).
 - **Authoring, hand-editing, or maintaining the generated tests.** The `generated-tests/` tree is a **generated artifact**: it is overwritten wholesale on each generation. Hand edits are not preserved (R-88, R-92).
@@ -79,7 +79,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 ### 3.3 Validation
 
 - **R-20** — WHEN the registry ingests a discovered file, THE registry SHALL parse it as YAML and validate the parsed document against the **vendored ODCS v3.1.0 JSON schema** (`odcs-v3.1.0.schema.json`).
-- **R-21** — IF a discovered file fails YAML parsing or ODCS schema validation, THE registry SHALL catalog the entry with `validation: invalid` and a structured list of the failing paths / rules, and SHALL NOT abort the crawl or discard other files (a bad contract is *recorded*, not dropped).
+- **R-21** — IF a discovered file fails YAML parsing or ODCS schema validation, THE registry SHALL catalog the entry with `validation: invalid` and a structured list of the failing paths / rules, and SHALL NOT abort the crawl or discard other files (a bad contract is _recorded_, not dropped).
 - **R-22** — WHEN a discovered file validates successfully, THE registry SHALL extract catalog metadata from it: `id`, `name`, `version`, `apiVersion`, `kind`, `status`, `domain`, `dataProduct`, `tags`, and the **entity name**. The entity name SHALL be `schema[0].name`; IF `schema[]` is empty or has no usable name, THE registry SHALL fall back to the file's name stem (`user.odcs.yaml` → `user`) (D-12).
 - **R-23** — THE registry SHALL treat the ODCS v3.1.0 schema document itself and any non-`*.odcs.yaml` file as **not a contract** and SHALL NOT catalog it as one.
 
@@ -179,7 +179,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 - **R-102** — For each source, THE registry SHALL extract every numbered requirement bullet (`- **R-nn** — <text>`) appearing under the document's **"Functional Requirements (EARS)"** section (`## 3. …`), capturing each requirement's **id** (`R-nn`, including sub-ids like `R-17a`), its full **text**, and the **sub-section heading** (e.g. `### 3.2 Crawl / Refresh`) it falls under.
 - **R-103** — For each extracted requirement, THE registry SHALL derive its **EARS type** from the leading keyword — `WHEN`→`event`, `IF`→`unwanted`, `WHILE`→`state`, `WHERE`→`optional`, none-of-these→`ubiquitous` — and its **modality** (`SHALL` / `SHOULD` / `MAY`), taking the first modality keyword present.
 - **R-104** — IF an extracted requirement carries **no** modality keyword (`SHALL`/`SHOULD`/`MAY`), THE registry SHALL catalog it flagged **`earsConforming: false`** (still cataloged, never dropped — fault-isolating, mirrors R-21/D-27); otherwise **`earsConforming: true`**.
-- **R-105** — IF a source's `docs/spec.md` is **absent, or is present but contains no requirements section**, THE registry SHALL **replace that source's requirement snapshot with the empty set** — the source now declares zero requirements, so its prior requirements are **removed** (latest-snapshot semantics, D-45) — recording the crawl as a **success** with `discovered: 0` and the prior count as `removed`. IF the **source's crawl fails** — it is unreachable, or its branch/tree/contract-blob fetch errors (R-13) — THE registry SHALL instead leave that source's previously-cataloged requirements **unchanged** (no deletion — the state was not observed, mirrors R-13/NFR-4). (A failure fetching or parsing **only** `docs/spec.md`, after the source's contracts are already cataloged, is neither "absent" nor a whole-source failure — it is isolated per **R-105a**, which also leaves the prior snapshot unchanged.) The distinction is deliberate: *reachable-but-empty* is an observed "zero requirements" (wipe); an *unobserved* state — whole-source failure or an isolated spec-doc read/parse error — keeps the prior snapshot.
+- **R-105** — IF a source's `docs/spec.md` is **absent, or is present but contains no requirements section**, THE registry SHALL **replace that source's requirement snapshot with the empty set** — the source now declares zero requirements, so its prior requirements are **removed** (latest-snapshot semantics, D-45) — recording the crawl as a **success** with `discovered: 0` and the prior count as `removed`. IF the **source's crawl fails** — it is unreachable, or its branch/tree/contract-blob fetch errors (R-13) — THE registry SHALL instead leave that source's previously-cataloged requirements **unchanged** (no deletion — the state was not observed, mirrors R-13/NFR-4). (A failure fetching or parsing **only** `docs/spec.md`, after the source's contracts are already cataloged, is neither "absent" nor a whole-source failure — it is isolated per **R-105a**, which also leaves the prior snapshot unchanged.) The distinction is deliberate: _reachable-but-empty_ is an observed "zero requirements" (wipe); an _unobserved_ state — whole-source failure or an isolated spec-doc read/parse error — keeps the prior snapshot.
 - **R-105a** — IF extracting or storing a source's requirements **fails after that source's contracts have been cataloged** (e.g. a malformed requirements document or a storage error — as opposed to a whole-source fetch failure, which is R-105/E-36), THE registry SHALL record that source's **requirements** outcome as **failed** (logged `crawl.requirements.failed`) and SHALL **continue**: the source's already-cataloged contracts, its crawl-run contract counts, and every other source SHALL be **unaffected** (fault isolation, NFR-4).
 
 #### 3.10.3 Catalog model — latest snapshot + change flag
@@ -222,7 +222,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 #### 3.11.3 Determinism via an input-hash cache
 
 - **R-119** — Each plan SHALL be **cached** keyed by a content hash over `{requirement text, contract content hash(es), API-map entry, model id, prompt version}`. WHEN a job runs and a cached plan exists for a requirement's **current** input hash, THE job SHALL **reuse** the cached plan and SHALL NOT re-invoke the LLM; only inputs that **changed** trigger re-synthesis. The cached plan is the **committed source of truth** for that test (D-52) — this is what makes regeneration stable despite LLM non-determinism, so **R-88's byte-identical guarantee does not apply to the synthesis step** of this test class (§2).
-- **R-119a** — THE emitted Vitest files SHALL be **rendered deterministically** from the cached plan set (reusing the §3.9 emit approach, D-28): the **same plan set yields byte-identical files** (stable ordering; no timestamps, run ids, or random values), so re-rendering an unchanged plan set is a **no-op git diff**. (Determinism is preserved for the render step; only plan *synthesis* is non-deterministic and cached.)
+- **R-119a** — THE emitted Vitest files SHALL be **rendered deterministically** from the cached plan set (reusing the §3.9 emit approach, D-28): the **same plan set yields byte-identical files** (stable ordering; no timestamps, run ids, or random values), so re-rendering an unchanged plan set is a **no-op git diff**. (Determinism is preserved for the render step; only plan _synthesis_ is non-deterministic and cached.)
 
 #### 3.11.4 Skip rules (fault isolation)
 
@@ -251,63 +251,63 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 - **NFR-5 (Observability)** — Every Lambda SHALL emit structured logs; each crawl SHALL log per-source and per-file outcomes with the offending path/id on any failure — including the requirements crawl (per-source requirement discovery / parse outcomes, §3.10); the GitHub credential SHALL never appear in logs.
 - **NFR-6 (Portability/IaC)** — The entire stack SHALL be defined as code in **SST v2 (TypeScript)** and deployable to a real AWS account via a single deploy command.
 - **NFR-7 (Language)** — All application and infrastructure code SHALL be **TypeScript**.
-- **NFR-8 (Generation performance & determinism)** — A generation run over the catalog SHOULD complete **synchronously within the API Gateway timeout (<29 s)** for the v1 scale (2 sources × ~4 entities), like the crawl (R-10). Generation SHALL be **deterministic** (R-88): the same catalog input always yields byte-identical artifacts. The generator's core (catalog → artifact set) SHALL be a **pure, offline-testable** function with no AWS or network dependency, so it can be unit-tested without deploying. *(NFR-8 governs the §3.9 contract-derived generator; the §3.11 functional generator is async and LLM-backed — see NFR-9.)*
+- **NFR-8 (Generation performance & determinism)** — A generation run over the catalog SHOULD complete **synchronously within the API Gateway timeout (<29 s)** for the v1 scale (2 sources × ~4 entities), like the crawl (R-10). Generation SHALL be **deterministic** (R-88): the same catalog input always yields byte-identical artifacts. The generator's core (catalog → artifact set) SHALL be a **pure, offline-testable** function with no AWS or network dependency, so it can be unit-tested without deploying. _(NFR-8 governs the §3.9 contract-derived generator; the §3.11 functional generator is async and LLM-backed — see NFR-9.)_
 - **NFR-9 (Functional-test generation — LLM usage, cost, and the offline seam)** — Functional-test **plan synthesis** (§3.11) SHALL use a configured **Claude model on Amazon Bedrock** (via `@aws-sdk/client-bedrock-runtime` `InvokeModel`, structured output by forced tool use); access is the worker's **IAM execution role** (SigV4) — no stored key — and nothing sensitive appears in logs or responses (NFR-2). Because plan synthesis is **non-deterministic**, it SHALL be **cached** by input hash (R-119) rather than re-run, so an unchanged catalog re-uses cached plans and re-renders byte-identically (R-119a); overall cost is bounded by the cache (only changed inputs re-synthesise). Generation SHALL run **asynchronously** (R-115). The generator's core (catalog + cache → plans → emitted artifacts) SHALL keep a **pure, offline-testable seam** with the LLM behind an injectable interface (R-118), so the offline suite exercises it with a stub and **no network call**.
 
 ---
 
 ## 5. Edge Cases
 
-| # | Condition | Expected behaviour |
-|---|-----------|--------------------|
-| E-1 | A source repo is unreachable / GitHub 5xx / auth fails | That source marked `failed` in the run; other sources still crawled; existing entries for it untouched (R-13) |
-| E-2 | A source repo has no `contract/*.odcs.yaml` files | Recorded as success with 0 discoveries (R-14) |
-| E-3 | A discovered file is not valid YAML | Entry cataloged `validation: invalid` with parse error; crawl continues (R-21) |
-| E-4 | A discovered file is valid YAML but fails ODCS v3.1.0 schema | Entry cataloged `validation: invalid` with failing paths; crawl continues (R-21) |
-| E-5 | The identical `org` contract appears in both repos | Two separate entries (`publisher/…org…`, `consumer/…org…`); `GET /entities/org` reports `divergent: false` (R-30, R-34) |
-| E-6 | `user`/`class`/`enrollment` differ between repos | Two entries each; `GET /entities/{e}` reports `divergent: true` + diff (R-34, R-53) |
-| E-7 | Same {source, id} crawled again, content unchanged | No new version; last-seen timestamp/SHA updated (R-32) |
-| E-8 | Same {source, id} crawled again, content changed | New history version appended; prior versions retained (R-33) |
-| E-9 | Two files in one repo declare the **same** `id` | First cataloged; id-collision warning naming both paths recorded in the crawl run (R-30a, D-13) |
-| E-10 | Content changed but the contract's `version` field did **not** | New history version recorded (history keys on content hash); version flagged `versionNotBumped` (R-33a, D-16) |
-| E-11 | `POST /refresh` while a crawl is already running | `409 Conflict` / returns in-flight run id; no concurrent crawl (R-15) |
-| E-12a | Read/refresh with **no** `Authorization` header | `401` — gateway short-circuits before the authorizer (R-16, R-56, D-21) |
-| E-12b | Read/refresh with an expired/malformed token, or a valid token lacking the required group | `403` — authorizer denies (R-16, R-56, R-71, D-21) |
-| E-13 | `POST /refresh` by a reader-only user | `403`; no crawl (R-16) |
-| E-14 | `GET` for an unknown source/id/entity/version | `404` (R-54) |
-| E-15 | A contract's `schema[]` has zero or no usable name | Entity falls back to the filename stem; entry still cataloged (R-22, D-12) |
-| E-16 | GitHub API rate limit hit mid-crawl | Source marked `failed` with a rate-limit reason; other sources unaffected (R-13, D-15) |
-| E-17 | Reader-only user opens the SPA | Refresh action hidden/disabled; only GETs succeed; `POST /refresh` would be `403` (R-64, R-71) |
-| E-18 | A source has no successfully cataloged contracts (all failed / none discovered) | The by-source view derives sources from the catalog, so that source shows no contract rows; its crawl outcome stays visible via `GET /crawls` (R-65, E-1/E-2) |
-| E-19 | `POST /generate-tests` when the catalog is empty (no prior crawl) | Empty artifact set produced; run recorded as **success** with zero counts (R-81) |
-| E-20 | A cataloged contract is `validation: invalid` | Conformance generation **skipped** for it with a recorded reason; all other contracts still generated (R-85) |
-| E-21 | An entity exists in only one source (e.g. consumer-only `class-roster`) | Compatibility generation **skipped** for it with a recorded reason; conformance still generated if applicable (R-85) |
-| E-22 | `POST /generate-tests` re-run against an **unchanged** catalog | Byte-identical manifest + files; writing them into the repo yields a **no-op git diff** (R-88) |
-| E-23 | A generated conformance test is later run with its API-URL / token env vars **unset** | The test is **skipped** (Vitest `skip`), not failed (R-83a) |
-| E-24 | `POST /generate-tests` with no / invalid / non-writer credential | `401` (no credential) or `403` (rejected/insufficient); no generation runs (R-80a) |
-| E-25 | A property the **consumer** variant requires is **absent** (or type-incompatible) in the **publisher** variant | The generated compatibility test, WHEN run, **fails**, naming entity + property path + reason (R-84) — this is the divergence the test exists to catch |
-| E-26 | The **publisher** variant has **extra** properties beyond the consumer's required set | The compatibility test **passes** (extra publisher fields are allowed under consumer-can-read-publisher, R-84) |
-| E-27 | A cataloged entity has **no configured API path/env mapping** for conformance | Conformance generation **skipped** for it with a recorded reason; no unrunnable test emitted (R-83b, R-85) |
-| E-28 | A contract present in a prior generation is **removed** from the catalog, then re-generated | Its stale `*.generated.test.ts` is **removed** (tree replaced wholesale, R-92); the manifest no longer lists it |
-| E-29 | A source's `docs/spec.md` is **absent**, or is **present but has no requirements section** (source reachable) | That source's requirement snapshot is **wiped to zero** (`discovered: 0`, `removed` = prior count), recorded as a **success** (R-105) — the observed state is "zero requirements". (A spec-doc that can't be fetched or parsed is instead R-105a — keep prior.) |
-| E-36 | A source is **unreachable / its crawl fails** before its `docs/spec.md` is read | The source's previously-cataloged requirements are **kept unchanged** (unobserved state, no deletion) and the source is marked `failed` (R-105, R-13, E-1) |
-| E-37 | Extracting / storing a source's requirements **fails after its contracts are cataloged** (malformed doc / storage error) | That source's **requirements** are marked **failed** (`crawl.requirements.failed`); its cataloged contracts and every other source are **unaffected**; the source's contract outcome stays `success` (R-105a, NFR-4) |
-| E-38 | A source's `docs/spec.md` declares the **same `R-nn` twice** under the requirements section | The **first** occurrence is cataloged, the duplicate dropped, and a `crawl.requirements.collision` is recorded naming the id(s) (mirrors the contract id-collision rule E-9/R-30a — D-49) |
-| E-30 | A requirement bullet has **no modality** keyword (`SHALL`/`SHOULD`/`MAY`) | Cataloged with **`earsConforming: false`**, still listed and served (R-104) |
-| E-31 | A source's `docs/spec.md` is re-crawled **unchanged** | Requirement set replaced in place; **no** requirement flagged `changedInLastCrawl` (all `false`) — content hash matches (R-107) |
-| E-32 | A requirement is **removed** from `docs/spec.md` between crawls | It is **dropped** from the catalog (latest-snapshot, R-107); the removal is counted in the crawl-run summary (R-108) |
-| E-33 | A requirement's **text changes** between crawls (or a new one appears) | Flagged **`changedInLastCrawl: true`** (R-107) |
-| E-34 | `GET /requirements/{source}/{id}` for an unknown source/id | `404 Not Found` (R-112) |
-| E-35 | Any `/requirements` read with **no** / invalid / insufficient credential | `401` (no credential) or `403` (rejected) — no requirement data returned (R-112, R-56, D-21) |
-| E-39 | A functional-gen job runs against a catalog with **no groundable requirement** | Success with an **empty** artifact set; every requirement recorded as skipped with a reason (R-116, R-121) |
-| E-40 | A requirement is **single-service / references no cataloged entity / has no API mapping / is infra-only** | **Skipped** with a recorded reason; the job continues for the rest (R-121) |
-| E-41 | The LLM returns a **malformed / non-schema-valid** plan for one requirement | That requirement is **skipped** (isolated, reason recorded); the job does not abort and the artifact set is not corrupted (R-120) |
-| E-42 | A functional-gen job re-runs against an **unchanged** catalog with the **same model + prompt version** | Every plan is a **cache hit** → **no** LLM calls; the emitted files are **byte-identical** → writing them yields a **no-op git diff** (R-119, R-119a) |
-| E-43 | A contract or requirement **changed** since the last job (input hash differs) | Only the **affected** plans are re-synthesised (cache miss); unchanged plans are reused (R-119) |
-| E-44 | `POST /generate-functional-tests` with **no** / invalid / non-writer credential | `401` (no credential) or `403` (rejected/insufficient); no job starts (R-115a) |
-| E-45 | `GET /functional-test-jobs/{jobId}` for an unknown job id | `404 Not Found` (R-125) |
-| E-46 | Bedrock **access is denied** or the model is **not enabled** in-region when a job runs | The job is marked `failed` with the (redacted) Bedrock error recorded on the job record; **no** partial artifacts are produced (R-118, R-124, NFR-9) |
-| E-47 | A functional-gen job **crashes or times out** mid-run | The job record is marked `failed`; the **previously-committed** `generated-tests/functional/**` are left **untouched** (R-124, NFR-4 spirit) |
+| #     | Condition                                                                                                                | Expected behaviour                                                                                                                                                                                                                                              |
+| ----- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E-1   | A source repo is unreachable / GitHub 5xx / auth fails                                                                   | That source marked `failed` in the run; other sources still crawled; existing entries for it untouched (R-13)                                                                                                                                                   |
+| E-2   | A source repo has no `contract/*.odcs.yaml` files                                                                        | Recorded as success with 0 discoveries (R-14)                                                                                                                                                                                                                   |
+| E-3   | A discovered file is not valid YAML                                                                                      | Entry cataloged `validation: invalid` with parse error; crawl continues (R-21)                                                                                                                                                                                  |
+| E-4   | A discovered file is valid YAML but fails ODCS v3.1.0 schema                                                             | Entry cataloged `validation: invalid` with failing paths; crawl continues (R-21)                                                                                                                                                                                |
+| E-5   | The identical `org` contract appears in both repos                                                                       | Two separate entries (`publisher/…org…`, `consumer/…org…`); `GET /entities/org` reports `divergent: false` (R-30, R-34)                                                                                                                                         |
+| E-6   | `user`/`class`/`enrollment` differ between repos                                                                         | Two entries each; `GET /entities/{e}` reports `divergent: true` + diff (R-34, R-53)                                                                                                                                                                             |
+| E-7   | Same {source, id} crawled again, content unchanged                                                                       | No new version; last-seen timestamp/SHA updated (R-32)                                                                                                                                                                                                          |
+| E-8   | Same {source, id} crawled again, content changed                                                                         | New history version appended; prior versions retained (R-33)                                                                                                                                                                                                    |
+| E-9   | Two files in one repo declare the **same** `id`                                                                          | First cataloged; id-collision warning naming both paths recorded in the crawl run (R-30a, D-13)                                                                                                                                                                 |
+| E-10  | Content changed but the contract's `version` field did **not**                                                           | New history version recorded (history keys on content hash); version flagged `versionNotBumped` (R-33a, D-16)                                                                                                                                                   |
+| E-11  | `POST /refresh` while a crawl is already running                                                                         | `409 Conflict` / returns in-flight run id; no concurrent crawl (R-15)                                                                                                                                                                                           |
+| E-12a | Read/refresh with **no** `Authorization` header                                                                          | `401` — gateway short-circuits before the authorizer (R-16, R-56, D-21)                                                                                                                                                                                         |
+| E-12b | Read/refresh with an expired/malformed token, or a valid token lacking the required group                                | `403` — authorizer denies (R-16, R-56, R-71, D-21)                                                                                                                                                                                                              |
+| E-13  | `POST /refresh` by a reader-only user                                                                                    | `403`; no crawl (R-16)                                                                                                                                                                                                                                          |
+| E-14  | `GET` for an unknown source/id/entity/version                                                                            | `404` (R-54)                                                                                                                                                                                                                                                    |
+| E-15  | A contract's `schema[]` has zero or no usable name                                                                       | Entity falls back to the filename stem; entry still cataloged (R-22, D-12)                                                                                                                                                                                      |
+| E-16  | GitHub API rate limit hit mid-crawl                                                                                      | Source marked `failed` with a rate-limit reason; other sources unaffected (R-13, D-15)                                                                                                                                                                          |
+| E-17  | Reader-only user opens the SPA                                                                                           | Refresh action hidden/disabled; only GETs succeed; `POST /refresh` would be `403` (R-64, R-71)                                                                                                                                                                  |
+| E-18  | A source has no successfully cataloged contracts (all failed / none discovered)                                          | The by-source view derives sources from the catalog, so that source shows no contract rows; its crawl outcome stays visible via `GET /crawls` (R-65, E-1/E-2)                                                                                                   |
+| E-19  | `POST /generate-tests` when the catalog is empty (no prior crawl)                                                        | Empty artifact set produced; run recorded as **success** with zero counts (R-81)                                                                                                                                                                                |
+| E-20  | A cataloged contract is `validation: invalid`                                                                            | Conformance generation **skipped** for it with a recorded reason; all other contracts still generated (R-85)                                                                                                                                                    |
+| E-21  | An entity exists in only one source (e.g. consumer-only `class-roster`)                                                  | Compatibility generation **skipped** for it with a recorded reason; conformance still generated if applicable (R-85)                                                                                                                                            |
+| E-22  | `POST /generate-tests` re-run against an **unchanged** catalog                                                           | Byte-identical manifest + files; writing them into the repo yields a **no-op git diff** (R-88)                                                                                                                                                                  |
+| E-23  | A generated conformance test is later run with its API-URL / token env vars **unset**                                    | The test is **skipped** (Vitest `skip`), not failed (R-83a)                                                                                                                                                                                                     |
+| E-24  | `POST /generate-tests` with no / invalid / non-writer credential                                                         | `401` (no credential) or `403` (rejected/insufficient); no generation runs (R-80a)                                                                                                                                                                              |
+| E-25  | A property the **consumer** variant requires is **absent** (or type-incompatible) in the **publisher** variant           | The generated compatibility test, WHEN run, **fails**, naming entity + property path + reason (R-84) — this is the divergence the test exists to catch                                                                                                          |
+| E-26  | The **publisher** variant has **extra** properties beyond the consumer's required set                                    | The compatibility test **passes** (extra publisher fields are allowed under consumer-can-read-publisher, R-84)                                                                                                                                                  |
+| E-27  | A cataloged entity has **no configured API path/env mapping** for conformance                                            | Conformance generation **skipped** for it with a recorded reason; no unrunnable test emitted (R-83b, R-85)                                                                                                                                                      |
+| E-28  | A contract present in a prior generation is **removed** from the catalog, then re-generated                              | Its stale `*.generated.test.ts` is **removed** (tree replaced wholesale, R-92); the manifest no longer lists it                                                                                                                                                 |
+| E-29  | A source's `docs/spec.md` is **absent**, or is **present but has no requirements section** (source reachable)            | That source's requirement snapshot is **wiped to zero** (`discovered: 0`, `removed` = prior count), recorded as a **success** (R-105) — the observed state is "zero requirements". (A spec-doc that can't be fetched or parsed is instead R-105a — keep prior.) |
+| E-36  | A source is **unreachable / its crawl fails** before its `docs/spec.md` is read                                          | The source's previously-cataloged requirements are **kept unchanged** (unobserved state, no deletion) and the source is marked `failed` (R-105, R-13, E-1)                                                                                                      |
+| E-37  | Extracting / storing a source's requirements **fails after its contracts are cataloged** (malformed doc / storage error) | That source's **requirements** are marked **failed** (`crawl.requirements.failed`); its cataloged contracts and every other source are **unaffected**; the source's contract outcome stays `success` (R-105a, NFR-4)                                            |
+| E-38  | A source's `docs/spec.md` declares the **same `R-nn` twice** under the requirements section                              | The **first** occurrence is cataloged, the duplicate dropped, and a `crawl.requirements.collision` is recorded naming the id(s) (mirrors the contract id-collision rule E-9/R-30a — D-49)                                                                       |
+| E-30  | A requirement bullet has **no modality** keyword (`SHALL`/`SHOULD`/`MAY`)                                                | Cataloged with **`earsConforming: false`**, still listed and served (R-104)                                                                                                                                                                                     |
+| E-31  | A source's `docs/spec.md` is re-crawled **unchanged**                                                                    | Requirement set replaced in place; **no** requirement flagged `changedInLastCrawl` (all `false`) — content hash matches (R-107)                                                                                                                                 |
+| E-32  | A requirement is **removed** from `docs/spec.md` between crawls                                                          | It is **dropped** from the catalog (latest-snapshot, R-107); the removal is counted in the crawl-run summary (R-108)                                                                                                                                            |
+| E-33  | A requirement's **text changes** between crawls (or a new one appears)                                                   | Flagged **`changedInLastCrawl: true`** (R-107)                                                                                                                                                                                                                  |
+| E-34  | `GET /requirements/{source}/{id}` for an unknown source/id                                                               | `404 Not Found` (R-112)                                                                                                                                                                                                                                         |
+| E-35  | Any `/requirements` read with **no** / invalid / insufficient credential                                                 | `401` (no credential) or `403` (rejected) — no requirement data returned (R-112, R-56, D-21)                                                                                                                                                                    |
+| E-39  | A functional-gen job runs against a catalog with **no groundable requirement**                                           | Success with an **empty** artifact set; every requirement recorded as skipped with a reason (R-116, R-121)                                                                                                                                                      |
+| E-40  | A requirement is **single-service / references no cataloged entity / has no API mapping / is infra-only**                | **Skipped** with a recorded reason; the job continues for the rest (R-121)                                                                                                                                                                                      |
+| E-41  | The LLM returns a **malformed / non-schema-valid** plan for one requirement                                              | That requirement is **skipped** (isolated, reason recorded); the job does not abort and the artifact set is not corrupted (R-120)                                                                                                                               |
+| E-42  | A functional-gen job re-runs against an **unchanged** catalog with the **same model + prompt version**                   | Every plan is a **cache hit** → **no** LLM calls; the emitted files are **byte-identical** → writing them yields a **no-op git diff** (R-119, R-119a)                                                                                                           |
+| E-43  | A contract or requirement **changed** since the last job (input hash differs)                                            | Only the **affected** plans are re-synthesised (cache miss); unchanged plans are reused (R-119)                                                                                                                                                                 |
+| E-44  | `POST /generate-functional-tests` with **no** / invalid / non-writer credential                                          | `401` (no credential) or `403` (rejected/insufficient); no job starts (R-115a)                                                                                                                                                                                  |
+| E-45  | `GET /functional-test-jobs/{jobId}` for an unknown job id                                                                | `404 Not Found` (R-125)                                                                                                                                                                                                                                         |
+| E-46  | Bedrock **access is denied** or the model is **not enabled** in-region when a job runs                                   | The job is marked `failed` with the (redacted) Bedrock error recorded on the job record; **no** partial artifacts are produced (R-118, R-124, NFR-9)                                                                                                            |
+| E-47  | A functional-gen job **crashes or times out** mid-run                                                                    | The job record is marked `failed`; the **previously-committed** `generated-tests/functional/**` are left **untouched** (R-124, NFR-4 spirit)                                                                                                                    |
 
 ---
 
@@ -321,11 +321,11 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 
 **Requirements Catalog (§3.10): RESOLVED** on 2026-07-15 via clarifying questions before spec generation — interpretation (new crawl-and-catalog feature), surface (API + SPA), scope (all EARS requirements per source), versioning (latest-snapshot + change flag), trigger (extend `POST /refresh`), extraction depth (EARS type + modality + non-conforming flag), raw-spec provenance (store in S3), SPA placement (third toggle). Folded into the Decisions Log as **D-44…D-48**. No blocking questions remain.
 
-- **OQ-10 — Runtime schema source for conformance assertions.** A conformance test must validate live records against *something*. The registry deliberately does **not** compile ODCS → JSON Schema (D-11/D-20). Options: **(a, recommended)** the generator derives a JSON Schema from the contract's parsed `schema[]` and **embeds it in the manifest**, and the emitted test validates records with Ajv against that embedded schema (self-contained, no dependency on the apps' build); (b) the emitted test fetches each app's own compiled `*.schema.json` at run time (couples tests to app internals); (c) assert field-by-field from `schema[]` without a JSON Schema (reimplements validation). *Recommend (a).*
-- **OQ-11 — Entity → API-path resolution for conformance.** How does the generator know which HTTP path returns an entity's records (e.g. `user` → `GET /users`)? Options: **(a, recommended)** a small **configured per-source map** (`entity → { path, baseUrlEnv, tokenEnv }`) co-located with `sources.ts`, since the two apps' routes are known and fixed; (b) derive from the ODCS `servers`/`apiVersion` block if present (brittle — the contracts may not carry runtime server info). *Recommend (a); entities with no mapping are skipped (R-83b).*
-- **OQ-12 — Artifact retrieval/delivery mechanism for the CLI.** How does the CLI get the artifact bytes the endpoint produced? Options: **(a, recommended)** `GET /test-artifacts/{runId|latest}` returns the manifest + files **inline in the JSON response** (artifact set is small — a few KB); (b) return **S3 pre-signed download URLs**; (c) CLI re-generates locally from `GET /contracts` instead of downloading (diverges endpoint vs CLI output — rejected). *Recommend (a) for v1; escalate to (b) only if artifacts grow large.*
-- **OQ-13 — CLI offline/local generation mode.** Besides pulling endpoint artifacts (R-91), should the CLI also generate **locally** (calling the pure core against `GET /contracts`, no deployed generate endpoint)? Options: **(a, recommended)** ship a `--local` mode that runs the same pure core against the read API, for dev use, while the default pulls the endpoint run; (b) endpoint-pull only. *Recommend (a) — the core is pure (NFR-8), so local mode is nearly free and aids development.*
-- **OQ-14 — Commit behaviour.** Should the CLI stage/commit the generated tree, or only write it? Options: **(a, recommended)** write files only; the human reviews `git diff` and commits (D-29); (b) auto-commit on a branch. *Recommend (a).*
+- **OQ-10 — Runtime schema source for conformance assertions.** A conformance test must validate live records against _something_. The registry deliberately does **not** compile ODCS → JSON Schema (D-11/D-20). Options: **(a, recommended)** the generator derives a JSON Schema from the contract's parsed `schema[]` and **embeds it in the manifest**, and the emitted test validates records with Ajv against that embedded schema (self-contained, no dependency on the apps' build); (b) the emitted test fetches each app's own compiled `*.schema.json` at run time (couples tests to app internals); (c) assert field-by-field from `schema[]` without a JSON Schema (reimplements validation). _Recommend (a)._
+- **OQ-11 — Entity → API-path resolution for conformance.** How does the generator know which HTTP path returns an entity's records (e.g. `user` → `GET /users`)? Options: **(a, recommended)** a small **configured per-source map** (`entity → { path, baseUrlEnv, tokenEnv }`) co-located with `sources.ts`, since the two apps' routes are known and fixed; (b) derive from the ODCS `servers`/`apiVersion` block if present (brittle — the contracts may not carry runtime server info). _Recommend (a); entities with no mapping are skipped (R-83b)._
+- **OQ-12 — Artifact retrieval/delivery mechanism for the CLI.** How does the CLI get the artifact bytes the endpoint produced? Options: **(a, recommended)** `GET /test-artifacts/{runId|latest}` returns the manifest + files **inline in the JSON response** (artifact set is small — a few KB); (b) return **S3 pre-signed download URLs**; (c) CLI re-generates locally from `GET /contracts` instead of downloading (diverges endpoint vs CLI output — rejected). _Recommend (a) for v1; escalate to (b) only if artifacts grow large._
+- **OQ-13 — CLI offline/local generation mode.** Besides pulling endpoint artifacts (R-91), should the CLI also generate **locally** (calling the pure core against `GET /contracts`, no deployed generate endpoint)? Options: **(a, recommended)** ship a `--local` mode that runs the same pure core against the read API, for dev use, while the default pulls the endpoint run; (b) endpoint-pull only. _Recommend (a) — the core is pure (NFR-8), so local mode is nearly free and aids development._
+- **OQ-14 — Commit behaviour.** Should the CLI stage/commit the generated tree, or only write it? Options: **(a, recommended)** write files only; the human reviews `git diff` and commits (D-29); (b) auto-commit on a branch. _Recommend (a)._
 
 _(Original registry-core questions retained for provenance:)_
 
@@ -346,56 +346,67 @@ _(Original registry-core questions retained for provenance:)_
 _(Each entry: **Decision / Reason / Affects**. D-1…D-11 below were fixed during Phase 1 clarification on 2026-07-07; OQ resolutions will be appended as D-12+.)_
 
 **D-1 — The registry is a deployed AWS service (SST v2).**
+
 - **Decision:** Build the registry as a real SST v2 application on AWS (DynamoDB + S3 + API Gateway HTTP API + Lambda + Cognito + a React SPA), mirroring the two example apps' stack.
 - **Reason:** Highest-fidelity demonstration and consistent with the sibling apps; the user selected this over a static catalog or a library/CLI.
 - **Affects:** entire design, NFR-6.
 
 **D-2 — Catalog both variants as-is; do not reconcile.**
+
 - **Decision:** Store the publisher's and consumer's copy of each contract as distinct entries; never merge or produce a canonical version.
-- **Reason:** The registry's value here is making the *existing divergence* visible; reconciliation is a separate concern.
+- **Reason:** The registry's value here is making the _existing divergence_ visible; reconciliation is a separate concern.
 - **Affects:** §1, §2, R-30, R-34, R-53.
 
 **D-3 — The two source apps are not modified.**
+
 - **Decision:** The registry only reads the repos; it does not change them or wire them to consume from it.
 - **Reason:** Keeps blast radius to the new project; app integration is future work.
 - **Affects:** §2.
 
 **D-4 — Population is by crawl only; no client upload API.**
+
 - **Decision:** Contracts enter the registry exclusively by crawling the configured repos on demand; there is no `POST /contracts` upload.
 - **Reason:** The user specified "crawl the repos on-demand" as the population model.
 - **Affects:** §2, R-10, R-40.
 
 **D-5 — Source repos are fixed configuration, not runtime input.**
+
 - **Decision:** The crawl targets a fixed, configured list (the two example apps); callers cannot point the crawler at arbitrary repos.
 - **Reason:** Security and scope; a demo registry over two known repos.
 - **Affects:** §2, R-01.
 
-**D-6 — Authenticated reads *and* writes (Cognito).**
+**D-6 — Authenticated reads _and_ writes (Cognito).**
+
 - **Decision:** Every endpoint requires a valid Cognito token; the `reader` group may GET, the `writer` group may additionally `POST /refresh`.
 - **Reason:** The user chose authed-reads-and-writes, mirroring the two apps' posture.
 - **Affects:** R-16, R-56, R-60, R-64, NFR-2.
 
 **D-7 — Trigger-then-cache freshness model.**
+
 - **Decision:** Reads serve a **pre-crawled, cached** catalog from DynamoDB/S3; a crawl is triggered explicitly via `POST /refresh`. Reads never crawl live.
 - **Reason:** The user chose trigger-then-cache over crawl-per-request; keeps reads fast and avoids per-read GitHub rate-limit exposure.
 - **Affects:** R-10, R-40, R-41, R-50, NFR-1.
 
 **D-8 — Crawl source is the GitHub API on the default branch.**
+
 - **Decision:** The crawler fetches contracts from each repo's **default branch (main)** via the GitHub API using a token in an SST Secret; a deployed Lambda cannot read local checkouts.
 - **Reason:** The user selected GitHub-API remote crawling for the deployed service.
 - **Affects:** R-01, R-02, R-10, R-11, OQ-4.
 
 **D-9 — Fault-isolating crawl.**
+
 - **Decision:** A crawl records per-source and per-file outcomes; one failure never aborts the rest and never partially corrupts the catalog.
 - **Reason:** Reliability; a registry that drops everything because one file is bad is worse than useless.
 - **Affects:** R-13, R-14, R-21, NFR-4, E-1…E-4.
 
 **D-10 — Append-only version history keyed on content hash.**
+
 - **Decision:** Each {source, id} entry keeps an immutable, append-only version history; a new version is recorded whenever crawled content differs by hash.
 - **Reason:** Preserves the full divergence timeline; content hash is an unambiguous change signal independent of the declared `version` field.
 - **Affects:** R-31, R-32, R-33, E-7, E-8, E-10, OQ-2.
 
 **D-11 — Store ODCS source; app-compiled schema is at most an attached artifact.**
+
 - **Decision:** The registry catalogs the ODCS `*.odcs.yaml` **source**; it does not run the compiler. Whether to also attach each app's compiled `*.schema.json` is deferred to OQ-9 (default: ignore for v1).
 - **Reason:** The compiler lives in each app; the registry's product is the contract source and its validation status.
 - **Affects:** §2, R-41, OQ-9.
@@ -405,46 +416,55 @@ _(Each entry: **Decision / Reason / Affects**. D-1…D-11 below were fixed durin
 _(D-12…D-20 resolve the open questions, decided 2026-07-08.)_
 
 **D-12 — Entity name = `schema[0].name`, fallback filename stem.** (resolves OQ-1)
+
 - **Decision:** An entry's entity is the `name` of the first object in `schema[]`; if that is missing/empty, fall back to the file's name stem (`enrollment.odcs.yaml` → `enrollment`).
 - **Reason:** Content-driven and robust; the filename fallback keeps every file catalogable even if its schema is malformed.
 - **Affects:** R-22, E-15, R-34, R-53.
 
 **D-13 — Catalog key is {source, id}; duplicate ids within a source are flagged, not overwritten.** (resolves OQ-3)
+
 - **Decision:** Entries key on {source label, contract `id`}. If one source has two files sharing an `id`, the first is cataloged and an id-collision warning (naming both paths) is recorded in the crawl run.
 - **Reason:** Contract `id` is the authoritative identity; silent overwrite would hide a real authoring bug.
 - **Affects:** R-30, R-30a, E-9.
 
 **D-14 — GitHub access via a fine-grained PAT + Git Trees/Blobs API.** (resolves OQ-4)
+
 - **Decision:** Authenticate with a read-only fine-grained Personal Access Token (Contents:read, scoped to the two repos) stored as SST Secret `GITHUB_TOKEN`. Crawl by listing the recursive Git Tree of the default branch and fetching each matching blob.
 - **Reason:** Simplest credential for a personal/demo project; the Trees+Blobs API gives exact per-file blob SHAs (feeds the content-hash version model, D-10) without downloading whole tarballs.
 - **Affects:** R-02, R-10, R-11.
 
 **D-15 — Single-flight via a DynamoDB conditional lock item; rate-limits fail the source.** (resolves OQ-7)
+
 - **Decision:** Acquire a lock item with a conditional write (`attribute_not_exists`) at crawl start, release at end, with a TTL fallback. A second `POST /refresh` that fails the condition returns `409` with the in-flight run id. GitHub rate-limit responses mark that source `failed` per the fault-isolation rule (D-9).
 - **Reason:** Lightweight correctness for the write path with no extra services (no Step Functions / reserved-concurrency coupling).
 - **Affects:** R-15, E-11, E-16.
 
 **D-16 — Surface the declared `version` field and warn on content-change-without-bump.** (resolves OQ-2)
+
 - **Decision:** Each stored version records both its content hash and the contract's declared `version` field; a content-differing version that reuses the prior declared `version` is flagged `versionNotBumped`.
 - **Reason:** Content hash is the source of truth for change (D-10), but surfacing the declared version and flagging non-bumps is a useful contract-hygiene signal.
 - **Affects:** R-33a, E-10, R-62 (UI shows it).
 
 **D-17 — Admin-created Cognito users, no self-signup; seed a reader and a writer.** (resolves OQ-5)
+
 - **Decision:** Disable self-service sign-up; seed one `reader` and one `writer` demo user, each in its group, at deploy.
 - **Reason:** A locked-down registry demonstrable immediately after deploy; mirrors the consuming app's native-user posture.
 - **Affects:** R-70, R-71, R-72, D-6.
 
 **D-18 — Semantic per-property diff for divergent entities.** (resolves OQ-8)
+
 - **Decision:** `GET /entities/{entity}` returns a structured diff over the parsed contracts (properties/fields/quality rules added / removed / changed with old→new), not a raw text diff.
-- **Reason:** Surfacing *contract* drift (the whole point of the registry) is far more useful than a formatting-noisy line diff.
+- **Reason:** Surfacing _contract_ drift (the whole point of the registry) is far more useful than a formatting-noisy line diff.
 - **Affects:** R-53, R-63.
 
 **D-19 — Manual-only crawl for v1 (no scheduled cron).** (resolves OQ-6)
+
 - **Decision:** Crawls happen only via authenticated `POST /refresh`; no EventBridge schedule in v1.
 - **Reason:** Keeps the write path simple and intentional; scheduling is an easy additive follow-up.
 - **Affects:** §2, R-10.
 
 **D-20 — Catalog ODCS source only; ignore compiled `*.schema.json`.** (resolves OQ-9)
+
 - **Decision:** The crawler ingests `*.odcs.yaml` source only; it does not pick up the apps' compiled `*.schema.json`.
 - **Reason:** The registry's product is the contract source and its validation status (D-11); the compiled artifact adds noise without new information for v1.
 - **Affects:** §2, R-23, R-41.
@@ -454,8 +474,9 @@ _(D-12…D-20 resolve the open questions, decided 2026-07-08.)_
 _(D-21 added during Phase 2 design review, 2026-07-08.)_
 
 **D-21 — Group authorization via a Lambda REQUEST authorizer on the HTTP API; `401` = no credential, `403` = credential rejected.** (design decision)
+
 - **Decision:** Enforce authentication **and** `reader`/`writer` group authorization at the edge with a single Lambda REQUEST authorizer (`aws-jwt-verify` for Cognito access-token verification; per-route rule keyed on `routeKey` + the `cognito:groups` claim; authorizer result caching disabled). Status model: a missing `Authorization` header returns `401` (API Gateway short-circuits before the authorizer); a present-but-rejected token — invalid, expired, or lacking the required group — returns `403`.
-- **Reason:** No built-in authorizer (neither the HTTP API `user_pool` JWT authorizer nor the REST API Cognito authorizer) can gate on Cognito **groups**; a Lambda authorizer is the way to enforce groups at the gateway on either API type, so it is *not* a reason to switch to REST API. HTTP API is retained for consistency with both sibling apps and for lower cost/latency. The `401/403` split shifts the previous "expired/malformed token → `401`" (R-16/R-56/E-12) to `403`, adopting the standard "401 = who are you / 403 = you may not" model. *(Alternative — a REST API Lambda authorizer can emit `401` via `throw "Unauthorized"` and `403` via a Deny policy, preserving strict 401-for-invalid-token; rejected in favour of HTTP API consistency.)*
+- **Reason:** No built-in authorizer (neither the HTTP API `user_pool` JWT authorizer nor the REST API Cognito authorizer) can gate on Cognito **groups**; a Lambda authorizer is the way to enforce groups at the gateway on either API type, so it is _not_ a reason to switch to REST API. HTTP API is retained for consistency with both sibling apps and for lower cost/latency. The `401/403` split shifts the previous "expired/malformed token → `401`" (R-16/R-56/E-12) to `403`, adopting the standard "401 = who are you / 403 = you may not" model. _(Alternative — a REST API Lambda authorizer can emit `401` via `throw "Unauthorized"` and `403` via a Deny policy, preserving strict 401-for-invalid-token; rejected in favour of HTTP API consistency.)_
 - **Affects:** R-16, R-56, R-71, E-12a, E-12b; design §1, §3, §4, §6, §7.1.
 
 ---
@@ -463,6 +484,7 @@ _(D-21 added during Phase 2 design review, 2026-07-08.)_
 _(D-22 added during Maintenance change request, 2026-07-09 — recipe Prompt 13, requirements-first.)_
 
 **D-22 — By-source browse view is a toggle against the by-entity view, reusing the shared contract detail.** (change request)
+
 - **Original question:** How should the requested per-source view relate to the existing entity-grouped browse view, and how much of each contract should it show?
 - **Decision:** Add a **by-source** view selectable via a top-level **toggle** (By entity / By source). The by-entity view remains the **default** and keeps the divergence diff (R-63). The by-source view lists each crawled source with its contracts as **summary rows** (entity, declared version, validation status); selecting a row opens the **same** detail panel as R-62 (metadata, version history, raw YAML). No new backend endpoint — the view is derived client-side from `GET /contracts` (R-50).
 - **Reason:** A toggle keeps both organizations first-class without crowding one screen; summary-rows-plus-shared-detail reuses R-62 and the existing `listContracts` data, so the change is purely additive front-end with zero API/data-model impact.
@@ -473,36 +495,43 @@ _(D-22 added during Maintenance change request, 2026-07-09 — recipe Prompt 13,
 _(D-23…D-29 added for the Test Generator component, 2026-07-09 — recipe Phase 1, resolved with the user via clarifying questions before spec generation.)_
 
 **D-23 — Generate both live-conformance and cross-app-compatibility tests.**
+
 - **Decision:** Each generation run produces, per applicable contract, a **live API-conformance** test, and per shared entity, a **cross-app compatibility** test.
 - **Reason:** The user chose "both": conformance proves each app's live data honours its own contract; compatibility proves the divergence the registry catalogs does not actually break the publisher→consumer flow.
 - **Affects:** R-82, R-83, R-84, §3.9.
 
 **D-24 — Compatibility criterion = consumer-can-read-publisher (directional).**
+
 - **Decision:** A shared entity passes iff every property the **consumer** variant requires is present and type-compatible in the **publisher** variant; extra publisher properties are allowed.
 - **Reason:** Matches the real CDC data flow (publisher emits → consumer reads); a plain exact-match or reused semantic-diff would flag harmless additive/cosmetic drift as failure.
 - **Affects:** R-84, R-84a, E-25, E-26.
 
 **D-25 — Live conformance targets the deployed HTTP API with a Cognito token.**
+
 - **Decision:** Emitted conformance tests call each app's **deployed API Gateway** per-entity endpoint, authenticating with a **test user's Cognito access token** supplied via environment variables at run time.
 - **Reason:** The user chose a true end-to-end check of the running service over reading DynamoDB directly; env-supplied token keeps credentials out of the committed tests.
 - **Affects:** R-83, R-83a, R-83b, OQ-11.
 
 **D-26 — Missing live credentials → skip, not fail.**
+
 - **Decision:** A generated conformance test whose required env vars are unset is **skipped** (Vitest `skip`), never failed.
 - **Reason:** The committed generated tests must be safe to have in the tree without live credentials present; a hard failure would break any unrelated run. (Also reinforced by R-93 excluding them from the registry's own suites.)
 - **Affects:** R-83a, E-23.
 
 **D-27 — Invalid or unmatched contracts are skipped with a recorded reason.**
+
 - **Decision:** Invalid contracts (skip conformance) and single-source entities (skip compat) and unmapped entities (skip conformance) are **skipped with a reason recorded in the manifest**, and generation continues for everything else.
 - **Reason:** The user chose skip-with-reason over emitting negative tests or hard-failing; fault isolation mirrors the crawl (D-9) and keeps a partial catalog useful.
 - **Affects:** R-85, E-20, E-21, E-27.
 
 **D-28 — Output is both a declarative manifest (source of truth) and emitted Vitest TS.**
+
 - **Decision:** Each run emits a JSON **manifest** enumerating every test/skip, **and** executable **Vitest `*.generated.test.ts`** derived from it.
 - **Reason:** The user chose "both": the manifest is language-agnostic and diff-friendly and drives the future runner; the emitted Vitest files run today with no bespoke interpreter, matching the repo's stack.
 - **Affects:** R-86, R-87, R-88, R-92.
 
 **D-29 — Produced by both a writer-authed endpoint and a CLI; running is out of scope.**
+
 - **Decision:** A deployed writer-authed `POST /generate-tests` produces and stores the artifact set (S3 + DynamoDB run record, retrievable via `GET /test-artifacts`); a **CLI** authenticates as writer, pulls a run's artifacts, and writes them into the repo working tree for the human to review and commit. **Executing** the generated tests on demand is a separate future feature.
 - **Reason:** The user chose "both" for the trigger and "generation + storage only" for scope; the deployed endpoint keeps generation reproducible server-side against the live catalog, while the CLI is how tests land "in this repo".
 - **Affects:** R-80, R-89, R-90, R-91, R-93, §2, OQ-12, OQ-14.
@@ -512,36 +541,43 @@ _(D-23…D-29 added for the Test Generator component, 2026-07-09 — recipe Phas
 _(D-30…D-34 resolve the Test-Generator open questions OQ-10…OQ-14, decided 2026-07-09 at the Phase-1 gate; user accepted all recommended defaults.)_
 
 **D-30 — Conformance runtime schema = JSON Schema derived from `schema[]`, embedded in the manifest.** (resolves OQ-10)
+
 - **Decision:** The generator derives a JSON Schema from each contract's parsed ODCS `schema[]` and embeds it in the manifest; the emitted conformance test validates each live record with **Ajv** against that embedded schema.
 - **Reason:** Self-contained — the generated test depends on neither the apps' build output nor a re-fetch; keeps the registry's "validate, never assume" principle and reuses the vendored Ajv stack.
 - **Affects:** R-83, R-86, R-87.
 
 **D-31 — Entity → API path via a configured per-source map co-located with `sources.ts`.** (resolves OQ-11)
+
 - **Decision:** A small static map `{ source → { entity → { path, baseUrlEnv, tokenEnv } } }` lives beside the source configuration; unmapped entities are skipped for conformance (R-83b).
 - **Reason:** The two apps' routes are fixed and known; deriving paths from ODCS `servers` is brittle and the contracts may not carry runtime server info.
 - **Affects:** R-83b, R-85, E-27.
 
 **D-32 — `GET /test-artifacts` returns the manifest + files inline in the JSON response.** (resolves OQ-12)
+
 - **Decision:** The retrieval endpoint returns the artifact set inline (a few KB) rather than S3 pre-signed URLs; escalate to pre-signed download only if artifacts grow large.
 - **Reason:** Simplest delivery for the CLI at v1 scale; no extra S3-URL signing/round-trip.
 - **Affects:** R-90, R-91.
 
 **D-33 — CLI ships a `--local` generation mode in addition to endpoint-pull.** (resolves OQ-13)
+
 - **Decision:** The default CLI mode triggers/pulls the deployed run (R-91); a `--local` mode runs the same **pure core** against `GET /contracts` for offline/dev use, producing identical output.
 - **Reason:** The core is a pure offline function (NFR-8), so local mode is nearly free and speeds development; both modes share one code path so output cannot diverge.
 - **Affects:** R-91, NFR-8.
 
 **D-34 — CLI writes files only; the human reviews `git diff` and commits.** (resolves OQ-14)
+
 - **Decision:** The CLI writes the `generated-tests/` tree into the working directory and stops; it does not stage, commit, or push.
 - **Reason:** Generated tests are code review-worthy; a human gate before commit matches D-29 and the recipe's spec-anchored discipline.
 - **Affects:** R-91, §2.
 
 **D-35 — `generate-tests` CLI sources all config from the deployed stack via `sst bind` (SSM); no config file, no prompt.** (decided 2026-07-15; supersedes the interim env/`.env`/prompt design)
+
 - **Decision:** `npm run generate-tests` runs as `sst bind tsx scripts/generate-tests.ts`. `sst bind` injects the stage's SSM-backed bindings; the CLI reads the API URL from the **Api resource binding** (`sst/node/api` → `Api.Api.url`), the client id from `Config.Parameter USER_POOL_CLIENT_ID` (AuthStack), and the writer password from the existing `Config.Secret REGISTRY_DEMO_PASSWORD` (the same secret the seed uses to set writer@demo's password), then authenticates as `writer@demo` via `USER_PASSWORD_AUTH`. Environment variables override any value (`REGISTRY_TOKEN`, `REGISTRY_USERNAME`/`REGISTRY_PASSWORD`, `AWS_REGION`). Missing API URL or credential → directive error, never a hang.
 - **Reason:** The end user always has AWS credentials, so `sst bind` + Parameter Store is strictly better than a committed `generate-tests.config.json` (which nobody wants to maintain and which duplicates deploy outputs) or an interactive prompt: SSM is the single source of truth, the writer secret already exists there, and there is nothing to keep in sync. SSM SecureString (via SST `Config.Secret`) is the right store here — Secrets Manager's rotation/cross-account features aren't needed for a demo credential and it would leave the SST idiom.
 - **Affects:** R-91, R-91a, NFR-2 (secret only in encrypted SSM, never in source), AuthStack (`Config.Parameter`s), package.json (`generate-tests` wrapped in `sst bind`).
 
 **D-36 — resource + config values are read through `sst/node` bindings, not hand-threaded env vars.** (decided 2026-07-15, aligning with SST v2 guidance)
+
 - **Decision:** Function handlers read their dependencies through SST resource bindings via `sst/node`: `repository.ts` reads the table/bucket names from `sst/node/table` (`Table.Registry.tableName`) and `sst/node/bucket` (`Bucket.Contracts.bucketName`); the authorizer and seed read the Cognito pool id + client id from `Config.Parameter`s (`USER_POOL_ID`, `USER_POOL_CLIENT_ID`) via `sst/node/config`. The corresponding `environment: {}` entries and the redundant `REGISTRY_API_URL` `Config.Parameter` (the Api binding already exposes the URL) are removed. The `test:offline` suite stubs the `SST_{Construct}_{prop}_{id}` binding env vars (`vitest.setup.ts`) so it still runs without AWS; `npm test` (`sst bind vitest run`) exercises the real bound values.
 - **Reason:** SST v2 recommends accessing bound resources through `sst/node` (which also grants the IAM permissions) rather than manually copying values into `environment`. Cognito has no native `sst/node` binding, so a `Config.Parameter` is the idiomatic bridge for those construct values. Reading through bindings makes SSM/the stack the single source of truth and keeps handlers consistent with how secrets are already consumed.
 - **Affects:** repository.ts, authorizer.ts, seed.ts, ApiStack, AuthStack, vitest.config.ts + vitest.setup.ts, NFR-6/NFR-7 (idiomatic IaC).
@@ -551,32 +587,38 @@ _(D-30…D-34 resolve the Test-Generator open questions OQ-10…OQ-14, decided 2
 _(D-37…D-42 added 2026-07-15 during the periodic health check — recipe Step 11. D-37…D-41 promote decisions that were live in the implementation/design but never recorded here; D-42 records a scope correction. No requirement was changed.)_
 
 **D-37 — GitHub crawl uses `@octokit/rest` behind the `GitHubApi` interface.** (promoted; captured in design §7.5)
+
 - **Decision:** The crawler fetches the recursive Git Tree + blobs via `@octokit/rest`, hidden behind the `GitHubApi` interface, rather than a hand-rolled `fetch` wrapper.
 - **Reason:** Octokit provides typed auth, pagination, and error handling that directly serve the fault-isolation model (R-13); the interface keeps a `fetch` implementation drop-in if dependency minimalism is later preferred.
 - **Affects:** R-02, R-10, R-11, R-13; `packages/core/src/github.ts`.
 
 **D-38 — The GitHub blob SHA is reused directly as the content hash.** (promoted; captured in design §7.3)
-- **Decision:** Each file's git blob SHA (SHA-1) *is* the content hash that drives the append-only version model (D-10) and the cross-repo divergence check (R-34); no separate digest is computed.
+
+- **Decision:** Each file's git blob SHA (SHA-1) _is_ the content hash that drives the append-only version model (D-10) and the cross-repo divergence check (R-34); no separate digest is computed.
 - **Reason:** The blob SHA is already content-addressed and stable, so it doubles as change signal and identity with zero extra hashing. SHA-1 is acceptable here because it is a change-detection/identity key, not a security boundary.
 - **Affects:** R-11, R-32, R-33, R-34, E-5; D-10, D-14.
 
 **D-39 — Storage is one DynamoDB table with `byEntity` and `byKind` GSIs.** (promoted; captured in design §2.1)
+
 - **Decision:** Entries, immutable versions, crawl runs, generation runs, and the single-flight lock share one table using typed PK/SK prefixes (`SRC#`/`CON#`, `VER#`/`V#000n`, `RUN#`, `GEN#`, `LOCK`/`CRAWL`); GSI `byEntity` backs `GET /entities/{entity}` (R-34/R-53) and GSI `byKind` backs newest-first crawl- and generation-run listings (R-55, R-90).
 - **Reason:** On-demand single-table + two GSIs scales to the spec's volume (NFR-3) with no capacity planning; disjoint key prefixes keep heterogeneous item kinds in one table, and `kind="CRAWL"` vs `"GENERATION"` keep the two run listings disjoint.
 - **Affects:** R-40, R-42, R-53, R-55, R-89, R-90, NFR-3; `packages/functions/src/repository.ts`.
 
 **D-40 — The derived conformance JSON Schema is presence + type only (`additionalProperties: true`).** (promoted; captured in `derive-schema.ts`)
+
 - **Decision:** The JSON Schema derived from a contract's `schema[]` (D-30) asserts required fields are present and well-typed but sets `additionalProperties: true`, so a live record carrying extra fields is still conformant.
 - **Reason:** Consistent with the "extra allowed" stance of consumer-can-read-publisher (D-24); conformance checks that the contract's fields are honoured, not that the record is byte-exact to the contract.
 - **Affects:** R-83, R-86, R-87; D-24, D-30.
 
 **D-41 — The `generate-tests` CLI has a third `--pull` mode.** (promoted; captured in the CLI header)
-- **Decision:** Besides the default (generate + pull latest) and `--local` (offline pure core) modes (D-33), the CLI supports `--pull`: authenticate and download the latest existing generation-run artifacts *without* triggering a new `POST /generate-tests`.
+
+- **Decision:** Besides the default (generate + pull latest) and `--local` (offline pure core) modes (D-33), the CLI supports `--pull`: authenticate and download the latest existing generation-run artifacts _without_ triggering a new `POST /generate-tests`.
 - **Reason:** Lets an operator land the most recent server-generated tests without re-running generation (e.g. after another writer already generated).
 - **Affects:** R-91; D-29, D-33, D-35.
 
-**D-42 — An out-of-scope conformance *runner* was added, then removed to honour §2/D-29.** (scope correction)
-- **Original situation:** A `vitest.conformance.config.ts` + `npm run test:conformance` runner that *executes* the generated conformance tests against the live apps was introduced, contradicting §2 and D-29 (which place *running* the generated tests — on demand, on a schedule, or in CI — out of scope).
+**D-42 — An out-of-scope conformance _runner_ was added, then removed to honour §2/D-29.** (scope correction)
+
+- **Original situation:** A `vitest.conformance.config.ts` + `npm run test:conformance` runner that _executes_ the generated conformance tests against the live apps was introduced, contradicting §2 and D-29 (which place _running_ the generated tests — on demand, on a schedule, or in CI — out of scope).
 - **Decision:** Remove the runner. The generator continues to **generate and store** tests only; executing them remains a separate future feature. The generated `generated-tests/**` files stay committed for review and excluded from the registry's suites (R-93), and remain runnable later by that future feature.
 - **Reason:** Keep the oracle and the code aligned; re-scoping "running the tests" in is a deliberate decision to make explicitly if/when the future runner is built, not a side effect of a convenience script.
 - **Affects:** §2, R-93; D-29 (re-affirmed); removes `vitest.conformance.config.ts` + the `test:conformance` script.
@@ -586,7 +628,8 @@ _(D-37…D-42 added 2026-07-15 during the periodic health check — recipe Step 
 _(D-43 added 2026-07-15 during the second health-check pass — recipe Step 11. Documents the structured-logging contract introduced by the NFR-5 remediation, plus the credential-redaction boundary added in the same pass.)_
 
 **D-43 — Structured logging is a shared `log` helper: JSON-line, no embedded timestamp, non-scrubbing by default, with a fixed event taxonomy and a single redaction boundary.** (design decision)
-- **Decision:** All Lambdas log through `packages/functions/src/log.ts` — `log.info|warn|error(event, fields)` emitting one `JSON.stringify({ level, event, ...fields })` line per call (NFR-5). Deliberate choices: **(a)** no timestamp is embedded (CloudWatch stamps each line); **(b)** the logger does **not** scrub — callers are contractually responsible for keeping secrets out of `fields` (NFR-2), which is why handlers log usernames/groups but never tokens or passwords; **(c)** a fixed event-name taxonomy (`crawl.start`, `crawl.source.done`, `crawl.file.invalid`, `crawl.id.collision`, `crawl.source.failed`, `crawl.requirements.done`, `crawl.requirements.failed`, `crawl.requirements.collision`, `crawl.done`, `authz.decision`, `authz.denied`, `seed.user`, `generate.start`, `generate.done`); **(d)** the **places** that handle an *uncontrolled* upstream string — a crawl **source-failure** `reason` and a **requirements-failure** `reason`, both derived from a GitHub-client error — pass it through `redact()` (strips `ghp_`/`github_pat_`/… token shapes) before it reaches logs **or** the `POST /refresh` response, so an accidentally-echoed credential cannot leak (NFR-2).
+
+- **Decision:** All Lambdas log through `packages/functions/src/log.ts` — `log.info|warn|error(event, fields)` emitting one `JSON.stringify({ level, event, ...fields })` line per call (NFR-5). Deliberate choices: **(a)** no timestamp is embedded (CloudWatch stamps each line); **(b)** the logger does **not** scrub — callers are contractually responsible for keeping secrets out of `fields` (NFR-2), which is why handlers log usernames/groups but never tokens or passwords; **(c)** a fixed event-name taxonomy (`crawl.start`, `crawl.source.done`, `crawl.file.invalid`, `crawl.id.collision`, `crawl.source.failed`, `crawl.requirements.done`, `crawl.requirements.failed`, `crawl.requirements.collision`, `crawl.done`, `authz.decision`, `authz.denied`, `seed.user`, `generate.start`, `generate.done`); **(d)** the **places** that handle an _uncontrolled_ upstream string — a crawl **source-failure** `reason` and a **requirements-failure** `reason`, both derived from a GitHub-client error — pass it through `redact()` (strips `ghp_`/`github_pat_`/… token shapes) before it reaches logs **or** the `POST /refresh` response, so an accidentally-echoed credential cannot leak (NFR-2).
 - **Reason:** Matches the sibling apps' Powertools-free posture (design §4); CloudWatch already timestamps, so embedding one is redundant; a non-scrubbing hot path stays trivial while the single redaction boundary covers the only untrusted string. Promoted to a decision because these are security-relevant contracts that otherwise lived only in a code comment.
 - **Affects:** NFR-5, NFR-2, R-02; `packages/functions/src/log.ts`, `refresh.ts`, `authorizer.ts`, `seed.ts`, `generate.ts`.
 
@@ -595,26 +638,31 @@ _(D-43 added 2026-07-15 during the second health-check pass — recipe Step 11. 
 _(D-44…D-48 added 2026-07-15 for the Requirements Catalog component — recipe Phase 1, resolved with the user via clarifying questions before spec generation.)_
 
 **D-44 — Requirements are crawled from each source's `docs/spec.md` in the same `POST /refresh` pass.**
+
 - **Decision:** The existing writer-only crawl (R-10) additionally fetches, parses, and catalogs each source's `docs/spec.md` EARS requirements in the same run, recorded in the same crawl-run record; there is no separate requirements-only endpoint.
 - **Reason:** The user chose "extend `POST /refresh`" — one trigger and one crawl-run keep the operator model and the freshness story identical to contracts, and requirements + contracts come from the same repo tip so a single crawl is coherent.
 - **Affects:** R-100, R-101, R-108, R-12, R-10; `packages/functions/src/refresh.ts`, `packages/core/src/github.ts`.
 
 **D-45 — Requirements use a latest-snapshot + change-flag model, not append-only history.**
+
 - **Decision:** Each source's requirement set is stored as the **current snapshot** only; a per-requirement **`changedInLastCrawl`** flag (computed by comparing text against the prior snapshot, keyed on the `docs/spec.md` blob SHA) records what moved. No `REQVER#` history items are kept — deliberately unlike contracts (D-10).
 - **Reason:** The user chose latest-snapshot + change flag. Requirement **prose churns** (wording tweaks, renumbering) far more than contract structure, and the registry's value here is "what does each app require **now**, and what just changed" — not a full timeline. This keeps the data model and code materially lighter than the contract version history.
 - **Affects:** R-106, R-107, R-114, E-31, E-32, E-33; `packages/functions/src/repository.ts`.
 
 **D-46 — Extraction parses EARS type + modality and flags non-conforming lines but still catalogs them.**
+
 - **Decision:** The parser derives each requirement's EARS **type** (event/unwanted/state/optional/ubiquitous from WHEN/IF/WHILE/WHERE/none) and **modality** (SHALL/SHOULD/MAY); a line lacking a modality is flagged **`earsConforming: false`** and **still cataloged** (never dropped).
 - **Reason:** The user chose the richer model. Classifying by EARS keyword powers SPA grouping/filtering and makes the catalog genuinely "EARS-aware"; flagging-but-keeping non-conforming lines is fault-isolating (mirrors D-27/R-21) so a stray bullet never loses a real requirement.
 - **Affects:** R-102, R-103, R-104, E-30; `packages/core/src/requirements.ts` (new parser).
 
 **D-47 — Requirements are cataloged per source independently; no cross-source requirement divergence/diff.**
+
 - **Decision:** Unlike contracts (which get a shared-entity divergence flag + semantic diff, R-34/R-53/D-2), requirements are cataloged **per source only**; the registry does **not** compare, align, or diff requirements across the publisher and consumer.
 - **Reason:** Contracts share an **entity identity** across apps (both have an `org` contract), so divergence is meaningful; requirement `R-13` in the publisher and `R-13` in the consumer are **unrelated** documents with no shared identity, so a cross-source requirement diff would be noise. Scoped out in §2.
 - **Affects:** §2 (Out of Scope), R-106…R-112; contrast with R-34/R-53.
 
 **D-48 — Requirements are surfaced via a read API + a SPA browse view.**
+
 - **Decision:** Three reader-authed read endpoints (`GET /requirements`, `/requirements/{source}`, `/requirements/{source}/{id}`) plus a **Requirements** SPA view added as a third toggle beside By entity / By source (reusing the D-22 toggle pattern).
 - **Reason:** The user chose "API + SPA". The endpoints mirror the contracts read API (R-50…R-56) for consistency; the SPA toggle reuses the existing browse chrome (D-22) for minimal new UI surface.
 - **Affects:** R-109, R-110, R-111, R-112, R-113; `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, `packages/functions/src/authorizer.ts`, `packages/web`.
@@ -624,6 +672,7 @@ _(D-44…D-48 added 2026-07-15 for the Requirements Catalog component — recipe
 _(D-49 added 2026-07-16 during the fourth health-check pass — recipe Step 11. Records the in-source requirement id-collision handling, giving the requirements crawl full parity with the contract R-30a rule.)_
 
 **D-49 — A repeated requirement id within one source is kept-first and recorded as a collision.**
+
 - **Decision:** IF a source's `docs/spec.md` declares the same `R-nn` more than once under the requirements section, `putRequirements` catalogs the **first** occurrence, drops the rest (enforcing the R-106 `{source, id}` key — a batch cannot carry duplicate keys), and returns the colliding id(s); the crawl logs `crawl.requirements.collision` and carries the ids in the run summary's per-source `requirements` block. This mirrors the contract in-source id-collision rule (R-30a/E-9) — both halves: keep-first **and** surface the collision.
 - **Reason:** The v0.5.3 dedup added keep-first but not the visibility; a silently-dropped requirement is an authoring bug worth surfacing, exactly as for contracts. Fresh-eyes health check #4 flagged the asymmetry.
 - **Affects:** R-106, R-108, E-38, D-43 (`crawl.requirements.collision`); `packages/functions/src/repository.ts` (`putRequirements`), `refresh.ts`.
@@ -633,37 +682,44 @@ _(D-49 added 2026-07-16 during the fourth health-check pass — recipe Step 11. 
 _(D-50…D-56 added 2026-07-16 for the LLM-Powered Functional Test Generator — recipe Phase 1, resolved with the user via assumption-validation + clarifying questions before spec generation.)_
 
 **D-50 — Functional tests require an LLM; the deterministic generators do not.**
+
 - **Decision:** The §3.9 conformance/compatibility generators stay deterministic (they work from structured contract data). The new §3.11 **functional** tests use an **LLM**, because a functional scenario lives in each service's **natural-language EARS prose** — turning "WHEN X THE system SHALL Y" into a runnable cross-service test is an open-ended NL→code synthesis over input the registry does not control (D-3 forbids modifying the apps to add a machine-readable DSL).
 - **Reason:** The user's assumption was validated: deterministic parsing can't cross the prose gap, and the non-LLM alternative (GWT `it.todo` scaffolds) under-delivers (stubs, not runnable tests).
 - **Affects:** §3.11, R-117; NFR-9.
 
 **D-51 — The LLM synthesises a structured plan, not raw code; a deterministic layer renders it.**
+
 - **Decision:** The LLM produces a **structured functional-test plan** (JSON) via **structured outputs** validated against a fixed schema — it selects entities/endpoints from the supplied contract/requirement/api-map context. The existing §3.9 emit approach then renders the plan → Vitest.
 - **Reason:** Constraining the model to a schema over real targets **contains hallucination** (no invented endpoints), **preserves render determinism** (only the plan is model-authored), and **reuses the manifest+emit pattern** (D-28).
 - **Affects:** R-117, R-117a, R-122, R-123.
 
 **D-52 — Determinism is reconciled by an input-hash cache + a committed plan; R-88 is scoped to exclude §3.11 synthesis.**
+
 - **Decision:** Each synthesised plan is **cached** by `{requirement hash + contract hash + api-map entry + model id + prompt version}` and committed as a reviewed artifact; a job re-invokes the LLM only when an input changed, and re-renders cached plans **byte-identically** (R-119/R-119a). R-88's byte-identical guarantee therefore applies to the render step but **not** to plan synthesis.
 - **Reason:** The user chose "committed artifact + input-hash cache" over accepting nondeterministic diffs; it keeps `git diff generated-tests/functional` stable while allowing an LLM in the loop.
 - **Affects:** R-88 (scoped), R-119, R-119a, §2, E-42, E-43; NFR-9.
 
 **D-53 — Functional generation runs asynchronously (a job), not on the synchronous endpoint.**
+
 - **Decision:** `POST /generate-functional-tests` starts an **async job** (returns `202` + a job id); the job runs the LLM pipeline in the background; `GET /functional-test-jobs/{id|latest}` polls/retrieves; the CLI triggers + polls + writes the artifacts for human review (D-34).
 - **Reason:** The user chose an async endpoint. LLM latency (Opus over N requirements, optionally the Batch API) exceeds the API Gateway synchronous limit (contrast NFR-8 / R-80's synchronous generation).
 - **Affects:** R-115, R-124, R-125, R-126; NFR-9.
 
 **D-54 — Scope is cross-service behaviour grounded in EARS + contracts + api-map; ungroundable requirements are skipped.**
+
 - **Decision:** Functional tests exercise the **publisher → CDC → consumer** flow, grounded in each service's EARS requirements, ODCS contracts, and the api-map. Single-service, unmapped, entity-less, or infra-only requirements are **skipped with a reason** (mirrors D-27).
 - **Reason:** The user chose the cross-service scope; it is where the end-to-end value is, and fault isolation keeps a partial catalog useful.
 - **Affects:** R-117a, R-120, R-121, E-39, E-40.
 
 **D-55 — Claude on Amazon Bedrock via `@aws-sdk/client-bedrock-runtime` `InvokeModel`; IAM-role auth; no stored key.**
+
 - **Decision:** Plan synthesis calls **Claude on Amazon Bedrock** — default the granted US Sonnet 4.6 cross-region inference profile `us.anthropic.claude-sonnet-4-6` (Opus 4.8 `us.anthropic.claude-opus-4-8` once its access grant lands), overridable per stage via `BEDROCK_MODEL_ID` — through the **AWS-native `@aws-sdk/client-bedrock-runtime` `InvokeModel`** operation. **Structured output uses forced tool use**: a single tool whose `input_schema` IS `PLAN_SCHEMA` with `tool_choice` pinned to it, so the plan returns as the tool-use `input` (broadly supported on Bedrock InvokeModel; the beta `output_format` endpoint is not routable on Bedrock). Auth is the worker Lambda's **execution role** (SigV4) granted `bedrock:InvokeModel`; there is **no API key or SST Secret**. The prompt is **versioned** and, with the model id, part of the cache key (a prompt or model change invalidates cached plans).
-- **Reason:** The registry already runs on AWS with IAM, so Bedrock removes the managed-secret surface entirely (strengthens NFR-2) and keeps billing/governance in-account. The AWS SDK hits the correct `InvokeModel` operation directly (the `@anthropic-ai/bedrock-sdk` client returned `UnknownOperationException` against this account's Bedrock endpoint); forced tool use is the portable structured-output mechanism there, and the core re-validates every response with Ajv (D-51). *(Superseded the original v0.6.0 draft — Anthropic first-party SDK + an `ANTHROPIC_API_KEY` SST Secret — at the user's direction, 2026-07-16.)*
+- **Reason:** The registry already runs on AWS with IAM, so Bedrock removes the managed-secret surface entirely (strengthens NFR-2) and keeps billing/governance in-account. The AWS SDK hits the correct `InvokeModel` operation directly (the `@anthropic-ai/bedrock-sdk` client returned `UnknownOperationException` against this account's Bedrock endpoint); forced tool use is the portable structured-output mechanism there, and the core re-validates every response with Ajv (D-51). _(Superseded the original v0.6.0 draft — Anthropic first-party SDK + an `ANTHROPIC_API_KEY` SST Secret — at the user's direction, 2026-07-16.)_
 - **Operational note:** Invoking requires the AWS account to have **Bedrock model access** for the chosen model (Anthropic use-case form + a model-access grant per model); until then invocation returns `AccessDenied`/`ResourceNotFound`, which a job records as `failed` (E-46). The pipeline (IAM auth, InvokeModel, forced tool use) is verified end-to-end.
 - **Affects:** R-117, R-118, R-124, NFR-9; new dependency `@aws-sdk/client-bedrock-runtime`; a `bedrock:InvokeModel` IAM grant on the worker (no new secret).
 
 **D-56 — Generate-and-store only; running the functional tests stays future work.**
+
 - **Decision:** The functional generator produces and stores tests and lands them in `generated-tests/functional/` for review; **executing** them is a separate future feature.
 - **Reason:** Re-affirms D-29 for this new test class; running true cross-service e2e needs both apps deployed + live creds + a runner — infra out of scope here.
 - **Affects:** §2, R-123; D-29 (re-affirmed).
@@ -671,31 +727,37 @@ _(D-50…D-56 added 2026-07-16 for the LLM-Powered Functional Test Generator —
 <!-- Decisions promoted at the 2026-07-17 periodic health check (recipe Step 11, HC-4): implementation choices made in code during the D-50…D-56 Bedrock/functest work that lacked a decisions-log entry. -->
 
 **D-57 — Functional-worker Lambda sizing: 15-minute timeout, 1024 MB.**
+
 - **Decision:** The async functional-gen worker runs with `timeout: "15 minutes"` and `memorySize: "1024 MB"` (vs the 30s route handlers).
 - **Reason:** D-53 established the job is async because LLM synthesis exceeds the 29s gateway limit but set no concrete ceiling; 15 min is the Lambda maximum, chosen as headroom for a multi-requirement Bedrock loop; 1024 MB gives proportional CPU without over-provisioning.
 - **Affects:** R-115, D-53; NFR-9. Evidence: `stacks/ApiStack.ts` (`FunctionalWorker`).
 
 **D-58 — `bedrock:InvokeModel` IAM scope: all Anthropic foundation-models + all inference-profiles.**
+
 - **Decision:** The worker's IAM grant scopes `bedrock:InvokeModel` to `arn:aws:bedrock:*::foundation-model/anthropic.*` and `arn:aws:bedrock:*:*:inference-profile/*`.
 - **Reason:** Lets `BEDROCK_MODEL_ID` switch models/profiles per stage without a policy change (D-55's one-env-var switch). The foundation-model ARN is Anthropic-only; the **inference-profile ARN is intentionally account-wide** (profile ARNs don't carry the model vendor), accepted because InvokeModel is the only granted action and the account's profiles are all first-party. Revisit (scope to specific profile ARNs) if non-Anthropic profiles are ever provisioned.
 - **Affects:** D-55; NFR-2. Evidence: `stacks/ApiStack.ts` (worker `PolicyStatement`).
 
 **D-59 — Bedrock request cap: `max_tokens: 8192`.**
+
 - **Decision:** Each `InvokeModel` call caps output at `max_tokens: 8192`.
 - **Reason:** A single structured test-plan is small; 8192 bounds cost/latency with ample headroom for the largest plan.
 - **Affects:** R-118, D-55. Evidence: `packages/functions/src/llm.ts`.
 
 **D-60 — Grounding uses the `publisher` variant's schema as the canonical trigger shape.**
+
 - **Decision:** When an entity exists in ≥2 sources, grounding feeds the LLM the **`publisher`** variant's `schema[0]` (by literal source name), falling back to the alphabetically-first source.
 - **Reason:** The publisher is the write side of the publisher→CDC→consumer flow (D-3/D-50), so its schema is authoritative for the trigger payload.
 - **Affects:** R-117, D-54. Evidence: `packages/functest/src/ground.ts`.
 
 **D-61 — Entity-reference detection: whole-word, case-insensitive, optional trailing plural.**
+
 - **Decision:** A requirement "references" a cataloged entity when the entity name matches as a whole word (case-insensitive, optional trailing `s`) in the requirement text; this gates groundability (a match keeps it, no match skips it with a reason).
 - **Reason:** A cheap deterministic NL heuristic to pick the relevant entity before the LLM is invoked; D-54 says entity-less requirements are skipped but never specified the matching mechanism.
 - **Affects:** R-121, D-54. Evidence: `packages/functest/src/ground.ts` (`mentions()`).
 
 **D-62 — Catalog/requirements list endpoints use a filtered `Scan`, not a GSI query.**
+
 - **Decision:** `listEntries` (R-50) and `listRequirements` (R-109) read the single table with `Scan` + `begins_with(SK, …)` + in-memory filters, rather than a dedicated GSI.
 - **Reason:** At the NFR-3 target scale (≥10 sources × ≥25 contracts + versions + requirements ≈ low-thousands of small items) the table is a single Scan page (<1 MB, tens of ms), so NFR-1's 300 ms p95 SHOULD is met without a GSI's write-amplification and projection cost. **Revisit** (add a constant-partition or `kind` GSI and switch to `Query`) if the catalog grows beyond a single Scan page or p95 regresses.
 - **Affects:** R-50, R-109; NFR-1, NFR-3. Evidence: `packages/functions/src/repository.ts`.
@@ -710,4 +772,3 @@ _(D-50…D-56 added 2026-07-16 for the LLM-Powered Functional Test Generator —
 <!-- Prior: v0.4.1 — D-35 (generate-tests CLI UX): all config from `sst bind`/SSM; R-91a added. D-36: resource/config values read via sst/node bindings, not env vars. -->
 <!-- Prior: v0.3.0 — change request D-22 (by-source view) folded in. -->
 <!-- Prior: v0.3.0 — change request D-22 (by-source view) folded in. -->
-

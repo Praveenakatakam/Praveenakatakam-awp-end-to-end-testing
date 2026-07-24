@@ -8,13 +8,13 @@
  * structured error list, so one bad contract is cataloged, not dropped, and
  * never aborts a crawl (design §1, D-9).
  */
-import yaml from "js-yaml";
-import Ajv2019, { type ErrorObject, type ValidateFunction } from "ajv/dist/2019.js";
-import addFormats from "ajv-formats";
+import yaml from 'js-yaml';
+import Ajv2019, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2019.js';
+import addFormats from 'ajv-formats';
 // Plain JSON import (resolveJsonModule) — esbuild-compatible for the Lambda
 // bundle; the `with { type: "json" }` attribute form is not supported by SST's
 // bundler.
-import odcsSchema from "../resources/odcs-v3.1.0.schema.json";
+import odcsSchema from '../resources/odcs-v3.1.0.schema.json';
 
 /** One structured validation failure (design §3 — surfaced in the catalog). */
 export interface ValidationError {
@@ -28,12 +28,12 @@ export interface ValidationError {
 export interface ValidationResult {
   /** The parsed document when YAML parsing succeeded; undefined on a parse error. */
   parsed?: unknown;
-  validation: "valid" | "invalid";
+  validation: 'valid' | 'invalid';
   errors: ValidationError[];
 }
 
 // Compile the ODCS meta-schema once at module load (reused across every crawl).
-const ajv = new (Ajv2019 as unknown as typeof import("ajv/dist/2019.js").default)({
+const ajv = new (Ajv2019 as unknown as typeof import('ajv/dist/2019.js').default)({
   strict: false,
   allErrors: true,
 });
@@ -44,13 +44,13 @@ function toError(e: ErrorObject): ValidationError {
   // For `required`, surface the missing property name in the message so callers
   // (and tests) can identify it without walking params.
   const missing =
-    e.keyword === "required" && e.params && "missingProperty" in e.params
+    e.keyword === 'required' && e.params && 'missingProperty' in e.params
       ? ` (${(e.params as { missingProperty: string }).missingProperty})`
-      : "";
+      : '';
   return {
-    path: e.instancePath ?? "",
+    path: e.instancePath ?? '',
     keyword: e.keyword,
-    message: `${e.instancePath || "/"} ${e.message ?? "is invalid"}${missing}`.trim(),
+    message: `${e.instancePath || '/'} ${e.message ?? 'is invalid'}${missing}`.trim(),
   };
 }
 
@@ -64,24 +64,24 @@ export function parseAndValidate(bytes: string): ValidationResult {
     parsed = yaml.load(bytes);
   } catch (err) {
     return {
-      validation: "invalid",
-      errors: [{ path: "", keyword: "parse", message: `YAML parse error: ${(err as Error).message}` }],
+      validation: 'invalid',
+      errors: [{ path: '', keyword: 'parse', message: `YAML parse error: ${(err as Error).message}` }],
     };
   }
 
-  if (parsed === null || typeof parsed !== "object") {
+  if (parsed === null || typeof parsed !== 'object') {
     return {
       parsed,
-      validation: "invalid",
-      errors: [{ path: "", keyword: "parse", message: "document is not a YAML mapping" }],
+      validation: 'invalid',
+      errors: [{ path: '', keyword: 'parse', message: 'document is not a YAML mapping' }],
     };
   }
 
   const ok = validateOdcs(parsed);
-  if (ok) return { parsed, validation: "valid", errors: [] };
+  if (ok) return { parsed, validation: 'valid', errors: [] };
   return {
     parsed,
-    validation: "invalid",
+    validation: 'invalid',
     errors: (validateOdcs.errors ?? []).map(toError),
   };
 }

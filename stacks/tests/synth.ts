@@ -7,29 +7,29 @@
  *   const template = await synthStack(StorageStack);
  *   template.hasResourceProperties("AWS::DynamoDB::Table", { ... });
  */
-import { App, getStack } from "sst/constructs";
-import { initProject } from "sst/project.js";
-import { Template } from "aws-cdk-lib/assertions";
+import { App, getStack } from 'sst/constructs';
+import { initProject } from 'sst/project.js';
+import { Template } from 'aws-cdk-lib/assertions';
 
 let initialized = false;
 
 async function ensureInit(): Promise<void> {
   if (initialized) return;
-  process.env.AWS_ACCESS_KEY_ID ||= "test";
-  process.env.AWS_SECRET_ACCESS_KEY ||= "test";
-  process.env.AWS_REGION ||= "us-east-1";
-  process.env.CDK_DEFAULT_ACCOUNT ||= "123456789012";
-  process.env.CDK_DEFAULT_REGION ||= "us-east-1";
-  await initProject({ stage: "test" });
+  process.env.AWS_ACCESS_KEY_ID ||= 'test';
+  process.env.AWS_SECRET_ACCESS_KEY ||= 'test';
+  process.env.AWS_REGION ||= 'us-east-1';
+  process.env.CDK_DEFAULT_ACCOUNT ||= '123456789012';
+  process.env.CDK_DEFAULT_REGION ||= 'us-east-1';
+  await initProject({ stage: 'test' });
   initialized = true;
 }
 
 function newApp(): App {
   return new App({
-    mode: "deploy",
-    stage: "test",
-    name: "odcs-contract-registry",
-    region: "us-east-1",
+    mode: 'deploy',
+    stage: 'test',
+    name: 'odcs-contract-registry',
+    region: 'us-east-1',
   });
 }
 
@@ -45,10 +45,7 @@ export async function synthStack(fn: (ctx: any) => any): Promise<Template> {
  * Synthesize several stacks (registered in order, so `use()` cross-stack
  * references resolve) and return the CFN Template for `target`.
  */
-export async function synthStacks(
-  fns: Array<(ctx: any) => any>,
-  target: (ctx: any) => any,
-): Promise<Template> {
+export async function synthStacks(fns: Array<(ctx: any) => any>, target: (ctx: any) => any): Promise<Template> {
   await ensureInit();
   const app = newApp();
   let chain: any = app;

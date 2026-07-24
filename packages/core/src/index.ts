@@ -9,19 +9,19 @@
  * Module re-exports are added here as each core task lands (T-02…T-05).
  */
 export const PROJECT = {
-  name: "odcs-contract-registry",
-  odcsVersion: "v3.1.0",
+  name: 'odcs-contract-registry',
+  odcsVersion: 'v3.1.0',
   /** Source repositories crawled by the registry (R-01, D-5). */
-  oneRosterEntities: ["org", "user", "class", "enrollment"] as const,
+  oneRosterEntities: ['org', 'user', 'class', 'enrollment'] as const,
 } as const;
 
 export type ProjectMeta = typeof PROJECT;
 
-export * from "./sources.js";
-export * from "./odcs-validator.js";
-export * from "./metadata.js";
-export * from "./github.js";
-export * from "./diff.js";
-export * from "./schema-model.js";
-export * from "./api-map.js";
-export * from "./requirements.js";
+export * from './sources.js';
+export * from './odcs-validator.js';
+export * from './metadata.js';
+export * from './github.js';
+export * from './diff.js';
+export * from './schema-model.js';
+export * from './api-map.js';
+export * from './requirements.js';

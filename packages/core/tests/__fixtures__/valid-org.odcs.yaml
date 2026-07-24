@@ -79,7 +79,7 @@ schema:
             metric: invalidValues
             mustBe: 0
             dimension: conformity
-            description: "Allowed values (BaseStatusEnum): active, tobedeleted."
+            description: 'Allowed values (BaseStatusEnum): active, tobedeleted.'
             arguments:
               validValues: [active, tobedeleted]
       - name: dateLastModified
@@ -117,7 +117,7 @@ schema:
             metric: invalidValues
             mustBe: 0
             dimension: conformity
-            description: "Allowed values (OrgTypeEnum): department, school, district, local, state, national."
+            description: 'Allowed values (OrgTypeEnum): department, school, district, local, state, national.'
             arguments:
               validValues: [department, school, district, local, state, national]
       - name: identifier
@@ -234,7 +234,7 @@ customProperties:
   - property: oneRosterEntity
     value: org
   - property: oneRosterVersion
-    value: "1.2"
+    value: '1.2'
   - property: cdcEventTypes
     value: INSERT,MODIFY
     description: Only INSERT and MODIFY are published to SNS (R-31, R-32).

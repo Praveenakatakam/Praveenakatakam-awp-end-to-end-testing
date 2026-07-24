@@ -1,6 +1,6 @@
-import { StackContext, Table, Bucket } from "sst/constructs";
-import { TableEncryption } from "aws-cdk-lib/aws-dynamodb";
-import { BlockPublicAccess, BucketEncryption } from "aws-cdk-lib/aws-s3";
+import { StackContext, Table, Bucket } from 'sst/constructs';
+import { TableEncryption } from 'aws-cdk-lib/aws-dynamodb';
+import { BlockPublicAccess, BucketEncryption, ObjectOwnership } from 'aws-cdk-lib/aws-s3';
 
 /**
  * T-06 — Persistence for the registry (design §2).
@@ -21,36 +21,38 @@ import { BlockPublicAccess, BucketEncryption } from "aws-cdk-lib/aws-s3";
  *                GET /test-artifacts (kind="GENERATION"), each newest-first.
  */
 export function StorageStack({ stack }: StackContext) {
-  const registry = new Table(stack, "Registry", {
+  const registry = new Table(stack, 'Registry', {
     fields: {
-      PK: "string",
-      SK: "string",
-      entity: "string",
-      source: "string",
-      kind: "string",
-      startedAt: "string",
+      PK: 'string',
+      SK: 'string',
+      entity: 'string',
+      source: 'string',
+      kind: 'string',
+      startedAt: 'string',
     },
-    primaryIndex: { partitionKey: "PK", sortKey: "SK" },
+    primaryIndex: { partitionKey: 'PK', sortKey: 'SK' },
     globalIndexes: {
-      byEntity: { partitionKey: "entity", sortKey: "source" },
-      byKind: { partitionKey: "kind", sortKey: "startedAt" },
+      byEntity: { partitionKey: 'entity', sortKey: 'source' },
+      byKind: { partitionKey: 'kind', sortKey: 'startedAt' },
     },
     cdk: {
       table: {
         encryption: TableEncryption.AWS_MANAGED,
-        timeToLiveAttribute: "ttl",
+        timeToLiveAttribute: 'ttl',
       },
     },
   });
 
   // Raw ODCS documents, one object per cataloged version (R-41). Block ALL
   // public access and encrypt at rest (R-42).
-  const contracts = new Bucket(stack, "Contracts", {
+  const contracts = new Bucket(stack, 'Contracts', {
+    cors: false,
     cdk: {
       bucket: {
         blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
         encryption: BucketEncryption.S3_MANAGED,
         enforceSSL: true,
+        objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
       },
     },
   });

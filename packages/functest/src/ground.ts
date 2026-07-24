@@ -17,9 +17,9 @@
  * api-map entries, the model id, and the prompt version — so any change to what
  * the model would see busts the cache (R-119); nothing else does.
  */
-import { createHash } from "node:crypto";
-import { normalizeContractSchema, parseAndValidate, type NormProp } from "@registry/core";
-import type { EntityApiTarget } from "@registry/core";
+import { createHash } from 'node:crypto';
+import { normalizeContractSchema, parseAndValidate, type NormProp } from '@registry/core';
+import type { EntityApiTarget } from '@registry/core';
 
 /** One requirement from the catalog (R-107 shape, trimmed to what grounding needs). */
 export interface RequirementInput {
@@ -52,25 +52,23 @@ export interface GroundedContext {
   inputHash: string;
 }
 
-export type GroundResult =
-  | { ok: true; context: GroundedContext }
-  | { ok: false; reason: string };
+export type GroundResult = { ok: true; context: GroundedContext } | { ok: false; reason: string };
 
 /** api-map slice: `source → entity → target`. */
 export type ApiMapLike = Record<string, Record<string, EntityApiTarget>>;
 
 /** Does `text` mention `entity` as a whole word (case-insensitive)? */
 function mentions(text: string, entity: string): boolean {
-  return new RegExp(`\\b${entity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?\\b`, "i").test(text);
+  return new RegExp(`\\b${entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i').test(text);
 }
 
 function stableStringify(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
-  if (v && typeof v === "object") {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
     const keys = Object.keys(v as object).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((v as any)[k])}`).join(",")}}`;
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((v as any)[k])}`).join(',')}}`;
   }
-  return JSON.stringify(v) ?? "null";
+  return JSON.stringify(v) ?? 'null';
 }
 
 /**
@@ -83,12 +81,12 @@ export function ground(
   contracts: ContractInput[],
   apiMap: ApiMapLike,
   modelId: string,
-  promptVersion: string,
+  promptVersion: string
 ): GroundResult {
   const entities = [...new Set(contracts.map((c) => c.entity))].sort();
   const referenced = entities.filter((e) => mentions(req.text, e));
   if (referenced.length === 0) {
-    return { ok: false, reason: "references no cataloged entity" };
+    return { ok: false, reason: 'references no cataloged entity' };
   }
 
   // Prefer a referenced entity that is both cross-service AND mapped; if none
@@ -113,14 +111,12 @@ export function ground(
 
   // Canonical schema variant: the publisher's if present, else the first source.
   const variants = contracts.filter((c) => c.entity === entity).sort((a, b) => a.source.localeCompare(b.source));
-  const canonical = variants.find((c) => c.source === "publisher") ?? variants[0];
+  const canonical = variants.find((c) => c.source === 'publisher') ?? variants[0];
   const parsed = parseAndValidate(canonical.rawYaml).parsed;
-  const schema = [...normalizeContractSchema(parsed).props.values()].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  const schema = [...normalizeContractSchema(parsed).props.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const contentHashes = variants.map((c) => `${c.source}:${c.contentHash}`).sort();
-  const inputHash = createHash("sha256")
+  const inputHash = createHash('sha256')
     .update(
       stableStringify({
         text: req.text,
@@ -129,9 +125,9 @@ export function ground(
         apiTargets,
         modelId,
         promptVersion,
-      }),
+      })
     )
-    .digest("hex");
+    .digest('hex');
 
   return {
     ok: true,

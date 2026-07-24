@@ -12,17 +12,17 @@
  * exercise the true bound values against the deployed stage. Must run before any
  * `sst/node/*` import, which is why it is a Vitest `setupFile`.
  */
-process.env.SST_APP ??= "awp-end-to-end-testing";
-process.env.SST_STAGE ??= "test";
+process.env.SST_APP ??= 'awp-end-to-end-testing';
+process.env.SST_STAGE ??= 'test';
 
 // Storage resource bindings (sst/node/table, sst/node/bucket).
-process.env.SST_Table_tableName_Registry ??= "Registry";
-process.env.SST_Bucket_bucketName_Contracts ??= "Contracts";
+process.env.SST_Table_tableName_Registry ??= 'Registry';
+process.env.SST_Bucket_bucketName_Contracts ??= 'Contracts';
 
 // Config.Parameters (sst/node/config).
-process.env.SST_Parameter_value_USER_POOL_ID ??= "us-east-1_test000";
-process.env.SST_Parameter_value_USER_POOL_CLIENT_ID ??= "testclientid";
+process.env.SST_Parameter_value_USER_POOL_ID ??= 'us-east-1_test000';
+process.env.SST_Parameter_value_USER_POOL_CLIENT_ID ??= 'testclientid';
 
 // Config.Secrets (sst/node/config) — inline value skips the SSM fetch.
-process.env.SST_Secret_value_REGISTRY_DEMO_PASSWORD ??= "test-password";
-process.env.SST_Secret_value_GITHUB_TOKEN ??= "test-github-token";
+process.env.SST_Secret_value_REGISTRY_DEMO_PASSWORD ??= 'test-password';
+process.env.SST_Secret_value_GITHUB_TOKEN ??= 'test-github-token';

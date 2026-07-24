@@ -16,7 +16,6 @@ jobs:
       - uses: ./.github/actions/setup/repo
         with:
           node_version: ${{ vars.NODE_MAJOR_VERSION }}
-          pnpm_version: ${{ vars.PNPM_VERSION }}
       - name: Run Release
         run: pnpm run release
         shell: bash

@@ -18,16 +18,16 @@ type Fields = Record<string, unknown>;
  * by that error can never reach the logs or the `POST /refresh` response.
  */
 export function redact(s: string): string {
-  return s.replace(/\b(?:ghp_|github_pat_|gho_|ghs_|ghu_|ghr_)[A-Za-z0-9_]+/g, "[redacted]");
+  return s.replace(/\b(?:ghp_|github_pat_|gho_|ghs_|ghu_|ghr_)[A-Za-z0-9_]+/g, '[redacted]');
 }
 
-function emit(level: "info" | "warn" | "error", event: string, fields: Fields): void {
+function emit(level: 'info' | 'warn' | 'error', event: string, fields: Fields): void {
   // eslint-disable-next-line no-console -- structured Lambda logging (NFR-5)
   console.log(JSON.stringify({ level, event, ...fields }));
 }
 
 export const log = {
-  info: (event: string, fields: Fields = {}) => emit("info", event, fields),
-  warn: (event: string, fields: Fields = {}) => emit("warn", event, fields),
-  error: (event: string, fields: Fields = {}) => emit("error", event, fields),
+  info: (event: string, fields: Fields = {}) => emit('info', event, fields),
+  warn: (event: string, fields: Fields = {}) => emit('warn', event, fields),
+  error: (event: string, fields: Fields = {}) => emit('error', event, fields),
 };

@@ -9,4 +9,4 @@
  * `POST /generate-functional-tests` worker and the `generate-tests --functional`
  * CLI. Running the emitted tests is out of scope (D-56).
  */
-export * from "./generate.js";
+export * from './generate.js';

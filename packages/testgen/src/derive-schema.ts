@@ -11,26 +11,26 @@
  * test asserts the CONTRACT's fields are present and well-typed, not that the
  * record is exactly the contract.
  */
-import { normalizeContractSchema } from "@registry/core";
-import type { JsonSchema } from "./manifest.js";
+import { normalizeContractSchema } from '@registry/core';
+import type { JsonSchema } from './manifest.js';
 
 /** Map an ODCS `logicalType` to a JSON-Schema type (+ format for dates). */
 function jsonType(logicalType?: string): { type?: string; format?: string } {
-  switch ((logicalType ?? "").toLowerCase()) {
-    case "string":
-      return { type: "string" };
-    case "integer":
-      return { type: "integer" };
-    case "number":
-      return { type: "number" };
-    case "boolean":
-      return { type: "boolean" };
-    case "date":
-      return { type: "string", format: "date-time" };
-    case "object":
-      return { type: "object" };
-    case "array":
-      return { type: "array" };
+  switch ((logicalType ?? '').toLowerCase()) {
+    case 'string':
+      return { type: 'string' };
+    case 'integer':
+      return { type: 'integer' };
+    case 'number':
+      return { type: 'number' };
+    case 'boolean':
+      return { type: 'boolean' };
+    case 'date':
+      return { type: 'string', format: 'date-time' };
+    case 'object':
+      return { type: 'object' };
+    case 'array':
+      return { type: 'array' };
     default:
       return {}; // unknown/absent → no type constraint
   }
@@ -39,7 +39,7 @@ function jsonType(logicalType?: string): { type?: string; format?: string } {
 export function deriveJsonSchema(doc: unknown): JsonSchema {
   const { props } = normalizeContractSchema(doc);
   const required: string[] = [];
-  const properties: JsonSchema["properties"] = {};
+  const properties: JsonSchema['properties'] = {};
 
   // Deterministic property order (R-88): sort by name.
   for (const name of [...props.keys()].sort()) {
@@ -49,5 +49,5 @@ export function deriveJsonSchema(doc: unknown): JsonSchema {
     properties[name] = { ...t, ...(p.validValues ? { enum: p.validValues } : {}) };
   }
 
-  return { type: "object", required, properties, additionalProperties: true };
+  return { type: 'object', required, properties, additionalProperties: true };
 }

@@ -1,12 +1,9 @@
 name: 'Setup PNPM and Install'
-description: 'Setup node environment and pnpm'
+description: 'Setup node environment and pnpm via corepack'
 inputs:
   node_version:
     required: true
     description: (Major) Node version to use
-  pnpm_version:
-    required: true
-    description: (Full) PNPM version to use
   skip_install:
     required: false
     description: 'Skip installing dependencies'
@@ -14,16 +11,12 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # Pinned to an immutable commit SHA (CodeQL actions/unpinned-tag): a mutable
-    # tag like @v4 can be force-moved to malicious code. Dependabot keeps the SHA
-    # and the version comment in sync.
-    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      with:
-        version: ${{ inputs.pnpm_version }}
     - uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node_version }}
         cache: 'pnpm'
-    - if: "${{ !inputs.skip_install }}"
+    - run: corepack enable
+      shell: bash
+    - if: '${{ !inputs.skip_install }}'
       run: pnpm i --frozen-lockfile
       shell: bash

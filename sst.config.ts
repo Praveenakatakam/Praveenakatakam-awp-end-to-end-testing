@@ -1,8 +1,8 @@
-import type { SSTConfig } from "sst";
-import { StorageStack } from "./stacks/StorageStack";
-import { AuthStack } from "./stacks/AuthStack";
-import { ApiStack } from "./stacks/ApiStack";
-import { WebStack } from "./stacks/WebStack";
+import type { SSTConfig } from 'sst';
+import { StorageStack } from './stacks/StorageStack';
+import { AuthStack } from './stacks/AuthStack';
+import { ApiStack } from './stacks/ApiStack';
+import { WebStack } from './stacks/WebStack';
 
 /**
  * ODCS Contract Registry — SST v2 app entry (design §1).
@@ -17,14 +17,14 @@ import { WebStack } from "./stacks/WebStack";
 export default {
   config(_input) {
     return {
-      name: "awp-end-to-end-testing",
-      region: "us-east-1",
+      name: 'awp-end-to-end-testing',
+      region: 'us-east-1',
     };
   },
   stacks(app) {
     app.setDefaultFunctionProps({
-      runtime: "nodejs20.x",
-      architecture: "arm_64",
+      runtime: 'nodejs20.x',
+      architecture: 'arm_64',
     });
     app.stack(StorageStack).stack(AuthStack).stack(ApiStack).stack(WebStack);
   },
