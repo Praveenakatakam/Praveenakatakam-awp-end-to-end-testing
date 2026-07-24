@@ -20,11 +20,14 @@
     "test:all": "pnpm run test:unit",
     "generate-tests": "sst bind tsx scripts/generate-tests.ts"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["aws-crt", "aws-sdk", "esbuild"]
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.12.12",
-    "aws-cdk-lib": "^2.246.0",
-    "constructs": "^10.5.0",
+    "aws-cdk-lib": "2.238.0",
+    "constructs": "10.3.0",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",

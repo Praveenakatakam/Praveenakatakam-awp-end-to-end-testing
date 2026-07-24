@@ -1,0 +1,75 @@
+diff --git a/constructs/cdk/certificate-base.js b/constructs/cdk/certificate-base.js
+--- a/constructs/cdk/certificate-base.js
++++ b/constructs/cdk/certificate-base.js
+@@ -12,6 +12,11 @@
+      * so we can correctly create `Metric` instances.
+      */
+     region;
++    // CDK v2.238+ Distribution reads certificate.certificateRef.certificateId
++    // when validating the cert region. Without this getter the synth crashes.
++    get certificateRef() {
++        return { certificateId: this.certificateArn };
++    }
+     metricDaysToExpiry(props) {
+         return new Metric({
+             period: Duration.days(1),
+diff --git a/credentials.js b/credentials.js
+--- a/credentials.js
++++ b/credentials.js
+@@ -3,10 +3,8 @@
+ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+ import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
+ import { Logger } from "./logger.js";
+-import { StandardRetryStrategy } from "@aws-sdk/middleware-retry";
++import { StandardRetryStrategy } from "@smithy/middleware-retry";
+ // @ts-expect-error
+-import stupid from "aws-sdk/lib/maintenance_mode_message.js";
+-stupid.suppress = true;
+ import { useProject } from "./project.js";
+ import { lazy } from "./util/lazy.js";
+ export const useAWSCredentialsProvider = lazy(() => {
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -42,12 +42,9 @@
+     "@aws-sdk/client-s3": "3.699.0",
+     "@aws-sdk/client-ssm": "3.699.0",
+     "@aws-sdk/client-sts": "3.699.0",
+-    "@aws-sdk/config-resolver": "3.374.0",
+     "@aws-sdk/credential-providers": "3.699.0",
+-    "@aws-sdk/middleware-retry": "3.374.0",
+     "@aws-sdk/middleware-signing": "3.451.0",
+     "@aws-sdk/signature-v4-crt": "3.451.0",
+-    "@aws-sdk/smithy-client": "3.374.0",
+     "@babel/core": "^7.0.0-0",
+     "@babel/generator": "^7.20.5",
+     "@babel/plugin-syntax-typescript": "^7.21.4",
+@@ -56,7 +53,6 @@
+     "adm-zip": "0.5.14",
+     "aws-cdk-lib": "2.224.0",
+     "aws-iot-device-sdk": "^2.2.13",
+-    "aws-sdk": "^2.1501.0",
+     "builtin-modules": "3.2.0",
+     "cdk-assets": "3.3.1",
+     "chalk": "^5.2.0",
+@@ -72,7 +68,7 @@
+     "express": "^4.18.2",
+     "fast-jwt": "^5.0.5",
+     "get-port": "^6.1.2",
+-    "glob": "^10.0.0",
++    "glob": "^11.0.0",
+     "graphql": "*",
+     "graphql-yoga": "^3.9.0",
+     "immer": "9",
+diff --git a/../graphql-yoga/package.json b/../graphql-yoga/package.json
+--- a/../graphql-yoga/package.json
++++ b/../graphql-yoga/package.json
+@@ -4,7 +4,7 @@
+   "description": "",
+   "sideEffects": false,
+   "peerDependencies": {
+-    "graphql": "^15.2.0 || ^16.0.0"
++    "graphql": "^15.2.0 || ^16.0.0 || ^17.0.0"
+   },
+   "dependencies": {
+     "@envelop/core": "^3.0.4",

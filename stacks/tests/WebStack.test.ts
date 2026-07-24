@@ -1,20 +1,28 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { type Template } from "aws-cdk-lib/assertions";
-import { synthStacks } from "./synth.js";
-import { StorageStack } from "../StorageStack.js";
-import { AuthStack } from "../AuthStack.js";
-import { ApiStack } from "../ApiStack.js";
-import { WebStack } from "../WebStack.js";
+import { describe, it, expect, beforeAll } from 'vitest';
+import { type Template } from 'aws-cdk-lib/assertions';
+import { synthStacks } from './synth.js';
+import { StorageStack } from '../StorageStack.js';
+import { AuthStack } from '../AuthStack.js';
+import { ApiStack } from '../ApiStack.js';
+import { WebStack } from '../WebStack.js';
 
 // T-14 (infra) — validates the full four-stack chain wires up and WebStack synths.
-describe("WebStack (full-app wiring)", () => {
+describe('WebStack (full-app wiring)', () => {
   let template: Template;
   beforeAll(async () => {
     template = await synthStacks([StorageStack, AuthStack, ApiStack, WebStack], WebStack);
   });
 
-  it("provisions the static site bucket", () => {
-    const buckets = template.findResources("AWS::S3::Bucket");
+  it('provisions the static site bucket', () => {
+    const buckets = template.findResources('AWS::S3::Bucket');
     expect(Object.keys(buckets).length).toBeGreaterThanOrEqual(1);
+  });
+
+  // SST's DnsValidatedCertificate attaches the cert to CloudFront via a
+  // Custom::CertificateRequestorResource backed by a Lambda. Verify the
+  // distribution is provisioned (synth succeeds end-to-end with a custom domain).
+  it('provisions a CloudFront distribution (custom domain synths without certificateRef crash)', () => {
+    const distributions = template.findResources('AWS::CloudFront::Distribution');
+    expect(Object.keys(distributions).length).toBeGreaterThanOrEqual(1);
   });
 });

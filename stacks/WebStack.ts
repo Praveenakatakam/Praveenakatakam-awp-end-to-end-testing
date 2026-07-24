@@ -1,6 +1,6 @@
-import { StackContext, StaticSite, use } from "sst/constructs";
-import { ApiStack } from "./ApiStack";
-import { AuthStack } from "./AuthStack";
+import { StackContext, StaticSite, use } from 'sst/constructs';
+import { ApiStack } from './ApiStack';
+import { AuthStack } from './AuthStack';
 
 /**
  * T-14 — React SPA on SST `StaticSite` (R-60..R-64). Vite build env carries the
@@ -11,10 +11,16 @@ export function WebStack({ stack }: StackContext) {
   const { api } = use(ApiStack);
   const { auth } = use(AuthStack);
 
-  const site = new StaticSite(stack, "Web", {
-    path: "packages/web",
-    buildCommand: "npm run build",
-    buildOutput: "dist",
+  const domainName = `test-gen-${stack.stage}.e2etest-nonprod.collegeboard.org`;
+
+  const site = new StaticSite(stack, 'Web', {
+    path: 'packages/web',
+    buildCommand: 'npm run build',
+    buildOutput: 'dist',
+    customDomain: {
+      domainName,
+      hostedZone: 'e2etest-nonprod.collegeboard.org',
+    },
     environment: {
       VITE_API_URL: api.url,
       VITE_AWS_REGION: stack.region,
@@ -23,7 +29,7 @@ export function WebStack({ stack }: StackContext) {
     },
   });
 
-  stack.addOutputs({ SiteUrl: site.url ?? "localhost" });
+  stack.addOutputs({ SiteUrl: site.customDomainUrl ?? site.url ?? 'localhost' });
 
   return { site };
 }

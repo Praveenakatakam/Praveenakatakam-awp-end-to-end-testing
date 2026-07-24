@@ -1,0 +1,28 @@
+diff --git a/lib/util/yaml-cfn.js b/lib/util/yaml-cfn.js
+index 9cd99c6eba17177e62d00031469f408517db12a2..c0565bc17f3ed2f87c178e17c3fe79a432a86ddf 100644
+--- a/lib/util/yaml-cfn.js
++++ b/lib/util/yaml-cfn.js
+@@ -3,7 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.serialize = serialize;
+ exports.deserialize = deserialize;
+ const yaml = require("yaml");
+-const yaml_types = require("yaml/types");
+ /**
+  * Serializes the given data structure into valid YAML.
+  *
+@@ -11,14 +10,7 @@ const yaml_types = require("yaml/types");
+  * @returns a string containing the YAML representation of {@param obj}
+  */
+ function serialize(obj) {
+-    const oldFold = yaml_types.strOptions.fold.lineWidth;
+-    try {
+-        yaml_types.strOptions.fold.lineWidth = 0;
+-        return yaml.stringify(obj, { schema: 'yaml-1.1' });
+-    }
+-    finally {
+-        yaml_types.strOptions.fold.lineWidth = oldFold;
+-    }
++    return yaml.stringify(obj, { schema: 'yaml-1.1', lineWidth: 0 });
+ }
+ /**
+  * Deserialize the YAML into the appropriate data structure.
