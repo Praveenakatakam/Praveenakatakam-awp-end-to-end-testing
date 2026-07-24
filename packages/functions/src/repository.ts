@@ -6,7 +6,7 @@
  * per design §2.1. Table/bucket names come from the SST resource bindings via
  * `sst/node` (the offline suite stubs these — see vitest.setup.ts).
  */
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -16,11 +16,11 @@ import {
   ScanCommand,
   DeleteCommand,
   BatchWriteCommand,
-} from "@aws-sdk/lib-dynamodb";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { Table } from "sst/node/table";
-import { Bucket } from "sst/node/bucket";
-import type { ValidationError, ParsedRequirement } from "@registry/core";
+} from '@aws-sdk/lib-dynamodb';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { Table } from 'sst/node/table';
+import { Bucket } from 'sst/node/bucket';
+import type { ValidationError, ParsedRequirement } from '@registry/core';
 
 const TABLE = Table.Registry.tableName;
 const BUCKET = Bucket.Contracts.bucketName;
@@ -32,7 +32,7 @@ const s3 = new S3Client({});
 const entryPk = (source: string) => `SRC#${source}`;
 const entrySk = (id: string) => `CON#${id}`;
 const versionPk = (source: string, id: string) => `VER#${source}#${id}`;
-const versionSk = (n: number) => `V#${String(n).padStart(4, "0")}`;
+const versionSk = (n: number) => `V#${String(n).padStart(4, '0')}`;
 const runPk = (runId: string) => `RUN#${runId}`;
 const genPk = (runId: string) => `GEN#${runId}`;
 const reqPk = (source: string) => `REQ#${source}`;
@@ -46,14 +46,17 @@ const fjobArtifactKey = (jobId: string) => `functional-tests/${jobId}/artifacts.
 const planCacheKey = (inputHash: string) => `functional-tests/plan-cache/${inputHash}.json`;
 
 export class LockHeldError extends Error {
-  override readonly name = "LockHeldError";
+  override readonly name = 'LockHeldError';
   /** The in-flight crawl's run id, surfaced in the `409` body (R-15, E-11). */
-  constructor(message: string, public readonly runId?: string) {
+  constructor(
+    message: string,
+    public readonly runId?: string
+  ) {
     super(message);
   }
 }
 
-export type IngestOutcome = "new" | "unchanged" | "new-version";
+export type IngestOutcome = 'new' | 'unchanged' | 'new-version';
 
 interface CurrentVersion {
   hash: string;
@@ -67,13 +70,12 @@ interface CurrentVersion {
  */
 export function decideIngest(
   current: CurrentVersion | undefined,
-  incoming: { hash: string; declaredVersion?: string },
+  incoming: { hash: string; declaredVersion?: string }
 ): { outcome: IngestOutcome; nextVersion: number; versionNotBumped: boolean } {
-  if (!current) return { outcome: "new", nextVersion: 1, versionNotBumped: false };
-  if (current.hash === incoming.hash)
-    return { outcome: "unchanged", nextVersion: current.version, versionNotBumped: false };
+  if (!current) return { outcome: 'new', nextVersion: 1, versionNotBumped: false };
+  if (current.hash === incoming.hash) return { outcome: 'unchanged', nextVersion: current.version, versionNotBumped: false };
   return {
-    outcome: "new-version",
+    outcome: 'new-version',
     nextVersion: current.version + 1,
     versionNotBumped: current.declaredVersion === incoming.declaredVersion,
   };
@@ -89,7 +91,7 @@ export interface IngestInput {
   commitSha: string;
   bytes: string;
   declaredVersion?: string;
-  validation: "valid" | "invalid";
+  validation: 'valid' | 'invalid';
   validationErrors: ValidationError[];
 }
 
@@ -140,7 +142,7 @@ export interface RequirementCounts {
 /** A functional-test-generation job record (§3.11, R-124). */
 export interface FunctionalJobRecord {
   jobId: string;
-  status: "pending" | "running" | "succeeded" | "failed";
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
   startedAt: string;
   finishedAt?: string;
   modelId: string;
@@ -174,52 +176,54 @@ class Repository {
       await ddb.send(
         new PutCommand({
           TableName: TABLE,
-          Item: { PK: "LOCK", SK: "CRAWL", runId, acquiredAt: new Date(nowMs()).toISOString(), ttl: now + ttlSeconds },
-          ConditionExpression: "attribute_not_exists(PK)",
-        }),
+          Item: { PK: 'LOCK', SK: 'CRAWL', runId, acquiredAt: new Date(nowMs()).toISOString(), ttl: now + ttlSeconds },
+          ConditionExpression: 'attribute_not_exists(PK)',
+        })
       );
     } catch (err) {
-      if ((err as { name?: string }).name === "ConditionalCheckFailedException") {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
         // Surface the in-flight run's id so the caller's 409 can name it (R-15/E-11).
-        const held = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: "LOCK", SK: "CRAWL" } }));
-        throw new LockHeldError("a crawl is already in progress", held.Item?.runId as string | undefined);
+        const held = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: 'LOCK', SK: 'CRAWL' } }));
+        throw new LockHeldError('a crawl is already in progress', held.Item?.runId as string | undefined);
       }
       throw err;
     }
   }
 
   async releaseLock(): Promise<void> {
-    await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { PK: "LOCK", SK: "CRAWL" } }));
+    await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { PK: 'LOCK', SK: 'CRAWL' } }));
   }
 
   /** Ingest one crawled contract, applying the version model. */
   async ingestContract(input: IngestInput): Promise<{ outcome: IngestOutcome; version: number; versionNotBumped: boolean }> {
-    const existing = await ddb.send(
-      new GetCommand({ TableName: TABLE, Key: { PK: entryPk(input.source), SK: entrySk(input.id) } }),
-    );
+    const existing = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: entryPk(input.source), SK: entrySk(input.id) } }));
     const current = existing.Item
-      ? { hash: existing.Item.currentHash as string, declaredVersion: existing.Item.declaredVersion as string | undefined, version: existing.Item.currentVersion as number }
+      ? {
+          hash: existing.Item.currentHash as string,
+          declaredVersion: existing.Item.declaredVersion as string | undefined,
+          version: existing.Item.currentVersion as number,
+        }
       : undefined;
 
     const decision = decideIngest(current, { hash: input.blobSha, declaredVersion: input.declaredVersion });
     const at = new Date(nowMs()).toISOString();
 
-    if (decision.outcome === "unchanged") {
+    if (decision.outcome === 'unchanged') {
       await ddb.send(
         new UpdateCommand({
           TableName: TABLE,
           Key: { PK: entryPk(input.source), SK: entrySk(input.id) },
-          UpdateExpression: "SET lastCrawledAt = :at, commitSha = :c",
-          ExpressionAttributeValues: { ":at": at, ":c": input.commitSha },
-        }),
+          UpdateExpression: 'SET lastCrawledAt = :at, commitSha = :c',
+          ExpressionAttributeValues: { ':at': at, ':c': input.commitSha },
+        })
       );
-      return { outcome: "unchanged", version: decision.nextVersion, versionNotBumped: false };
+      return { outcome: 'unchanged', version: decision.nextVersion, versionNotBumped: false };
     }
 
     // new / new-version: store the exact bytes, append an immutable version row,
     // then upsert the entry to point at the new current version.
     const key = s3Key(input.source, input.id, decision.nextVersion, input.blobSha);
-    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: input.bytes, ContentType: "application/yaml" }));
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: input.bytes, ContentType: 'application/yaml' }));
 
     await ddb.send(
       new PutCommand({
@@ -236,7 +240,7 @@ class Repository {
           validation: input.validation,
           s3Key: key,
         },
-      }),
+      })
     );
 
     await ddb.send(
@@ -258,7 +262,7 @@ class Repository {
           filePath: input.path,
           lastCrawledAt: at,
         },
-      }),
+      })
     );
 
     return { outcome: decision.outcome, version: decision.nextVersion, versionNotBumped: decision.versionNotBumped };
@@ -269,9 +273,9 @@ class Repository {
     const res = await ddb.send(
       new ScanCommand({
         TableName: TABLE,
-        FilterExpression: "begins_with(SK, :con)",
-        ExpressionAttributeValues: { ":con": "CON#" },
-      }),
+        FilterExpression: 'begins_with(SK, :con)',
+        ExpressionAttributeValues: { ':con': 'CON#' },
+      })
     );
     let items = (res.Items ?? []) as CatalogEntry[];
     if (filters.source) items = items.filter((i) => i.source === filters.source);
@@ -287,9 +291,9 @@ class Repository {
     const versions = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        KeyConditionExpression: "PK = :pk",
-        ExpressionAttributeValues: { ":pk": versionPk(source, id) },
-      }),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': versionPk(source, id) },
+      })
     );
     return { entry: got.Item as CatalogEntry, versions: (versions.Items ?? []) as any[] };
   }
@@ -299,10 +303,10 @@ class Repository {
     const res = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        IndexName: "byEntity",
-        KeyConditionExpression: "entity = :e",
-        ExpressionAttributeValues: { ":e": entity },
-      }),
+        IndexName: 'byEntity',
+        KeyConditionExpression: 'entity = :e',
+        ExpressionAttributeValues: { ':e': entity },
+      })
     );
     const variants = (res.Items ?? []) as any[];
     const hashes = new Set(variants.map((v) => v.currentHash));
@@ -324,8 +328,8 @@ class Repository {
     await ddb.send(
       new PutCommand({
         TableName: TABLE,
-        Item: { PK: runPk(run.runId), SK: "RUN", kind: "CRAWL", ...(run as Record<string, unknown>) },
-      }),
+        Item: { PK: runPk(run.runId), SK: 'RUN', kind: 'CRAWL', ...(run as Record<string, unknown>) },
+      })
     );
   }
 
@@ -333,17 +337,17 @@ class Repository {
     const res = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        IndexName: "byKind",
-        KeyConditionExpression: "kind = :k",
-        ExpressionAttributeValues: { ":k": "CRAWL" },
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        ExpressionAttributeValues: { ':k': 'CRAWL' },
         ScanIndexForward: false,
-      }),
+      })
     );
     return (res.Items ?? []) as any[];
   }
 
   async getRun(runId: string): Promise<any | undefined> {
-    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: runPk(runId), SK: "RUN" } }));
+    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: runPk(runId), SK: 'RUN' } }));
     return res.Item;
   }
 
@@ -356,8 +360,8 @@ class Repository {
     await ddb.send(
       new PutCommand({
         TableName: TABLE,
-        Item: { PK: genPk(run.runId), SK: "GEN", kind: "GENERATION", ...(run as Record<string, unknown>) },
-      }),
+        Item: { PK: genPk(run.runId), SK: 'GEN', kind: 'GENERATION', ...(run as Record<string, unknown>) },
+      })
     );
   }
 
@@ -366,17 +370,17 @@ class Repository {
     const res = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        IndexName: "byKind",
-        KeyConditionExpression: "kind = :k",
-        ExpressionAttributeValues: { ":k": "GENERATION" },
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        ExpressionAttributeValues: { ':k': 'GENERATION' },
         ScanIndexForward: false,
-      }),
+      })
     );
     return (res.Items ?? []) as any[];
   }
 
   async getGenRun(runId: string): Promise<any | undefined> {
-    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: genPk(runId), SK: "GEN" } }));
+    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: genPk(runId), SK: 'GEN' } }));
     return res.Item;
   }
 
@@ -393,8 +397,8 @@ class Repository {
         Bucket: BUCKET,
         Key: key,
         Body: JSON.stringify(artifacts),
-        ContentType: "application/json",
-      }),
+        ContentType: 'application/json',
+      })
     );
     return key;
   }
@@ -406,7 +410,7 @@ class Repository {
       const body = obj.Body ? await (obj.Body as any).transformToString() : undefined;
       return body ? JSON.parse(body) : undefined;
     } catch (err) {
-      if ((err as { name?: string }).name === "NoSuchKey") return undefined;
+      if ((err as { name?: string }).name === 'NoSuchKey') return undefined;
       throw err;
     }
   }
@@ -421,8 +425,8 @@ class Repository {
     await ddb.send(
       new PutCommand({
         TableName: TABLE,
-        Item: { PK: fjobPk(job.jobId), SK: "FJOB", kind: "FUNCTIONAL_GEN", ...(job as unknown as Record<string, unknown>) },
-      }),
+        Item: { PK: fjobPk(job.jobId), SK: 'FJOB', kind: 'FUNCTIONAL_GEN', ...(job as unknown as Record<string, unknown>) },
+      })
     );
   }
 
@@ -431,17 +435,17 @@ class Repository {
     const res = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        IndexName: "byKind",
-        KeyConditionExpression: "kind = :k",
-        ExpressionAttributeValues: { ":k": "FUNCTIONAL_GEN" },
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        ExpressionAttributeValues: { ':k': 'FUNCTIONAL_GEN' },
         ScanIndexForward: false,
-      }),
+      })
     );
     return (res.Items ?? []) as FunctionalJobRecord[];
   }
 
   async getFunctionalJob(jobId: string): Promise<FunctionalJobRecord | undefined> {
-    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: fjobPk(jobId), SK: "FJOB" } }));
+    const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: fjobPk(jobId), SK: 'FJOB' } }));
     return res.Item as FunctionalJobRecord | undefined;
   }
 
@@ -458,8 +462,8 @@ class Repository {
         Bucket: BUCKET,
         Key: key,
         Body: JSON.stringify(artifacts),
-        ContentType: "application/json",
-      }),
+        ContentType: 'application/json',
+      })
     );
     return key;
   }
@@ -471,7 +475,7 @@ class Repository {
       const body = obj.Body ? await (obj.Body as any).transformToString() : undefined;
       return body ? JSON.parse(body) : undefined;
     } catch (err) {
-      if ((err as { name?: string }).name === "NoSuchKey") return undefined;
+      if ((err as { name?: string }).name === 'NoSuchKey') return undefined;
       throw err;
     }
   }
@@ -483,7 +487,7 @@ class Repository {
       const body = obj.Body ? await (obj.Body as any).transformToString() : undefined;
       return body ? JSON.parse(body) : undefined;
     } catch (err) {
-      if ((err as { name?: string }).name === "NoSuchKey") return undefined;
+      if ((err as { name?: string }).name === 'NoSuchKey') return undefined;
       throw err;
     }
   }
@@ -495,8 +499,8 @@ class Repository {
         Bucket: BUCKET,
         Key: planCacheKey(inputHash),
         Body: JSON.stringify(plan),
-        ContentType: "application/json",
-      }),
+        ContentType: 'application/json',
+      })
     );
   }
 
@@ -514,15 +518,15 @@ class Repository {
   async putRequirements(
     source: string,
     parsed: ParsedRequirement[],
-    opts: { specHash: string; specVersion?: string; rawSpec: string },
+    opts: { specHash: string; specVersion?: string; rawSpec: string }
   ): Promise<RequirementCounts> {
     // Prior snapshot: id → text, to compute changedInLastCrawl (R-107).
     const prior = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        KeyConditionExpression: "PK = :pk",
-        ExpressionAttributeValues: { ":pk": reqPk(source) },
-      }),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': reqPk(source) },
+      })
     );
     const priorText = new Map<string, string>();
     for (const it of (prior.Items ?? []) as any[]) priorText.set(it.id as string, it.text as string);
@@ -585,8 +589,8 @@ class Repository {
         Bucket: BUCKET,
         Key: reqSpecKey(source),
         Body: opts.rawSpec,
-        ContentType: "text/markdown",
-      }),
+        ContentType: 'text/markdown',
+      })
     );
 
     return {
@@ -608,10 +612,10 @@ class Repository {
     const prior = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        KeyConditionExpression: "PK = :pk",
-        ExpressionAttributeValues: { ":pk": reqPk(source) },
-        ProjectionExpression: "id",
-      }),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': reqPk(source) },
+        ProjectionExpression: 'id',
+      })
     );
     const ids = ((prior.Items ?? []) as { id: string }[]).map((i) => i.id);
     await batchWriteAll(ids.map((id) => ({ DeleteRequest: { Key: { PK: reqPk(source), SK: reqSk(id) } } })));
@@ -621,15 +625,13 @@ class Repository {
   }
 
   /** List cataloged requirements (R-109), optionally filtered. */
-  async listRequirements(
-    filters: { source?: string; earsType?: string; conforming?: boolean } = {},
-  ): Promise<RequirementRecord[]> {
+  async listRequirements(filters: { source?: string; earsType?: string; conforming?: boolean } = {}): Promise<RequirementRecord[]> {
     const res = await ddb.send(
       new ScanCommand({
         TableName: TABLE,
-        FilterExpression: "begins_with(SK, :r)",
-        ExpressionAttributeValues: { ":r": "R#" },
-      }),
+        FilterExpression: 'begins_with(SK, :r)',
+        ExpressionAttributeValues: { ':r': 'R#' },
+      })
     );
     let items = (res.Items ?? []) as RequirementRecord[];
     if (filters.source) items = items.filter((i) => i.source === filters.source);
@@ -643,14 +645,16 @@ class Repository {
 
   /** A source's full requirement set + spec metadata (R-110); undefined if none. */
   async getRequirementsForSource(
-    source: string,
-  ): Promise<{ source: string; specVersion?: string; specHash?: string; lastCrawledAt?: string; requirements: RequirementRecord[] } | undefined> {
+    source: string
+  ): Promise<
+    { source: string; specVersion?: string; specHash?: string; lastCrawledAt?: string; requirements: RequirementRecord[] } | undefined
+  > {
     const res = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
-        KeyConditionExpression: "PK = :pk",
-        ExpressionAttributeValues: { ":pk": reqPk(source) },
-      }),
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': reqPk(source) },
+      })
     );
     const requirements = [...((res.Items ?? []) as RequirementRecord[])].sort(byRequirementId);
     if (requirements.length === 0) return undefined;

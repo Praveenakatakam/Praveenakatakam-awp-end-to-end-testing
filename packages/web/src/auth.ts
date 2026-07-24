@@ -3,12 +3,8 @@
  * Demo users are admin-created with a permanent password (T-08), so there is no
  * NEW_PASSWORD_REQUIRED step; sign-in returns the access token directly.
  */
-import {
-  CognitoUserPool,
-  CognitoUser,
-  AuthenticationDetails,
-} from "amazon-cognito-identity-js";
-import { config } from "./config.js";
+import { CognitoUserPool, CognitoUser, AuthenticationDetails } from 'amazon-cognito-identity-js';
+import { config } from './config.js';
 
 const pool = new CognitoUserPool({
   UserPoolId: config.userPoolId,

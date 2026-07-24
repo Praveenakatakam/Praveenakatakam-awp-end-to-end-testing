@@ -11,7 +11,7 @@
  * derived from the property's ODCS data-quality rules.
  */
 
-import { normalizeContractSchema, COMPARED_FIELDS } from "./schema-model.js";
+import { normalizeContractSchema, COMPARED_FIELDS } from './schema-model.js';
 
 export interface PropRef {
   /** Dotted path `entity.property`. */

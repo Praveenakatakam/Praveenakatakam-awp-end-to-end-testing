@@ -1,13 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  triggerFunctionalGeneration,
-  pollFunctionalJob,
-  writeFunctionalArtifactTree,
-} from "../generate-tests.js";
-import type { FunctionalArtifactSet } from "@registry/functest";
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { triggerFunctionalGeneration, pollFunctionalJob, writeFunctionalArtifactTree } from '../generate-tests.js';
+import type { FunctionalArtifactSet } from '@registry/functest';
 
 // ---- Fixtures --------------------------------------------------------------
 
@@ -15,23 +11,23 @@ function artifactSet(): FunctionalArtifactSet {
   return {
     manifest: {
       manifestVersion: 1,
-      generator: "@registry/functest",
-      modelId: "claude-opus-4-8",
-      promptVersion: "v1",
+      generator: '@registry/functest',
+      modelId: 'claude-opus-4-8',
+      promptVersion: 'v1',
       plans: [
         {
-          requirementIds: ["R-10"],
-          title: "org propagates",
-          setup: [{ description: "writer token" }],
-          trigger: { source: "publisher", entity: "org", method: "POST", path: "/orgs", payloadShape: "{}" },
-          propagation: { kind: "cdc", waitFor: "consumer reflects" },
-          assertions: [{ service: "consumer", assertion: "GET /orgs includes it" }],
-          inputHash: "a".repeat(64),
+          requirementIds: ['R-10'],
+          title: 'org propagates',
+          setup: [{ description: 'writer token' }],
+          trigger: { source: 'publisher', entity: 'org', method: 'POST', path: '/orgs', payloadShape: '{}' },
+          propagation: { kind: 'cdc', waitFor: 'consumer reflects' },
+          assertions: [{ service: 'consumer', assertion: 'GET /orgs includes it' }],
+          inputHash: 'a'.repeat(64),
         },
       ],
-      skipped: [{ requirement: "publisher/R-99", reason: "references no cataloged entity" }],
+      skipped: [{ requirement: 'publisher/R-99', reason: 'references no cataloged entity' }],
     },
-    files: [{ path: "functional/r-10-org.generated.test.ts", contents: "// test\n" }],
+    files: [{ path: 'functional/r-10-org.generated.test.ts', contents: '// test\n' }],
   };
 }
 
@@ -57,75 +53,77 @@ const noSleep = async () => {};
 
 // ---- triggerFunctionalGeneration (R-115) -----------------------------------
 
-describe("triggerFunctionalGeneration", () => {
-  it("returns the jobId on a 202", async () => {
-    const f = scriptedFetch([{ match: "/generate-functional-tests", status: 202, json: { jobId: "fj-1", status: "pending" } }]);
-    expect(await triggerFunctionalGeneration(f, "https://api", "tok")).toEqual({ jobId: "fj-1", status: "pending" });
+describe('triggerFunctionalGeneration', () => {
+  it('returns the jobId on a 202', async () => {
+    const f = scriptedFetch([{ match: '/generate-functional-tests', status: 202, json: { jobId: 'fj-1', status: 'pending' } }]);
+    expect(await triggerFunctionalGeneration(f, 'https://api', 'tok')).toEqual({ jobId: 'fj-1', status: 'pending' });
   });
 
-  it("throws when the status is not 202", async () => {
-    const f = scriptedFetch([{ match: "/generate-functional-tests", status: 403 }]);
-    await expect(triggerFunctionalGeneration(f, "https://api", "tok")).rejects.toThrow(/403/);
+  it('throws when the status is not 202', async () => {
+    const f = scriptedFetch([{ match: '/generate-functional-tests', status: 403 }]);
+    await expect(triggerFunctionalGeneration(f, 'https://api', 'tok')).rejects.toThrow(/403/);
   });
 });
 
 // ---- pollFunctionalJob (R-125) ---------------------------------------------
 
-describe("pollFunctionalJob", () => {
-  it("polls until succeeded and returns job + artifacts", async () => {
+describe('pollFunctionalJob', () => {
+  it('polls until succeeded and returns job + artifacts', async () => {
     const arts = artifactSet();
     const f = scriptedFetch([
-      { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "running" } } },
-      { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "succeeded", planCount: 1 }, artifacts: arts } },
+      { match: '/functional-test-jobs/fj-1', status: 200, json: { job: { status: 'running' } } },
+      { match: '/functional-test-jobs/fj-1', status: 200, json: { job: { status: 'succeeded', planCount: 1 }, artifacts: arts } },
     ]);
-    const { job, artifacts } = await pollFunctionalJob(f, "https://api", "tok", "fj-1", { sleep: noSleep, onProgress: () => {} });
-    expect(job.status).toBe("succeeded");
-    expect(artifacts.files[0].path).toBe("functional/r-10-org.generated.test.ts");
+    const { job, artifacts } = await pollFunctionalJob(f, 'https://api', 'tok', 'fj-1', { sleep: noSleep, onProgress: () => {} });
+    expect(job.status).toBe('succeeded');
+    expect(artifacts.files[0].path).toBe('functional/r-10-org.generated.test.ts');
   });
 
-  it("throws with the recorded reason when the job fails", async () => {
+  it('throws with the recorded reason when the job fails', async () => {
     const f = scriptedFetch([
-      { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "failed", error: "AccessDeniedException: bedrock:InvokeModel on model us.anthropic.claude-opus-4-8" } } },
+      {
+        match: '/functional-test-jobs/fj-1',
+        status: 200,
+        json: { job: { status: 'failed', error: 'AccessDeniedException: bedrock:InvokeModel on model us.anthropic.claude-opus-4-8' } },
+      },
     ]);
-    await expect(
-      pollFunctionalJob(f, "https://api", "tok", "fj-1", { sleep: noSleep, onProgress: () => {} }),
-    ).rejects.toThrow(/AccessDeniedException: bedrock:InvokeModel/);
+    await expect(pollFunctionalJob(f, 'https://api', 'tok', 'fj-1', { sleep: noSleep, onProgress: () => {} })).rejects.toThrow(
+      /AccessDeniedException: bedrock:InvokeModel/
+    );
   });
 
-  it("gives up after the attempt budget instead of hanging", async () => {
+  it('gives up after the attempt budget instead of hanging', async () => {
     const f = scriptedFetch([
-      { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "running" } } },
-      { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "running" } } },
+      { match: '/functional-test-jobs/fj-1', status: 200, json: { job: { status: 'running' } } },
+      { match: '/functional-test-jobs/fj-1', status: 200, json: { job: { status: 'running' } } },
     ]);
-    await expect(
-      pollFunctionalJob(f, "https://api", "tok", "fj-1", { attempts: 2, sleep: noSleep, onProgress: () => {} }),
-    ).rejects.toThrow(/did not finish within 2 poll/);
+    await expect(pollFunctionalJob(f, 'https://api', 'tok', 'fj-1', { attempts: 2, sleep: noSleep, onProgress: () => {} })).rejects.toThrow(
+      /did not finish within 2 poll/
+    );
   });
 });
 
 // ---- failure leaves the committed tree untouched (E-47) --------------------
 
-describe("functional failure leaves the committed tree untouched (E-47)", () => {
-  it("does not touch generated-tests/functional when the job fails", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "functest-e47-"));
+describe('functional failure leaves the committed tree untouched (E-47)', () => {
+  it('does not touch generated-tests/functional when the job fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'functest-e47-'));
     try {
       // A previously-committed functional tree the operator already has in git.
-      mkdirSync(join(dir, "functional"), { recursive: true });
-      writeFileSync(join(dir, "functional", "manifest.json"), '{"committed":true}');
-      writeFileSync(join(dir, "functional", "old.generated.test.ts"), "// committed\n");
+      mkdirSync(join(dir, 'functional'), { recursive: true });
+      writeFileSync(join(dir, 'functional', 'manifest.json'), '{"committed":true}');
+      writeFileSync(join(dir, 'functional', 'old.generated.test.ts'), '// committed\n');
 
       // The CLI writes the tree ONLY after a successful poll; a failed job throws
       // out of pollFunctionalJob before writeFunctionalArtifactTree is ever reached.
       const f = scriptedFetch([
-        { match: "/functional-test-jobs/fj-1", status: 200, json: { job: { status: "failed", error: "AccessDeniedException" } } },
+        { match: '/functional-test-jobs/fj-1', status: 200, json: { job: { status: 'failed', error: 'AccessDeniedException' } } },
       ]);
-      await expect(
-        pollFunctionalJob(f, "https://api", "tok", "fj-1", { sleep: noSleep, onProgress: () => {} }),
-      ).rejects.toThrow(/failed/);
+      await expect(pollFunctionalJob(f, 'https://api', 'tok', 'fj-1', { sleep: noSleep, onProgress: () => {} })).rejects.toThrow(/failed/);
 
       // Tree is byte-for-byte intact — nothing was replaced or wiped.
-      expect(readFileSync(join(dir, "functional", "manifest.json"), "utf8")).toBe('{"committed":true}');
-      expect(existsSync(join(dir, "functional", "old.generated.test.ts"))).toBe(true);
+      expect(readFileSync(join(dir, 'functional', 'manifest.json'), 'utf8')).toBe('{"committed":true}');
+      expect(existsSync(join(dir, 'functional', 'old.generated.test.ts'))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -134,32 +132,32 @@ describe("functional failure leaves the committed tree untouched (E-47)", () => 
 
 // ---- writeFunctionalArtifactTree (R-123) -----------------------------------
 
-describe("writeFunctionalArtifactTree", () => {
+describe('writeFunctionalArtifactTree', () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "functest-"));
+    dir = mkdtempSync(join(tmpdir(), 'functest-'));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("writes the functional subtree + manifest and returns sorted paths", () => {
+  it('writes the functional subtree + manifest and returns sorted paths', () => {
     const written = writeFunctionalArtifactTree(dir, artifactSet());
-    expect(written).toEqual(["functional/manifest.json", "functional/r-10-org.generated.test.ts"]);
-    expect(existsSync(join(dir, "functional", "manifest.json"))).toBe(true);
-    expect(readFileSync(join(dir, "functional", "r-10-org.generated.test.ts"), "utf8")).toBe("// test\n");
-    const manifest = JSON.parse(readFileSync(join(dir, "functional", "manifest.json"), "utf8"));
+    expect(written).toEqual(['functional/manifest.json', 'functional/r-10-org.generated.test.ts']);
+    expect(existsSync(join(dir, 'functional', 'manifest.json'))).toBe(true);
+    expect(readFileSync(join(dir, 'functional', 'r-10-org.generated.test.ts'), 'utf8')).toBe('// test\n');
+    const manifest = JSON.parse(readFileSync(join(dir, 'functional', 'manifest.json'), 'utf8'));
     expect(manifest.plans).toHaveLength(1);
   });
 
-  it("replaces the subtree wholesale — stale files disappear (R-123)", () => {
+  it('replaces the subtree wholesale — stale files disappear (R-123)', () => {
     writeFunctionalArtifactTree(dir, {
       ...artifactSet(),
-      files: [{ path: "functional/stale.generated.test.ts", contents: "// old\n" }],
+      files: [{ path: 'functional/stale.generated.test.ts', contents: '// old\n' }],
     });
-    expect(existsSync(join(dir, "functional", "stale.generated.test.ts"))).toBe(true);
+    expect(existsSync(join(dir, 'functional', 'stale.generated.test.ts'))).toBe(true);
     writeFunctionalArtifactTree(dir, artifactSet());
-    expect(existsSync(join(dir, "functional", "stale.generated.test.ts"))).toBe(false);
-    expect(existsSync(join(dir, "functional", "r-10-org.generated.test.ts"))).toBe(true);
+    expect(existsSync(join(dir, 'functional', 'stale.generated.test.ts'))).toBe(false);
+    expect(existsSync(join(dir, 'functional', 'r-10-org.generated.test.ts'))).toBe(true);
   });
 });

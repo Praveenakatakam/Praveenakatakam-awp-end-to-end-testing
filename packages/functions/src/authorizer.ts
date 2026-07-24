@@ -12,65 +12,53 @@
  * disabled in ApiStack so a read-authorised token cannot be replayed against
  * `POST /refresh`.
  */
-import type {
-  APIGatewayRequestAuthorizerEventV2,
-  APIGatewaySimpleAuthorizerWithContextResult,
-} from "aws-lambda";
-import { CognitoJwtVerifier } from "aws-jwt-verify";
-import { Config } from "sst/node/config";
-import { log } from "./log.js";
+import type { APIGatewayRequestAuthorizerEventV2, APIGatewaySimpleAuthorizerWithContextResult } from 'aws-lambda';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { Config } from 'sst/node/config';
+import { log } from './log.js';
 
 export type AuthContext = { sub: string; username: string; groups: string };
 type SimpleResult = APIGatewaySimpleAuthorizerWithContextResult<AuthContext>;
 
 /** Routes that require the `writer` group (crawl + test generation). */
-export const WRITER_ROUTES = new Set([
-  "POST /refresh",
-  "POST /generate-tests",
-  "POST /generate-functional-tests",
-]);
+export const WRITER_ROUTES = new Set(['POST /refresh', 'POST /generate-tests', 'POST /generate-functional-tests']);
 
 /** The group a route requires. */
-export function requiredGroup(routeKey: string): "writer" | "reader" {
-  return WRITER_ROUTES.has(routeKey) ? "writer" : "reader";
+export function requiredGroup(routeKey: string): 'writer' | 'reader' {
+  return WRITER_ROUTES.has(routeKey) ? 'writer' : 'reader';
 }
 
 /** Whether a caller's groups satisfy a route (writer implies read access). */
 export function isAuthorized(routeKey: string, groups: string[]): boolean {
-  if (requiredGroup(routeKey) === "writer") return groups.includes("writer");
-  return groups.includes("reader") || groups.includes("writer");
+  if (requiredGroup(routeKey) === 'writer') return groups.includes('writer');
+  return groups.includes('reader') || groups.includes('writer');
 }
 
 type VerifyFn = (token: string) => Promise<Record<string, unknown>>;
 
 /** Core authorizer logic with the token verifier injected (unit-testable). */
-export async function handleAuthorization(
-  event: APIGatewayRequestAuthorizerEventV2,
-  verify: VerifyFn,
-): Promise<SimpleResult> {
-  const raw = event.identitySource?.[0] ?? "";
-  const token = raw.replace(/^Bearer\s+/i, "").trim();
+export async function handleAuthorization(event: APIGatewayRequestAuthorizerEventV2, verify: VerifyFn): Promise<SimpleResult> {
+  const raw = event.identitySource?.[0] ?? '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
 
   let payload: Record<string, unknown>;
   try {
     payload = await verify(token);
   } catch {
     // Token rejected — deny (403). The token itself is never logged (NFR-2).
-    log.warn("authz.denied", { routeKey: event.routeKey, reason: "token_rejected" });
-    return { isAuthorized: false, context: { sub: "", username: "", groups: "" } };
+    log.warn('authz.denied', { routeKey: event.routeKey, reason: 'token_rejected' });
+    return { isAuthorized: false, context: { sub: '', username: '', groups: '' } };
   }
 
-  const groups = Array.isArray(payload["cognito:groups"])
-    ? (payload["cognito:groups"] as string[])
-    : [];
+  const groups = Array.isArray(payload['cognito:groups']) ? (payload['cognito:groups'] as string[]) : [];
   const allowed = isAuthorized(event.routeKey, groups);
-  log.info("authz.decision", { routeKey: event.routeKey, allowed, username: String(payload.username ?? ""), groups: groups.join(",") });
+  log.info('authz.decision', { routeKey: event.routeKey, allowed, username: String(payload.username ?? ''), groups: groups.join(',') });
   return {
     isAuthorized: allowed,
     context: {
-      sub: String(payload.sub ?? ""),
-      username: String(payload.username ?? ""),
-      groups: groups.join(","),
+      sub: String(payload.sub ?? ''),
+      username: String(payload.username ?? ''),
+      groups: groups.join(','),
     },
   };
 }
@@ -83,14 +71,12 @@ function getVerifier(): { verify: VerifyFn } {
     verifier = CognitoJwtVerifier.create({
       userPoolId: Config.USER_POOL_ID,
       clientId: Config.USER_POOL_CLIENT_ID,
-      tokenUse: "access",
+      tokenUse: 'access',
     }) as unknown as { verify: VerifyFn };
   }
   return verifier;
 }
 
-export async function handler(
-  event: APIGatewayRequestAuthorizerEventV2,
-): Promise<SimpleResult> {
+export async function handler(event: APIGatewayRequestAuthorizerEventV2): Promise<SimpleResult> {
   return handleAuthorization(event, (t) => getVerifier().verify(t));
 }

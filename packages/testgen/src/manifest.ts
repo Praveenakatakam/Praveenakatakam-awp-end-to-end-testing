@@ -17,21 +17,21 @@ export interface CatalogContract {
   declaredVersion?: string;
   /** Git blob SHA the test is generated from (R-82). */
   contentHash: string;
-  validation: "valid" | "invalid";
+  validation: 'valid' | 'invalid';
   /** Raw ODCS YAML — parsed for schema derivation + the compat check. */
   rawYaml: string;
 }
 
 /** A minimal JSON-Schema object (embedded per conformance test — D-30). */
 export interface JsonSchema {
-  type: "object";
+  type: 'object';
   required: string[];
   properties: Record<string, { type?: string; format?: string; enum?: unknown[] }>;
   additionalProperties: boolean;
 }
 
 export interface ConformanceTest {
-  kind: "conformance";
+  kind: 'conformance';
   source: string;
   entity: string;
   contractId: string;
@@ -56,11 +56,11 @@ export interface CompatVariant {
 }
 
 export interface CompatTest {
-  kind: "compat";
+  kind: 'compat';
   entity: string;
   publisher: CompatVariant;
   consumer: CompatVariant;
-  rule: "consumer-can-read-publisher";
+  rule: 'consumer-can-read-publisher';
   /** Consumer's required properties the publisher must satisfy (R-84). */
   consumerRequired: CompatProp[];
   /** Publisher's properties (name → logicalType) for the run-time assertion. */
@@ -70,7 +70,7 @@ export interface CompatTest {
 export type GeneratedTest = ConformanceTest | CompatTest;
 
 export interface Skip {
-  kind: "conformance" | "compat";
+  kind: 'conformance' | 'compat';
   /** `source/id` for conformance, entity for compat. */
   target: string;
   reason: string;
@@ -95,4 +95,4 @@ export interface ArtifactSet {
   files: ArtifactFile[];
 }
 
-export const GENERATOR_ID = "@registry/testgen";
+export const GENERATOR_ID = '@registry/testgen';

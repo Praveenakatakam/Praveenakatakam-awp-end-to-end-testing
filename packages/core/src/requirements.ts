@@ -13,8 +13,8 @@
  * non-conforming but still cataloged (fault-isolating, mirrors R-21/D-27).
  */
 
-export type EarsType = "event" | "unwanted" | "state" | "optional" | "ubiquitous";
-export type Modality = "SHALL" | "SHOULD" | "MAY";
+export type EarsType = 'event' | 'unwanted' | 'state' | 'optional' | 'ubiquitous';
+export type Modality = 'SHALL' | 'SHOULD' | 'MAY';
 
 export interface ParsedRequirement {
   /** Requirement id, e.g. `R-17a`. */
@@ -45,16 +45,16 @@ const REQ_BULLET = /^[-*]\s+\*\*(R-\d+[a-z]?)\*\*\s*[—–-]\s*(.+)$/;
 
 function deriveEarsType(text: string): EarsType {
   const m = /^(WHEN|IF|WHILE|WHERE)\b/.exec(text);
-  if (!m) return "ubiquitous";
+  if (!m) return 'ubiquitous';
   switch (m[1]) {
-    case "WHEN":
-      return "event";
-    case "IF":
-      return "unwanted";
-    case "WHILE":
-      return "state";
+    case 'WHEN':
+      return 'event';
+    case 'IF':
+      return 'unwanted';
+    case 'WHILE':
+      return 'state';
     default:
-      return "optional"; // WHERE
+      return 'optional'; // WHERE
   }
 }
 
@@ -72,7 +72,7 @@ export function parseRequirements(specMarkdown: string): ParsedRequirement[] {
   const out: ParsedRequirement[] = [];
 
   let inSection = false;
-  let currentSection = "";
+  let currentSection = '';
 
   for (const line of lines) {
     if (!inSection) {

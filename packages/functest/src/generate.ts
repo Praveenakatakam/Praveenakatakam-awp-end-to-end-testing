@@ -12,16 +12,16 @@
  * Nothing here fails the whole run: a synthesis error or a malformed/hallucinated
  * plan skips that ONE requirement with a reason (R-120, NFR-4).
  */
-import { ground, type ApiMapLike, type ContractInput, type GroundedContext, type RequirementInput } from "./ground.js";
-import { validatePlan, type FunctionalTestPlan } from "./plan.js";
-import { emitFunctionalTest } from "./emit.js";
+import { ground, type ApiMapLike, type ContractInput, type GroundedContext, type RequirementInput } from './ground.js';
+import { validatePlan, type FunctionalTestPlan } from './plan.js';
+import { emitFunctionalTest } from './emit.js';
 
-export type { FunctionalTestPlan, PlanBody, PlanStep, PlanAssertion } from "./plan.js";
-export { PLAN_SCHEMA, validatePlan } from "./plan.js";
-export * from "./ground.js";
-export * from "./emit.js";
+export type { FunctionalTestPlan, PlanBody, PlanStep, PlanAssertion } from './plan.js';
+export { PLAN_SCHEMA, validatePlan } from './plan.js';
+export * from './ground.js';
+export * from './emit.js';
 
-export const FUNCTIONAL_GENERATOR_ID = "@registry/functest";
+export const FUNCTIONAL_GENERATOR_ID = '@registry/functest';
 
 /**
  * The LLM boundary (R-118, D-51). One method: synthesize a plan body from a
@@ -80,8 +80,8 @@ export interface FunctionalArtifactSet {
 
 /** Stable ordering: by first requirement id (natural), then title. */
 function planOrder(a: FunctionalTestPlan, b: FunctionalTestPlan): number {
-  const ai = a.requirementIds[0] ?? "";
-  const bi = b.requirementIds[0] ?? "";
+  const ai = a.requirementIds[0] ?? '';
+  const bi = b.requirementIds[0] ?? '';
   return ai.localeCompare(bi, undefined, { numeric: true }) || a.title.localeCompare(b.title);
 }
 
@@ -93,13 +93,13 @@ function planOrder(a: FunctionalTestPlan, b: FunctionalTestPlan): number {
 export async function generateFunctionalPlans(
   inputs: FunctionalGenInputs,
   llm: LlmClient,
-  cache: PlanCache,
+  cache: PlanCache
 ): Promise<{ plans: FunctionalTestPlan[]; skipped: FunctionalSkip[] }> {
   const plans: FunctionalTestPlan[] = [];
   const skipped: FunctionalSkip[] = [];
 
   const requirements = [...inputs.requirements].sort((a, b) =>
-    `${a.source}/${a.id}`.localeCompare(`${b.source}/${b.id}`, undefined, { numeric: true }),
+    `${a.source}/${a.id}`.localeCompare(`${b.source}/${b.id}`, undefined, { numeric: true })
   );
 
   for (const req of requirements) {
@@ -151,18 +151,16 @@ export function emitFunctionalTests(plans: FunctionalTestPlan[]): FunctionalArti
 
 /** Deterministic file slug from the first requirement id + entity. */
 function fileSlug(plan: FunctionalTestPlan): string {
-  const id = (plan.requirementIds[0] ?? "REQ").replace(/[^A-Za-z0-9]+/g, "-");
+  const id = (plan.requirementIds[0] ?? 'REQ').replace(/[^A-Za-z0-9]+/g, '-');
   return `${id}-${plan.trigger.entity}`.toLowerCase();
 }
 
 /** Assemble the full artifact set from a completed run. */
-export function buildFunctionalArtifacts(
-  manifest: FunctionalManifest,
-): FunctionalArtifactSet {
+export function buildFunctionalArtifacts(manifest: FunctionalManifest): FunctionalArtifactSet {
   return { manifest, files: emitFunctionalTests(manifest.plans) };
 }
 
 /** Serialize the manifest byte-stably (sorted-ish via construction; 2-space JSON). */
 export function serializeFunctionalManifest(manifest: FunctionalManifest): string {
-  return JSON.stringify(manifest, null, 2) + "\n";
+  return JSON.stringify(manifest, null, 2) + '\n';
 }

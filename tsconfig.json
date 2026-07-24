@@ -12,12 +12,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": [
-    "sst.config.ts",
-    "stacks/**/*.ts",
-    "packages/**/*.ts",
-    "scripts/**/*.ts",
-    ".sst/types/**/*.ts"
-  ],
+  "include": ["sst.config.ts", "stacks/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts", ".sst/types/**/*.ts"],
   "exclude": ["node_modules", "packages/web", "generated-tests"]
 }

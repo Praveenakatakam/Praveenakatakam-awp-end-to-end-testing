@@ -7,9 +7,9 @@
  * env vars are unset (R-83a, D-26); compat tests are static and embed both
  * variants' property facts (D-24).
  */
-import type { ConformanceTest, CompatTest } from "./manifest.js";
+import type { ConformanceTest, CompatTest } from './manifest.js';
 
-const HEADER = "// GENERATED — DO NOT EDIT. Regenerate via `npm run generate-tests` (see generated-tests/manifest.json).";
+const HEADER = '// GENERATED — DO NOT EDIT. Regenerate via `npm run generate-tests` (see generated-tests/manifest.json).';
 
 /** Conformance file: fetch live records, validate each against the embedded schema (R-83, R-83a). */
 export function emitConformanceTest(t: ConformanceTest, index: number): string {

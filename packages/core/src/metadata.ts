@@ -23,7 +23,7 @@ export interface ContractMetadata {
 }
 
 function str(v: unknown): string | undefined {
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
 /** Derive the entity name from schema[0].name, else the file's name stem. */
@@ -35,15 +35,15 @@ function resolveEntity(doc: Record<string, unknown>, filePath: string): string {
     if (name) return name;
   }
   // Filename stem: strip directories and the ".odcs.yaml" / ".yaml" suffix.
-  const base = filePath.split("/").pop() ?? filePath;
-  return base.replace(/\.odcs\.ya?ml$/i, "").replace(/\.ya?ml$/i, "");
+  const base = filePath.split('/').pop() ?? filePath;
+  return base.replace(/\.odcs\.ya?ml$/i, '').replace(/\.ya?ml$/i, '');
 }
 
 export function extractMetadata(parsed: unknown, filePath: string): ContractMetadata {
-  const doc = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
-  const tags = Array.isArray(doc.tags) ? (doc.tags as unknown[]).filter((t): t is string => typeof t === "string") : [];
+  const doc = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const tags = Array.isArray(doc.tags) ? (doc.tags as unknown[]).filter((t): t is string => typeof t === 'string') : [];
   return {
-    id: str(doc.id) ?? "",
+    id: str(doc.id) ?? '',
     name: str(doc.name),
     version: str(doc.version),
     apiVersion: str(doc.apiVersion),

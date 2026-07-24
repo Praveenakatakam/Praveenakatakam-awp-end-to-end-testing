@@ -15,7 +15,6 @@ jobs:
       - uses: ./.github/actions/setup/repo
         with:
           node_version: ${{ vars.NODE_MAJOR_VERSION }}
-          pnpm_version: ${{ vars.PNPM_VERSION }}
       - name: Format Check
         run: pnpm run format:check
         shell: bash

@@ -3,10 +3,10 @@
  * authorizer (T-09) before they run. Responses are served from the pre-crawled
  * catalog (trigger-then-cache — D-7), never a live crawl.
  */
-import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
-import { parseAndValidate, diffContracts } from "@registry/core";
-import { repository } from "./repository.js";
-import { json, notFound } from "./http.js";
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
+import { parseAndValidate, diffContracts } from '@registry/core';
+import { repository } from './repository.js';
+import { json, notFound } from './http.js';
 
 /** GET /contracts?source=&entity=&validation= (R-50). */
 export async function contracts(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
@@ -36,7 +36,7 @@ export async function raw(event: APIGatewayProxyEventV2): Promise<APIGatewayProx
   const version = versionParam ? Number(versionParam) : undefined;
   const body = await repository.getRaw(source, id, version);
   if (body === undefined) return notFound(`no contract ${source}/${id}`);
-  return { statusCode: 200, headers: { "content-type": "application/yaml" }, body };
+  return { statusCode: 200, headers: { 'content-type': 'application/yaml' }, body };
 }
 
 /** GET /entities/{entity} — variants + divergence + semantic diff (R-53, D-18). */
@@ -51,7 +51,7 @@ export async function entity(event: APIGatewayProxyEventV2): Promise<APIGatewayP
   // framing (D-24) and the SPA labels — the `byEntity` GSI returns them
   // source-ascending (consumer before publisher), which would otherwise flip it.
   const variants = [...result.variants].sort((x, y) =>
-    x.source === y.source ? 0 : x.source === "publisher" ? -1 : y.source === "publisher" ? 1 : x.source.localeCompare(y.source),
+    x.source === y.source ? 0 : x.source === 'publisher' ? -1 : y.source === 'publisher' ? 1 : x.source.localeCompare(y.source)
   );
 
   let diff: unknown;
@@ -88,7 +88,7 @@ export async function testArtifacts(_event: APIGatewayProxyEventV2): Promise<API
 /** GET /test-artifacts/latest — newest run record + inline artifact set (R-90, D-32). */
 export async function testArtifactsLatest(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const run = await repository.getLatestGenRun();
-  if (!run) return notFound("no generation runs");
+  if (!run) return notFound('no generation runs');
   const artifacts = await repository.getArtifacts(run.runId);
   return json(200, { run, artifacts });
 }
@@ -113,7 +113,7 @@ export async function functionalJobs(_event: APIGatewayProxyEventV2): Promise<AP
 /** GET /functional-test-jobs/latest — newest job + inline artifact set (R-125, R-126). */
 export async function functionalJobLatest(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const job = await repository.getLatestFunctionalJob();
-  if (!job) return notFound("no functional-test-generation jobs");
+  if (!job) return notFound('no functional-test-generation jobs');
   const artifacts = await repository.getFunctionalArtifacts(job.jobId);
   return json(200, { job, artifacts });
 }
@@ -134,7 +134,7 @@ export async function functionalJob(event: APIGatewayProxyEventV2): Promise<APIG
 export async function requirements(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const q = event.queryStringParameters ?? {};
   // `conforming` is an optional tri-state: "true"/"false" filter, else unset.
-  const conforming = q.conforming === undefined ? undefined : q.conforming === "true";
+  const conforming = q.conforming === undefined ? undefined : q.conforming === 'true';
   const items = await repository.listRequirements({ source: q.source, earsType: q.earsType, conforming });
   return json(200, { items });
 }

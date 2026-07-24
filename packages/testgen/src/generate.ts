@@ -8,10 +8,10 @@
  * entity, or an unmapped entity is SKIPPED with a recorded reason (R-85), never
  * an abort.
  */
-import { parseAndValidate, apiTarget } from "@registry/core";
-import { deriveJsonSchema } from "./derive-schema.js";
-import { checkCompat } from "./compat.js";
-import { emitConformanceTest, emitCompatTest } from "./emit.js";
+import { parseAndValidate, apiTarget } from '@registry/core';
+import { deriveJsonSchema } from './derive-schema.js';
+import { checkCompat } from './compat.js';
+import { emitConformanceTest, emitCompatTest } from './emit.js';
 import {
   GENERATOR_ID,
   type ArtifactSet,
@@ -21,10 +21,10 @@ import {
   type GeneratedTest,
   type Manifest,
   type Skip,
-} from "./manifest.js";
+} from './manifest.js';
 
-const PUBLISHER = "publisher";
-const CONSUMER = "consumer";
+const PUBLISHER = 'publisher';
+const CONSUMER = 'consumer';
 
 export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
   const conformance: ConformanceTest[] = [];
@@ -33,21 +33,21 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
 
   // --- Conformance: one per applicable {source, entity} (R-83) ---
   for (const c of catalog) {
-    if (c.validation !== "valid") {
-      skipped.push({ kind: "conformance", target: `${c.source}/${c.id}`, reason: "validation: invalid" });
+    if (c.validation !== 'valid') {
+      skipped.push({ kind: 'conformance', target: `${c.source}/${c.id}`, reason: 'validation: invalid' });
       continue;
     }
     const target = apiTarget(c.source, c.entity);
     if (!target) {
       skipped.push({
-        kind: "conformance",
+        kind: 'conformance',
         target: `${c.source}/${c.id}`,
         reason: `no API mapping for entity '${c.entity}'`,
       });
       continue;
     }
     conformance.push({
-      kind: "conformance",
+      kind: 'conformance',
       source: c.source,
       entity: c.entity,
       contractId: c.id,
@@ -66,22 +66,25 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
     const con = variants.find((v) => v.source === CONSUMER);
 
     if (!pub || !con) {
-      const only = pub ? PUBLISHER : con ? CONSUMER : variants.map((v) => v.source).join(",");
-      skipped.push({ kind: "compat", target: entity, reason: `single-source (${only} only)` });
+      const only = pub ? PUBLISHER : con ? CONSUMER : variants.map((v) => v.source).join(',');
+      skipped.push({ kind: 'compat', target: entity, reason: `single-source (${only} only)` });
       continue;
     }
-    if (pub.validation !== "valid" || con.validation !== "valid") {
-      const bad = [pub, con].filter((v) => v.validation !== "valid").map((v) => v.source).join(",");
-      skipped.push({ kind: "compat", target: entity, reason: `variant invalid (${bad})` });
+    if (pub.validation !== 'valid' || con.validation !== 'valid') {
+      const bad = [pub, con]
+        .filter((v) => v.validation !== 'valid')
+        .map((v) => v.source)
+        .join(',');
+      skipped.push({ kind: 'compat', target: entity, reason: `variant invalid (${bad})` });
       continue;
     }
     const result = checkCompat(parseAndValidate(con.rawYaml).parsed, parseAndValidate(pub.rawYaml).parsed);
     compat.push({
-      kind: "compat",
+      kind: 'compat',
       entity,
       publisher: { source: pub.source, contractId: pub.id, contentHash: pub.contentHash, declaredVersion: pub.declaredVersion },
       consumer: { source: con.source, contractId: con.id, contentHash: con.contentHash, declaredVersion: con.declaredVersion },
-      rule: "consumer-can-read-publisher",
+      rule: 'consumer-can-read-publisher',
       consumerRequired: result.consumerRequired,
       publisherProps: result.publisherProps,
     });
@@ -98,9 +101,9 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
   // --- Emit files (paths sorted, R-92) ---
   const files = tests
     .map((t, i) =>
-      t.kind === "conformance"
+      t.kind === 'conformance'
         ? { path: `conformance/${t.source}.${t.entity}.generated.test.ts`, contents: emitConformanceTest(t, i) }
-        : { path: `compat/${t.entity}.generated.test.ts`, contents: emitCompatTest(t, i) },
+        : { path: `compat/${t.entity}.generated.test.ts`, contents: emitCompatTest(t, i) }
     )
     .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -109,5 +112,5 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
 
 /** Serialise a manifest deterministically (R-88) — used by handlers + CLI. */
 export function serializeManifest(manifest: Manifest): string {
-  return JSON.stringify(manifest, null, 2) + "\n";
+  return JSON.stringify(manifest, null, 2) + '\n';
 }

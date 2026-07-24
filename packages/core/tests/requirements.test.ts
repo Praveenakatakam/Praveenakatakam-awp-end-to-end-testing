@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseRequirements, extractSpecVersion } from "../src/requirements.js";
+import { describe, it, expect } from 'vitest';
+import { parseRequirements, extractSpecVersion } from '../src/requirements.js';
 
 // A fixture that mirrors the companion repos' docs/spec.md shape: a
 // "Functional Requirements (EARS)" section with `### 3.x` sub-headings and
@@ -36,61 +36,59 @@ const SPEC = `# Example App — Specification
 - **R-98** — This one is after the section and MUST be ignored too.
 `;
 
-describe("parseRequirements (T-27 · R-102, R-103, R-104)", () => {
+describe('parseRequirements (T-27 · R-102, R-103, R-104)', () => {
   const reqs = parseRequirements(SPEC);
   const byId = Object.fromEntries(reqs.map((r) => [r.id, r]));
 
-  it("extracts only the requirements under the Functional Requirements section", () => {
+  it('extracts only the requirements under the Functional Requirements section', () => {
     const ids = reqs.map((r) => r.id);
-    expect(ids).toEqual(["R-01", "R-04", "R-05", "R-10", "R-11", "R-12", "R-17a", "R-20"]);
-    expect(ids).not.toContain("R-99"); // Out of Scope
-    expect(ids).not.toContain("R-98"); // Non-Functional
+    expect(ids).toEqual(['R-01', 'R-04', 'R-05', 'R-10', 'R-11', 'R-12', 'R-17a', 'R-20']);
+    expect(ids).not.toContain('R-99'); // Out of Scope
+    expect(ids).not.toContain('R-98'); // Non-Functional
   });
 
-  it("captures id, text, and enclosing section heading (numeric prefix kept)", () => {
-    expect(byId["R-01"].text).toBe(
-      "The system SHALL define one ODCS data contract that validates against the schema.",
-    );
-    expect(byId["R-01"].section).toBe("3.1 Data Contract (ODCS)");
-    expect(byId["R-10"].section).toBe("3.2 API — Auth");
-    expect(byId["R-17a"].id).toBe("R-17a"); // sub-id preserved
+  it('captures id, text, and enclosing section heading (numeric prefix kept)', () => {
+    expect(byId['R-01'].text).toBe('The system SHALL define one ODCS data contract that validates against the schema.');
+    expect(byId['R-01'].section).toBe('3.1 Data Contract (ODCS)');
+    expect(byId['R-10'].section).toBe('3.2 API — Auth');
+    expect(byId['R-17a'].id).toBe('R-17a'); // sub-id preserved
   });
 
-  it("derives earsType from the leading keyword (WHEN/IF/WHILE/WHERE/none)", () => {
-    expect(byId["R-10"].earsType).toBe("event"); // WHEN
-    expect(byId["R-11"].earsType).toBe("unwanted"); // IF
-    expect(byId["R-12"].earsType).toBe("state"); // WHILE
-    expect(byId["R-05"].earsType).toBe("optional"); // WHERE
-    expect(byId["R-01"].earsType).toBe("ubiquitous"); // "The system SHALL"
-    expect(byId["R-20"].earsType).toBe("ubiquitous"); // "Before returning"
+  it('derives earsType from the leading keyword (WHEN/IF/WHILE/WHERE/none)', () => {
+    expect(byId['R-10'].earsType).toBe('event'); // WHEN
+    expect(byId['R-11'].earsType).toBe('unwanted'); // IF
+    expect(byId['R-12'].earsType).toBe('state'); // WHILE
+    expect(byId['R-05'].earsType).toBe('optional'); // WHERE
+    expect(byId['R-01'].earsType).toBe('ubiquitous'); // "The system SHALL"
+    expect(byId['R-20'].earsType).toBe('ubiquitous'); // "Before returning"
   });
 
-  it("derives modality from the first SHALL/SHOULD/MAY (SHALL NOT counts as SHALL)", () => {
-    expect(byId["R-01"].modality).toBe("SHALL");
-    expect(byId["R-04"].modality).toBe("SHALL"); // first of SHALL, SHOULD
-    expect(byId["R-11"].modality).toBe("SHALL"); // "SHALL respond … SHALL NOT"
+  it('derives modality from the first SHALL/SHOULD/MAY (SHALL NOT counts as SHALL)', () => {
+    expect(byId['R-01'].modality).toBe('SHALL');
+    expect(byId['R-04'].modality).toBe('SHALL'); // first of SHALL, SHOULD
+    expect(byId['R-11'].modality).toBe('SHALL'); // "SHALL respond … SHALL NOT"
   });
 
-  it("flags a bullet with no modality keyword as non-conforming, but still catalogs it (R-104)", () => {
-    expect(byId["R-20"].modality).toBeNull();
-    expect(byId["R-20"].earsConforming).toBe(false);
+  it('flags a bullet with no modality keyword as non-conforming, but still catalogs it (R-104)', () => {
+    expect(byId['R-20'].modality).toBeNull();
+    expect(byId['R-20'].earsConforming).toBe(false);
     // everything with a modality is conforming
-    for (const r of reqs.filter((x) => x.id !== "R-20")) {
+    for (const r of reqs.filter((x) => x.id !== 'R-20')) {
       expect(r.earsConforming, r.id).toBe(true);
     }
   });
 
-  it("returns [] when there is no Functional Requirements section, or empty input", () => {
-    expect(parseRequirements("# Doc\n\n## 1. Intro\n\n- **R-01** — orphan SHALL.")).toEqual([]);
-    expect(parseRequirements("")).toEqual([]);
+  it('returns [] when there is no Functional Requirements section, or empty input', () => {
+    expect(parseRequirements('# Doc\n\n## 1. Intro\n\n- **R-01** — orphan SHALL.')).toEqual([]);
+    expect(parseRequirements('')).toEqual([]);
   });
 });
 
-describe("extractSpecVersion (T-27 · R-106)", () => {
-  it("reads the declared Spec version marker", () => {
-    expect(extractSpecVersion(SPEC)).toBe("1.2.3");
+describe('extractSpecVersion (T-27 · R-106)', () => {
+  it('reads the declared Spec version marker', () => {
+    expect(extractSpecVersion(SPEC)).toBe('1.2.3');
   });
-  it("returns undefined when absent", () => {
-    expect(extractSpecVersion("# Doc\n\nno version here")).toBeUndefined();
+  it('returns undefined when absent', () => {
+    expect(extractSpecVersion('# Doc\n\nno version here')).toBeUndefined();
   });
 });

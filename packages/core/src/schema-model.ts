@@ -29,12 +29,7 @@ export interface NormSchema {
 }
 
 /** The property facts the differ + compat check compare. */
-export const COMPARED_FIELDS: (keyof NormProp)[] = [
-  "required",
-  "logicalType",
-  "physicalType",
-  "validValues",
-];
+export const COMPARED_FIELDS: (keyof NormProp)[] = ['required', 'logicalType', 'physicalType', 'validValues'];
 
 /** Extract the enum allowed-set from a property's ODCS data-quality rules. */
 export function enumValues(prop: any): unknown[] | undefined {
@@ -50,16 +45,16 @@ export function enumValues(prop: any): unknown[] | undefined {
 export function normalizeContractSchema(doc: unknown): NormSchema {
   const schema = (doc as any)?.schema;
   const first = Array.isArray(schema) ? schema[0] : undefined;
-  const entity = typeof first?.name === "string" ? first.name : "";
+  const entity = typeof first?.name === 'string' ? first.name : '';
   const props = new Map<string, NormProp>();
   const list = Array.isArray(first?.properties) ? first.properties : [];
   for (const p of list) {
-    if (!p || typeof p.name !== "string") continue;
+    if (!p || typeof p.name !== 'string') continue;
     props.set(p.name, {
       name: p.name,
       required: p.required === true,
-      logicalType: typeof p.logicalType === "string" ? p.logicalType : undefined,
-      physicalType: typeof p.physicalType === "string" ? p.physicalType : undefined,
+      logicalType: typeof p.logicalType === 'string' ? p.logicalType : undefined,
+      physicalType: typeof p.physicalType === 'string' ? p.physicalType : undefined,
       validValues: enumValues(p),
     });
   }

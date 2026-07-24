@@ -1,6 +1,6 @@
-import { StackContext, Cognito, Config, Script } from "sst/constructs";
-import { CfnUserPoolGroup } from "aws-cdk-lib/aws-cognito";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { StackContext, Cognito, Config, Script } from 'sst/constructs';
+import { CfnUserPoolGroup } from 'aws-cdk-lib/aws-cognito';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 /**
  * T-07 — Cognito for native username+password auth with role groups.
@@ -15,8 +15,8 @@ import { PolicyStatement } from "aws-cdk-lib/aws-iam";
  * mirroring the consuming app.
  */
 export function AuthStack({ stack }: StackContext) {
-  const auth = new Cognito(stack, "Auth", {
-    login: ["username"],
+  const auth = new Cognito(stack, 'Auth', {
+    login: ['username'],
     cdk: {
       userPool: {
         selfSignUpEnabled: false,
@@ -31,15 +31,15 @@ export function AuthStack({ stack }: StackContext) {
     },
   });
 
-  new CfnUserPoolGroup(stack, "ReaderGroup", {
+  new CfnUserPoolGroup(stack, 'ReaderGroup', {
     userPoolId: auth.userPoolId,
-    groupName: "reader",
-    description: "Read the contract catalog (GET endpoints).",
+    groupName: 'reader',
+    description: 'Read the contract catalog (GET endpoints).',
   });
-  new CfnUserPoolGroup(stack, "WriterGroup", {
+  new CfnUserPoolGroup(stack, 'WriterGroup', {
     userPoolId: auth.userPoolId,
-    groupName: "writer",
-    description: "Trigger crawls (POST /refresh) in addition to reading.",
+    groupName: 'writer',
+    description: 'Trigger crawls (POST /refresh) in addition to reading.',
   });
 
   // Publish the Cognito coordinates to SSM as Parameters so every consumer
@@ -47,36 +47,32 @@ export function AuthStack({ stack }: StackContext) {
   // the authorizer + seed Lambdas (bound in-code) and the `generate-tests` CLI
   // (via `sst bind`, D-35). Cognito has no native `sst/node` binding, so a
   // Config.Parameter is the idiomatic bridge for a construct value.
-  const userPoolIdParam = new Config.Parameter(stack, "USER_POOL_ID", { value: auth.userPoolId });
-  const userPoolClientIdParam = new Config.Parameter(stack, "USER_POOL_CLIENT_ID", {
+  const userPoolIdParam = new Config.Parameter(stack, 'USER_POOL_ID', { value: auth.userPoolId });
+  const userPoolClientIdParam = new Config.Parameter(stack, 'USER_POOL_CLIENT_ID', {
     value: auth.userPoolClientId,
   });
 
   // Secrets (T-08): the GitHub PAT for the crawler (bound to the crawl Lambda
   // in ApiStack) and the demo-user password for the seed script. Set with
   // `npx sst secrets set GITHUB_TOKEN …` / `REGISTRY_DEMO_PASSWORD …`.
-  const githubToken = new Config.Secret(stack, "GITHUB_TOKEN");
-  const demoPassword = new Config.Secret(stack, "REGISTRY_DEMO_PASSWORD");
+  const githubToken = new Config.Secret(stack, 'GITHUB_TOKEN');
+  const demoPassword = new Config.Secret(stack, 'REGISTRY_DEMO_PASSWORD');
 
   // Deploy-time seed of the reader + writer demo users (R-72, D-17).
-  new Script(stack, "SeedUsers", {
+  new Script(stack, 'SeedUsers', {
     defaults: {
       function: {
         bind: [demoPassword, userPoolIdParam],
         permissions: [
           new PolicyStatement({
-            actions: [
-              "cognito-idp:AdminCreateUser",
-              "cognito-idp:AdminSetUserPassword",
-              "cognito-idp:AdminAddUserToGroup",
-            ],
+            actions: ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminSetUserPassword', 'cognito-idp:AdminAddUserToGroup'],
             resources: [auth.cdk.userPool.userPoolArn],
           }),
         ],
       },
     },
-    onCreate: "packages/functions/src/seed.handler",
-    onUpdate: "packages/functions/src/seed.handler",
+    onCreate: 'packages/functions/src/seed.handler',
+    onUpdate: 'packages/functions/src/seed.handler',
   });
 
   stack.addOutputs({

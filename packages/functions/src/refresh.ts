@@ -19,16 +19,10 @@ import {
   type GitHubApi,
   type SourceConfig,
   type ParsedRequirement,
-} from "@registry/core";
-import { Config } from "sst/node/config";
-import {
-  LockHeldError,
-  repository,
-  type IngestInput,
-  type IngestOutcome,
-  type RequirementCounts,
-} from "./repository.js";
-import { log, redact } from "./log.js";
+} from '@registry/core';
+import { Config } from 'sst/node/config';
+import { LockHeldError, repository, type IngestInput, type IngestOutcome, type RequirementCounts } from './repository.js';
+import { log, redact } from './log.js';
 
 // Single-flight lock TTL fallback (D-15): a crashed crawl's lock self-expires
 // after 5 min so it cannot deadlock future runs. Comfortably exceeds the
@@ -37,7 +31,7 @@ const LOCK_TTL_SECONDS = 300;
 
 export interface SourceOutcome {
   label: string;
-  outcome: "success" | "failed";
+  outcome: 'success' | 'failed';
   discovered: number;
   valid: number;
   invalid: number;
@@ -68,8 +62,8 @@ export interface CrawlRepo {
   writeRun(run: CrawlSummary): Promise<void>;
   putRequirements(
     source: string,
-    parsed: import("@registry/core").ParsedRequirement[],
-    opts: { specHash: string; specVersion?: string; rawSpec: string },
+    parsed: import('@registry/core').ParsedRequirement[],
+    opts: { specHash: string; specVersion?: string; rawSpec: string }
   ): Promise<RequirementCounts>;
   wipeRequirements(source: string): Promise<RequirementCounts>;
 }
@@ -80,14 +74,22 @@ export async function performCrawl(
   sources: SourceConfig[],
   repo: CrawlRepo,
   runId: string,
-  startedAt: string,
+  startedAt: string
 ): Promise<CrawlSummary> {
   const outcomes: SourceOutcome[] = [];
   const collisions: Collision[] = [];
-  log.info("crawl.start", { runId, sources: sources.map((s) => s.label) });
+  log.info('crawl.start', { runId, sources: sources.map((s) => s.label) });
 
   for (const source of sources) {
-    const counts: SourceOutcome = { label: source.label, outcome: "success", discovered: 0, valid: 0, invalid: 0, newVersion: 0, unchanged: 0 };
+    const counts: SourceOutcome = {
+      label: source.label,
+      outcome: 'success',
+      discovered: 0,
+      valid: 0,
+      invalid: 0,
+      newVersion: 0,
+      unchanged: 0,
+    };
     try {
       const { files, specRef } = await crawlSourceFull(api, source);
       counts.discovered = files.length;
@@ -97,17 +99,17 @@ export async function performCrawl(
         const result = parseAndValidate(file.bytes);
         const meta = extractMetadata(result.parsed, file.path);
 
-        if (result.validation === "valid") counts.valid++;
+        if (result.validation === 'valid') counts.valid++;
         else {
           counts.invalid++;
           // Per-file failure with the offending path/id (NFR-5).
-          log.warn("crawl.file.invalid", { runId, source: source.label, path: file.path, id: meta.id });
+          log.warn('crawl.file.invalid', { runId, source: source.label, path: file.path, id: meta.id });
         }
 
         // In-source id collision: catalog the first, warn on the rest (R-30a).
         if (meta.id && seenIds.has(meta.id)) {
           collisions.push({ source: source.label, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
-          log.warn("crawl.id.collision", { runId, source: source.label, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
+          log.warn('crawl.id.collision', { runId, source: source.label, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
           continue;
         }
         if (meta.id) seenIds.set(meta.id, file.path);
@@ -125,7 +127,7 @@ export async function performCrawl(
           validation: result.validation,
           validationErrors: result.errors,
         });
-        if (ingest.outcome === "unchanged") counts.unchanged++;
+        if (ingest.outcome === 'unchanged') counts.unchanged++;
         else counts.newVersion++;
       }
 
@@ -153,30 +155,30 @@ export async function performCrawl(
         }
         // In-source duplicate requirement ids: first kept, warn on the rest (D-49, E-38).
         if (counts.requirements.collisions?.length) {
-          log.warn("crawl.requirements.collision", { runId, source: source.label, ids: counts.requirements.collisions });
+          log.warn('crawl.requirements.collision', { runId, source: source.label, ids: counts.requirements.collisions });
         }
-        log.info("crawl.requirements.done", { runId, source: source.label, ...counts.requirements });
+        log.info('crawl.requirements.done', { runId, source: source.label, ...counts.requirements });
       } catch (reqErr) {
         const reason = redact((reqErr as Error).message);
         counts.requirements = { discovered: 0, conforming: 0, nonConforming: 0, changed: 0, removed: 0, failed: true, reason };
-        log.error("crawl.requirements.failed", { runId, source: source.label, reason });
+        log.error('crawl.requirements.failed', { runId, source: source.label, reason });
       }
     } catch (err) {
       // Fault isolation: mark just this source failed and continue (R-13).
       // The reason comes from an uncontrolled client error — redact any
       // token-shaped substring before it reaches logs or the response (NFR-2).
-      counts.outcome = "failed";
+      counts.outcome = 'failed';
       counts.reason = redact((err as Error).message);
       // Per-source failure with its (redacted) reason (NFR-5).
-      log.error("crawl.source.failed", { runId, source: source.label, reason: counts.reason });
+      log.error('crawl.source.failed', { runId, source: source.label, reason: counts.reason });
     }
     // Per-source outcome (NFR-5).
-    log.info("crawl.source.done", { runId, ...counts });
+    log.info('crawl.source.done', { runId, ...counts });
     outcomes.push(counts);
   }
 
   const endedAt = new Date(nowMs()).toISOString();
-  log.info("crawl.done", { runId, endedAt, sources: outcomes.length, collisions: collisions.length });
+  log.info('crawl.done', { runId, endedAt, sources: outcomes.length, collisions: collisions.length });
   return { runId, startedAt, endedAt, sources: outcomes, collisions };
 }
 
@@ -186,14 +188,14 @@ export async function handleRefresh(
   sources: SourceConfig[],
   repo: CrawlRepo,
   runId: string,
-  startedAt: string,
+  startedAt: string
 ): Promise<{ statusCode: number; body: string }> {
   try {
     await repo.acquireLock(runId, LOCK_TTL_SECONDS);
   } catch (err) {
     if (err instanceof LockHeldError) {
       // 409 names the in-flight run (R-15, E-11).
-      return { statusCode: 409, body: JSON.stringify({ error: "crawl_in_progress", runId: err.runId }) };
+      return { statusCode: 409, body: JSON.stringify({ error: 'crawl_in_progress', runId: err.runId }) };
     }
     throw err;
   }
@@ -213,7 +215,7 @@ export async function handler(): Promise<{ statusCode: number; headers: Record<s
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = new Date().toISOString();
   const res = await handleRefresh(api, SOURCES, repository, runId, startedAt);
-  return { statusCode: res.statusCode, headers: { "content-type": "application/json" }, body: res.body };
+  return { statusCode: res.statusCode, headers: { 'content-type': 'application/json' }, body: res.body };
 }
 
 // `Date.now()` isolated so it is the single wall-clock touch point.

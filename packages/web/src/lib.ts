@@ -45,19 +45,19 @@ export interface RequirementSourceGroup {
 /** Decode the `cognito:groups` claim from a JWT access token (no verification). */
 export function decodeGroups(token: string | undefined): string[] {
   if (!token) return [];
-  const part = token.split(".")[1];
+  const part = token.split('.')[1];
   if (!part) return [];
   try {
-    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
     const payload = JSON.parse(json) as Record<string, unknown>;
-    const groups = payload["cognito:groups"];
+    const groups = payload['cognito:groups'];
     return Array.isArray(groups) ? (groups as string[]) : [];
   } catch {
     return [];
   }
 }
 
-export const isWriter = (token: string | undefined): boolean => decodeGroups(token).includes("writer");
+export const isWriter = (token: string | undefined): boolean => decodeGroups(token).includes('writer');
 
 /** Group catalog entries by entity and flag divergence (variants with differing hashes). */
 export function groupByEntity(entries: Entry[]): EntityGroup[] {

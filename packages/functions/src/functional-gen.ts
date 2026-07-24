@@ -20,10 +20,10 @@ import {
   type PlanCache,
   type ContractInput,
   type RequirementInput,
-} from "@registry/functest";
-import { API_MAP } from "@registry/core";
-import { repository, type CatalogEntry, type RequirementRecord, type FunctionalJobRecord } from "./repository.js";
-import { log, redact } from "./log.js";
+} from '@registry/functest';
+import { API_MAP } from '@registry/core';
+import { repository, type CatalogEntry, type RequirementRecord, type FunctionalJobRecord } from './repository.js';
+import { log, redact } from './log.js';
 
 /**
  * Model + prompt pinned here; both feed the plan-cache input hash (R-119). The
@@ -31,8 +31,8 @@ import { log, redact } from "./log.js";
  * Sonnet 4.6 cross-region profile; Opus 4.8 once its access grant lands),
  * overridable per-stage via `BEDROCK_MODEL_ID` without a code change (D-55).
  */
-export const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
-export const PROMPT_VERSION = "v1";
+export const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+export const PROMPT_VERSION = 'v1';
 
 /** The repository surface the job needs (injected so it is offline-testable). */
 export interface FunctionalGenRepo {
@@ -55,7 +55,7 @@ export async function buildFunctionalInputs(repo: FunctionalGenRepo): Promise<Fu
       entity: e.entity,
       id: e.id,
       contentHash: e.currentHash,
-      rawYaml: (await repo.getRaw(e.source, e.id)) ?? "",
+      rawYaml: (await repo.getRaw(e.source, e.id)) ?? '',
     });
   }
   const requirements: RequirementInput[] = (await repo.listRequirements()).map((r) => ({
@@ -90,18 +90,18 @@ export async function runFunctionalJob(
   jobId: string,
   repo: FunctionalGenRepo,
   llm: LlmClient,
-  clock: { now(): string },
+  clock: { now(): string }
 ): Promise<FunctionalJobRecord> {
   const base: FunctionalJobRecord = {
     jobId,
-    status: "running",
+    status: 'running',
     startedAt: clock.now(),
     modelId: MODEL_ID,
     promptVersion: PROMPT_VERSION,
   };
   try {
     await repo.writeFunctionalJob(base);
-    log.info("functional.start", { jobId });
+    log.info('functional.start', { jobId });
 
     const inputs = await buildFunctionalInputs(repo);
     const { plans, skipped } = await generateFunctionalPlans(inputs, llm, repoPlanCache(repo));
@@ -119,7 +119,7 @@ export async function runFunctionalJob(
 
     const done: FunctionalJobRecord = {
       ...base,
-      status: "succeeded",
+      status: 'succeeded',
       finishedAt: clock.now(),
       planCount: plans.length,
       skipCount: skipped.length,
@@ -135,17 +135,17 @@ export async function runFunctionalJob(
       artifactKey,
     };
     await repo.writeFunctionalJob(done);
-    log.info("functional.done", { jobId, planCount: plans.length, skipCount: skipped.length });
+    log.info('functional.done', { jobId, planCount: plans.length, skipCount: skipped.length });
     return done;
   } catch (err) {
     const failed: FunctionalJobRecord = {
       ...base,
-      status: "failed",
+      status: 'failed',
       finishedAt: clock.now(),
-      error: redact((err as Error).message ?? "unknown error"),
+      error: redact((err as Error).message ?? 'unknown error'),
     };
     await repo.writeFunctionalJob(failed);
-    log.error("functional.failed", { jobId, error: failed.error });
+    log.error('functional.failed', { jobId, error: failed.error });
     return failed;
   }
 }
@@ -166,21 +166,21 @@ export async function handleGenerateFunctional(
   repo: FunctionalGenRepo,
   dispatch: (jobId: string) => Promise<void>,
   jobId: string,
-  startedAt: string,
+  startedAt: string
 ): Promise<HttpResult> {
   await repo.writeFunctionalJob({
     jobId,
-    status: "pending",
+    status: 'pending',
     startedAt,
     modelId: MODEL_ID,
     promptVersion: PROMPT_VERSION,
   });
   await dispatch(jobId);
-  log.info("functional.accepted", { jobId });
+  log.info('functional.accepted', { jobId });
   return {
     statusCode: 202,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jobId, status: "pending", statusUrl: `/functional-test-jobs/${jobId}` }),
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jobId, status: 'pending', statusUrl: `/functional-test-jobs/${jobId}` }),
   };
 }
 
@@ -197,22 +197,22 @@ export async function worker(event: { jobId: string }): Promise<void> {
   // Import the Bedrock client lazily so the offline suite never loads the SDK.
   // Auth is the Lambda role (SigV4) — no secret to read; a Bedrock access/model
   // error surfaces through runFunctionalJob's catch as a `failed` job (R-124).
-  const { createBedrockClient } = await import("./llm.js");
+  const { createBedrockClient } = await import('./llm.js');
   const llm = createBedrockClient(MODEL_ID, process.env.AWS_REGION, PROMPT_VERSION);
   await runFunctionalJob(event.jobId, repository, llm, { now: () => new Date().toISOString() });
 }
 
 /** Real dispatch: async-invoke the worker Lambda (name from the SST-bound env). */
 async function dispatchWorker(jobId: string): Promise<void> {
-  const { LambdaClient, InvokeCommand } = await import("@aws-sdk/client-lambda");
+  const { LambdaClient, InvokeCommand } = await import('@aws-sdk/client-lambda');
   const FunctionName = process.env.FUNCTIONAL_WORKER_FUNCTION_NAME;
-  if (!FunctionName) throw new Error("FUNCTIONAL_WORKER_FUNCTION_NAME is not set");
+  if (!FunctionName) throw new Error('FUNCTIONAL_WORKER_FUNCTION_NAME is not set');
   const client = new LambdaClient({});
   await client.send(
     new InvokeCommand({
       FunctionName,
-      InvocationType: "Event", // fire-and-forget async (R-115)
+      InvocationType: 'Event', // fire-and-forget async (R-115)
       Payload: Buffer.from(JSON.stringify({ jobId })),
-    }),
+    })
   );
 }

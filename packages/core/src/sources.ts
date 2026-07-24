@@ -15,6 +15,5 @@ export interface SourceConfig {
 }
 
 export const SOURCES: SourceConfig[] = [
-  { label: "publisher", owner: "collegeboard-personal", repo: "awp-odcs-publishing", branch: "main" },
-  { label: "consumer", owner: "collegeboard-personal", repo: "awp-odcs-consuming", branch: "main" },
+  { label: 'awp-app-plane', owner: 'collegeboard-software', repo: 'awp-app-plane', branch: 'main' },
 ];

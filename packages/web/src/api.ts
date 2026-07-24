@@ -2,8 +2,8 @@
  * API client (T-14/T-15). Attaches the Cognito access token as a Bearer header
  * on every call, matching the HTTP API's Lambda authorizer.
  */
-import { config } from "./config.js";
-import type { Entry, RequirementEntry } from "./lib.js";
+import { config } from './config.js';
+import type { Entry, RequirementEntry } from './lib.js';
 
 export class ApiError extends Error {
   constructor(public status: number) {
@@ -21,14 +21,14 @@ export function createApi(token: string) {
     return res;
   };
   return {
-    listContracts: async (): Promise<Entry[]> => (await (await req("/contracts")).json()).items,
+    listContracts: async (): Promise<Entry[]> => (await (await req('/contracts')).json()).items,
     getContract: async (source: string, id: string) => (await req(`/contracts/${source}/${id}`)).json(),
     getRaw: async (source: string, id: string, version?: number) =>
-      (await req(`/contracts/${source}/${id}/raw${version ? `?version=${version}` : ""}`)).text(),
+      (await req(`/contracts/${source}/${id}/raw${version ? `?version=${version}` : ''}`)).text(),
     getEntity: async (entity: string) => (await req(`/entities/${entity}`)).json(),
-    listCrawls: async () => (await (await req("/crawls")).json()).runs,
-    refresh: async () => (await req("/refresh", { method: "POST" })).json(),
-    listRequirements: async (): Promise<RequirementEntry[]> => (await (await req("/requirements")).json()).items,
+    listCrawls: async () => (await (await req('/crawls')).json()).runs,
+    refresh: async () => (await req('/refresh', { method: 'POST' })).json(),
+    listRequirements: async (): Promise<RequirementEntry[]> => (await (await req('/requirements')).json()).items,
   };
 }
 
