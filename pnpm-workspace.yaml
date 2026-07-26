@@ -11,6 +11,7 @@ linkWorkspacePackages: true
 # npm's top-level "overrides" field. Nested npm overrides ({ "sst": { ... } })
 # are expressed with pnpm's "parent>child" selector syntax.
 overrides:
+  '@aws-sdk/client-s3': '^3.1094.0'
   '@babel/core': 7.29.6
   '@babel/plugin-transform-modules-systemjs': 7.29.4
   '@babel/runtime': 7.26.10
@@ -45,3 +46,32 @@ overrides:
   yaml: 2.8.3
 patchedDependencies:
   '@aws-cdk/toolkit-lib@1.1.1': patches/@aws-cdk__toolkit-lib@1.1.1.patch
+  # Adds a certificateRef getter so CDK v2.238+ CloudFront Distribution can read
+  # certificate.certificateRef.certificateId without crashing at synth; also
+  # swaps deprecated @aws-sdk/* deps. Without this, `sst deploy` throws
+  # "Cannot read properties of undefined (reading 'certificateId')".
+  'sst@2.49.8': patches/sst@2.49.8.patch
+  # Widen graphql peer ranges to include ^17.0.0. (graphql-yoga was originally
+  # bundled into the sst patch, but pnpm 11 rejects cross-package paths, so it
+  # lives in its own patch here.)
+  'graphql-yoga@3.9.1': patches/graphql-yoga@3.9.1.patch
+  '@envelop/validation-cache@5.1.3': patches/@envelop+validation-cache@5.1.3.patch
+
+# Suppress peer-dependency mismatch warnings for packages that work with
+# graphql 17 despite declaring older ranges. (Moved from package.json's
+# pnpm.peerDependencyRules.)
+peerDependencyRules:
+  allowedVersions:
+    'graphql-yoga>graphql': '17'
+    '@envelop/validation-cache>graphql': '17'
+
+# Dependencies allowed to run install/build lifecycle scripts. pnpm 11 blocks
+# these by default and records the decision here (supersedes the pnpm 10
+# onlyBuiltDependencies list). true = run the package's build scripts.
+allowBuilds:
+  aws-crt: true
+  aws-sdk: true
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@aws-sdk/client-s3@3.1094.0'

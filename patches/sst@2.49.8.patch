@@ -61,15 +61,3 @@ diff --git a/package.json b/package.json
      "graphql": "*",
      "graphql-yoga": "^3.9.0",
      "immer": "9",
-diff --git a/../graphql-yoga/package.json b/../graphql-yoga/package.json
---- a/../graphql-yoga/package.json
-+++ b/../graphql-yoga/package.json
-@@ -4,7 +4,7 @@
-   "description": "",
-   "sideEffects": false,
-   "peerDependencies": {
--    "graphql": "^15.2.0 || ^16.0.0"
-+    "graphql": "^15.2.0 || ^16.0.0 || ^17.0.0"
-   },
-   "dependencies": {
-     "@envelop/core": "^3.0.4",

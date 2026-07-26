@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@11.17.0",
   "scripts": {
     "dev": "sst dev",
     "deploy": "sst deploy",
@@ -19,9 +19,6 @@
     "test:unit": "pnpm run test:offline && pnpm run test:web",
     "test:all": "pnpm run test:unit",
     "generate-tests": "sst bind tsx scripts/generate-tests.ts"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["aws-crt", "aws-sdk", "esbuild"]
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

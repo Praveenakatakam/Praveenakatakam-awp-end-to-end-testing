@@ -1,7 +1,7 @@
 diff --git a/package.json b/package.json
 --- a/package.json
 +++ b/package.json
-@@ -5,7 +5,7 @@
+@@ -5,6 +5,6 @@
    "peerDependencies": {
      "@envelop/core": "^3.0.6",
 -    "graphql": "^14.0.0 || ^15.0.0 || ^16.0.0"
