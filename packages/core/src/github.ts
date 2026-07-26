@@ -55,7 +55,7 @@ export interface SourceCrawl {
   specRef?: SpecRef;
 }
 
-const CONTRACT_GLOB = /\.odcs\.ya?ml$/i;
+const CONTRACT_GLOB = /^decs\/contracts\/.*\.odcs\.ya?ml$/i;
 const SPEC_DOC_PATH = /(?:^|\/)spec\.md$/i;
 
 /** True for a tree entry that is a contract source file (R-03, excludes *.schema.json). */

@@ -15,5 +15,5 @@ export interface SourceConfig {
 }
 
 export const SOURCES: SourceConfig[] = [
-  { label: 'awp-app-plane', owner: 'collegeboard-software', repo: 'awp-app-plane', branch: 'main' },
+  { label: 'awp-app-plane', owner: 'collegeboard-software', repo: 'awp-app-plane', branch: 'feat/end-to-end-testing-registry' },
 ];
