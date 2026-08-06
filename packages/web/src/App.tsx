@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { signIn, signOut, currentToken } from './auth.js';
 import { createApi, type Api } from './api.js';
-import { groupByEntity, groupBySource, groupRequirementsBySection, isWriter, type Entry, type RequirementEntry } from './lib.js';
+import { groupByEntity, applyEntityDivergence, groupBySource, groupRequirementsBySection, isWriter, type Entry, type EntityGroup, type RequirementEntry } from './lib.js';
 
 function SignIn({ onToken }: { onToken: (t: string) => void }) {
   const [username, setUsername] = useState('');
@@ -228,6 +228,7 @@ export default function App() {
   const [token, setToken] = useState<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selected, setSelected] = useState<{ source: string; id: string } | null>(null);
   const [diff, setDiff] = useState<any>(null);
   const [view, setView] = useState<'entity' | 'source' | 'requirements'>('entity');
@@ -253,7 +254,18 @@ export default function App() {
   const api = token ? createApi(token) : undefined;
 
   async function load(t: string) {
-    setEntries(await createApi(t).listContracts());
+    const api = createApi(t);
+    const items = await api.listContracts();
+    setEntries(items);
+    const initial = groupByEntity(items);
+    setGroups(initial);
+    // Fetch semantic divergence for any entity that has multiple variants.
+    const multiVariant = initial.filter((g) => g.variants.length > 1);
+    for (const g of multiVariant) {
+      api.getEntity(g.entity).then((result) => {
+        setGroups((prev) => applyEntityDivergence(prev, result));
+      });
+    }
   }
   useEffect(() => {
     if (token) load(token);
@@ -278,7 +290,6 @@ export default function App() {
   if (!ready) return <p>Loading…</p>;
   if (!token) return <SignIn onToken={setToken} />;
 
-  const groups = groupByEntity(entries);
   const sourceGroups = groupBySource(entries);
   return (
     <main>
@@ -336,7 +347,17 @@ export default function App() {
                   </li>
                 ))}
               </ul>
-              {g.divergent && <button onClick={async () => setDiff(await api!.getEntity(g.entity))}>Show {g.entity} diff</button>}
+              {g.divergent && (
+                <button
+                  onClick={async () => {
+                    const result = await api!.getEntity(g.entity);
+                    setGroups((prev) => applyEntityDivergence(prev, result));
+                    setDiff(result);
+                  }}
+                >
+                  Show {g.entity} diff
+                </button>
+              )}
             </li>
           ))}
         </ul>

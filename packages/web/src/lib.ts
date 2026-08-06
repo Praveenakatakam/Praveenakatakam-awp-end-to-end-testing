@@ -61,7 +61,7 @@ export function decodeGroups(token: string | undefined): string[] {
 
 export const isWriter = (token: string | undefined): boolean => decodeGroups(token).includes('writer');
 
-/** Group catalog entries by entity and flag divergence (variants with differing hashes). */
+/** Group catalog entries by entity. divergent starts false; updated from the semantic diff via setDivergent. */
 export function groupByEntity(entries: Entry[]): EntityGroup[] {
   const byEntity = new Map<string, Entry[]>();
   for (const e of entries) {
@@ -70,12 +70,13 @@ export function groupByEntity(entries: Entry[]): EntityGroup[] {
     byEntity.set(e.entity, list);
   }
   return [...byEntity.entries()]
-    .map(([entity, variants]) => ({
-      entity,
-      variants,
-      divergent: new Set(variants.map((v) => v.currentHash)).size > 1,
-    }))
+    .map(([entity, variants]) => ({ entity, variants, divergent: false }))
     .sort((a, b) => a.entity.localeCompare(b.entity));
+}
+
+/** Update the divergent flag on a group in-place from a GET /entities response. */
+export function applyEntityDivergence(groups: EntityGroup[], entityResult: { entity: string; divergent: boolean }): EntityGroup[] {
+  return groups.map((g) => (g.entity === entityResult.entity ? { ...g, divergent: entityResult.divergent } : g));
 }
 
 /** Group catalog entries by ODCS domain (falling back to crawler source label), sorted by entity within each group (R-65). */
