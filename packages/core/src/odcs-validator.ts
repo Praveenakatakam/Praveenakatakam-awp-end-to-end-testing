@@ -41,16 +41,18 @@ addFormats(ajv as any);
 const validateOdcs: ValidateFunction = ajv.compile(odcsSchema as object);
 
 function toError(e: ErrorObject): ValidationError {
-  // For `required`, surface the missing property name in the message so callers
-  // (and tests) can identify it without walking params.
   const missing =
     e.keyword === 'required' && e.params && 'missingProperty' in e.params
       ? ` (${(e.params as { missingProperty: string }).missingProperty})`
       : '';
+  const extra =
+    e.keyword === 'additionalProperties' && e.params && 'additionalProperty' in e.params
+      ? ` (${(e.params as { additionalProperty: string }).additionalProperty})`
+      : '';
   return {
     path: e.instancePath ?? '',
     keyword: e.keyword,
-    message: `${e.instancePath || '/'} ${e.message ?? 'is invalid'}${missing}`.trim(),
+    message: `${e.instancePath || '/'} ${e.message ?? 'is invalid'}${missing}${extra}`.trim(),
   };
 }
 

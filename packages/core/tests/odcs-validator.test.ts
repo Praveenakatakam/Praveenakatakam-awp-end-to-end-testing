@@ -6,6 +6,8 @@ import { parseAndValidate } from '../src/odcs-validator.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const validOrg = readFileSync(resolve(here, '__fixtures__/valid-org.odcs.yaml'), 'utf8');
+const validApiContract = readFileSync(resolve(here, '__fixtures__/valid-trpc-api.odcs.yaml'), 'utf8');
+const validEventContract = readFileSync(resolve(here, '__fixtures__/valid-eventbridge.odcs.yaml'), 'utf8');
 
 describe('parseAndValidate (T-02 · R-20, R-21)', () => {
   // AC-20: a real ODCS v3.1.0 contract validates.
@@ -24,6 +26,22 @@ describe('parseAndValidate (T-02 · R-20, R-21)', () => {
     expect(r.parsed).toBeUndefined();
     expect(r.errors.length).toBeGreaterThan(0);
     expect(r.errors[0].keyword).toBe('parse');
+  });
+
+  it('accepts a valid tRPC API contract', () => {
+    const r = parseAndValidate(validApiContract);
+    expect(r.validation).toBe('valid');
+    expect(r.errors).toEqual([]);
+    expect((r.parsed as any).kind).toBe('DataContract');
+    expect((r.parsed as any).apiVersion).toBe('v3.1.0');
+  });
+
+  it('accepts a valid EventBridge event contract', () => {
+    const r = parseAndValidate(validEventContract);
+    expect(r.validation).toBe('valid');
+    expect(r.errors).toEqual([]);
+    expect((r.parsed as any).kind).toBe('DataContract');
+    expect((r.parsed as any).apiVersion).toBe('v3.1.0');
   });
 
   // AC-21b: parses as YAML but fails the ODCS schema → invalid with failing paths.

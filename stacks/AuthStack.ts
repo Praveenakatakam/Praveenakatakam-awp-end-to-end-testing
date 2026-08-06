@@ -58,6 +58,15 @@ export function AuthStack({ stack }: StackContext) {
   const githubToken = new Config.Secret(stack, 'GITHUB_TOKEN');
   const demoPassword = new Config.Secret(stack, 'REGISTRY_DEMO_PASSWORD');
 
+  // Source-crawl configuration as SST Parameters so they can be changed per
+  // stage without a code redeploy (change value → sst deploy to update SSM).
+  const sourceBranchParam = new Config.Parameter(stack, 'SOURCE_BRANCH', {
+    value: 'feat/end-to-end-testing-registry',
+  });
+  const contractPathPrefixParam = new Config.Parameter(stack, 'CONTRACT_PATH_PREFIX', {
+    value: 'docs/contracts/',
+  });
+
   // Deploy-time seed of the reader + writer demo users (R-72, D-17).
   new Script(stack, 'SeedUsers', {
     defaults: {
@@ -80,5 +89,5 @@ export function AuthStack({ stack }: StackContext) {
     UserPoolClientId: auth.userPoolClientId,
   });
 
-  return { auth, githubToken, userPoolIdParam, userPoolClientIdParam };
+  return { auth, githubToken, userPoolIdParam, userPoolClientIdParam, sourceBranchParam, contractPathPrefixParam };
 }

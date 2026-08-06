@@ -17,37 +17,44 @@ describe('SOURCES config (R-01, D-5)', () => {
     expect(SOURCES.find((s) => s.label === 'awp-app-plane')?.owner).toBe('collegeboard-software');
     expect(SOURCES.find((s) => s.label === 'awp-app-plane')?.branch).toBe('feat/end-to-end-testing-registry');
   });
+
+  it('uses docs/contracts/ as the contract path prefix', () => {
+    // This value must stay in sync with the CONTRACT_PATH_PREFIX Parameter in AuthStack.
+    // A mismatch between the two causes the crawler to silently discover 0 contracts.
+    const src = SOURCES.find((s) => s.label === 'awp-app-plane');
+    expect(src?.contractPathPrefix).toBe('docs/contracts/');
+  });
 });
 
 describe('crawlSource (T-04 · R-03, R-10, R-11, D-14)', () => {
   const source = SOURCES[0];
 
-  // AC-03: only *.odcs.yaml / *.odcs.yml under decs/contracts/ are selected.
-  it('selects *.odcs.ya?ml files under decs/contracts/, ignoring schema.json and other paths', async () => {
+  // AC-03: only *.odcs.yaml / *.odcs.yml under docs/contracts/ are selected.
+  it('selects *.odcs.ya?ml files under docs/contracts/, ignoring schema.json and other paths', async () => {
     const tree: TreeEntry[] = [
-      { path: 'decs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' },
-      { path: 'decs/contracts/user.odcs.yml', sha: 'b2', type: 'blob' },
-      { path: 'decs/contracts/odcs-v3.1.0.schema.json', sha: 'b3', type: 'blob' },
-      { path: 'apps/svc/docs/specs/other.odcs.yaml', sha: 'b4', type: 'blob' }, // outside decs/contracts/
+      { path: 'docs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' },
+      { path: 'docs/contracts/user.odcs.yml', sha: 'b2', type: 'blob' },
+      { path: 'docs/contracts/odcs-v3.1.0.schema.json', sha: 'b3', type: 'blob' },
+      { path: 'apps/svc/docs/specs/other.odcs.yaml', sha: 'b4', type: 'blob' }, // outside docs/contracts/
       { path: 'README.md', sha: 'b5', type: 'blob' },
       { path: 'decs/contracts', sha: 't1', type: 'tree' },
     ];
     const api = fakeApi(tree, { b1: 'org-bytes', b2: 'user-bytes' });
     const files = await crawlSource(api, source);
     expect(files.map((f) => f.path).sort()).toEqual([
-      'decs/contracts/org.odcs.yaml',
-      'decs/contracts/user.odcs.yml',
+      'docs/contracts/org.odcs.yaml',
+      'docs/contracts/user.odcs.yml',
     ]);
   });
 
   // AC-10: each file records source/path/blobSha/commitSha/bytes.
   it('records source label, path, blob sha, commit sha, and bytes per file', async () => {
-    const tree: TreeEntry[] = [{ path: 'decs/contracts/oneroster-v12.odcs.yml', sha: 'blob-123', type: 'blob' }];
+    const tree: TreeEntry[] = [{ path: 'docs/contracts/oneroster-v12.odcs.yml', sha: 'blob-123', type: 'blob' }];
     const api = fakeApi(tree, { 'blob-123': 'the-bytes' }, 'commit-999');
     const [file] = await crawlSource(api, source);
     expect(file).toEqual({
       source: 'awp-app-plane',
-      path: 'decs/contracts/oneroster-v12.odcs.yml',
+      path: 'docs/contracts/oneroster-v12.odcs.yml',
       blobSha: 'blob-123',
       commitSha: 'commit-999',
       bytes: 'the-bytes',
@@ -72,13 +79,13 @@ describe('crawlSourceFull — contracts + spec.md ref (T-29 · R-100, R-105a)', 
 
   it('returns a specRef (SHA only — bytes not fetched here) alongside the contract files', async () => {
     const tree: TreeEntry[] = [
-      { path: 'decs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' },
+      { path: 'docs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' },
       { path: 'apps/svc/docs/spec.md', sha: 'spec1', type: 'blob' },
       { path: 'docs/design.md', sha: 'd1', type: 'blob' }, // ignored
     ];
     const api = fakeApi(tree, { b1: 'org-bytes', spec1: '# spec content' });
     const { files, specRef } = await crawlSourceFull(api, source);
-    expect(files.map((f) => f.path)).toEqual(['decs/contracts/org.odcs.yaml']);
+    expect(files.map((f) => f.path)).toEqual(['docs/contracts/org.odcs.yaml']);
     expect(specRef).toEqual({ path: 'apps/svc/docs/spec.md', sha: 'spec1' });
     // The spec blob is NOT fetched here — only the contract blob is, so a spec-doc
     // read error stays isolated to the refresh handler's requirements block (R-105a).
@@ -87,14 +94,14 @@ describe('crawlSourceFull — contracts + spec.md ref (T-29 · R-100, R-105a)', 
   });
 
   it('returns undefined specRef when the repo has no spec.md', async () => {
-    const tree: TreeEntry[] = [{ path: 'decs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' }];
+    const tree: TreeEntry[] = [{ path: 'docs/contracts/org.odcs.yaml', sha: 'b1', type: 'blob' }];
     const { specRef } = await crawlSourceFull(fakeApi(tree, { b1: 'x' }), source);
     expect(specRef).toBeUndefined();
   });
 
   it('finds spec.md at any nesting depth', async () => {
     const tree: TreeEntry[] = [
-      { path: 'decs/contracts/oneroster-v12.odcs.yml', sha: 'b1', type: 'blob' },
+      { path: 'docs/contracts/oneroster-v12.odcs.yml', sha: 'b1', type: 'blob' },
       { path: 'apps/bawp-onboard/docs/spec.md', sha: 'spec2', type: 'blob' },
     ];
     const { specRef } = await crawlSourceFull(fakeApi(tree, { b1: 'x', spec2: '# spec' }), source);

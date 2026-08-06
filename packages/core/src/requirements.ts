@@ -7,8 +7,8 @@
  * "Functional Requirements (EARS)" section (`## 3. …`), so decision-log entries,
  * edge-case tables, and out-of-scope bullets are never mistaken for requirements.
  *
- * Each requirement is `- **R-nn** — <text>` (id may carry a sub-letter, e.g.
- * `R-17a`). The EARS type is derived from the leading keyword and the modality
+ * Each requirement is `**{DOMAIN}-R-nn** <text>` (domain prefix optional, id may
+ * carry a sub-letter e.g. `PLT-R-17a`). The EARS type is derived from the leading keyword and the modality
  * from the first SHALL/SHOULD/MAY; a bullet with no modality is flagged
  * non-conforming but still cataloged (fault-isolating, mirrors R-21/D-27).
  */
@@ -17,7 +17,7 @@ export type EarsType = 'event' | 'unwanted' | 'state' | 'optional' | 'ubiquitous
 export type Modality = 'SHALL' | 'SHOULD' | 'MAY';
 
 export interface ParsedRequirement {
-  /** Requirement id, e.g. `R-17a`. */
+  /** Requirement id, e.g. `PLT-R-01` or `R-17a`. */
   id: string;
   /** Full requirement text (trimmed; inline markdown preserved). */
   text: string;
@@ -40,8 +40,8 @@ const L2_HEADING = /^##\s+\S/;
 // group and the trailing `\s*` overlap (`.` matches whitespace), which CodeQL flags as
 // polynomial-time backtracking on uncontrolled input.
 const SUB_HEADING = /^#{3,6}\s+(.+)$/;
-// A requirement bullet: "- **R-nn** — text" (em-dash or hyphen separator).
-const REQ_BULLET = /^[-*]\s+\*\*(R-\d+[a-z]?)\*\*\s*[—–-]\s*(.+)$/;
+// A requirement line: "**{DOMAIN}-R-nn** text" (bold id, optional domain prefix, space-separated text).
+const REQ_BULLET = /^\*\*((?:[A-Z]+-)?R-\d+[a-z]?)\*\*\s+(.+)$/;
 
 function deriveEarsType(text: string): EarsType {
   const m = /^(WHEN|IF|WHILE|WHERE)\b/.exec(text);

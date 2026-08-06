@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import yaml from 'js-yaml';
 import { performGeneration, type GenRepo } from '../src/generate.js';
+import { handler } from '../src/generate.js';
 import type { CatalogEntry } from '../src/repository.js';
 
 function raw(entity: string, props: { name: string; required?: boolean }[]): string {
@@ -93,6 +94,25 @@ describe('performGeneration (T-21 · R-80, R-81, R-89)', () => {
     expect(summary.counts).toEqual({ conformance: 0, compat: 0, skipped: 0 });
     expect(puts[0].artifacts.files).toEqual([]);
     expect(runs[0].counts.skipped).toBe(0);
+  });
+
+  it('handler() returns statusCode 200 with application/json body containing the summary (R-80)', async () => {
+    // Stub out the live repository that handler() uses internally.
+    const repoModule = await import('../src/repository.js');
+    const listSpy = vi.spyOn(repoModule.repository, 'listEntries').mockResolvedValue([]);
+    const putSpy = vi.spyOn(repoModule.repository, 'putArtifacts').mockResolvedValue('test-artifacts/h-run/artifacts.json');
+    const writeSpy = vi.spyOn(repoModule.repository, 'writeGenRun').mockResolvedValue(undefined);
+    try {
+      const res = await handler();
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('application/json');
+      const body = JSON.parse(res.body);
+      expect(body).toMatchObject({ runId: expect.any(String), counts: { conformance: 0, compat: 0, skipped: 0 } });
+    } finally {
+      listSpy.mockRestore();
+      putSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
   });
 
   it('surfaces skip reasons for invalid / single-source contracts (AC-85, AC-89)', async () => {

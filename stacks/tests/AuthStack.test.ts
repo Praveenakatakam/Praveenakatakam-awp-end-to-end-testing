@@ -29,4 +29,5 @@ describe('AuthStack', () => {
       GenerateSecret: false,
     });
   });
+
 });

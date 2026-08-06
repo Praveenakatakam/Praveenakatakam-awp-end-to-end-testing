@@ -4,6 +4,7 @@ import { synthStacks } from './synth.js';
 import { StorageStack } from '../StorageStack.js';
 import { AuthStack } from '../AuthStack.js';
 import { ApiStack } from '../ApiStack.js';
+import { SOURCES } from '../../packages/core/src/sources.js';
 
 // T-10a — offline synth assertions (R-10, R-16, R-56 · AC-16*, AC-56).
 describe('ApiStack', () => {
@@ -58,6 +59,19 @@ describe('ApiStack', () => {
     ]) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey, AuthorizationType: 'CUSTOM' });
     }
+  });
+
+  it('bakes CONTRACT_PATH_PREFIX into the refresh Lambda env matching sources.ts (deploy overrides SSM)', () => {
+    // SST Config.Parameter values are injected as Lambda env vars at deploy time.
+    // If AuthStack's hardcoded value diverges from sources.ts, every deploy
+    // overwrites the env var back to the wrong path and the crawler finds 0 contracts.
+    const expectedPrefix = SOURCES.find((s) => s.label === 'awp-app-plane')?.contractPathPrefix;
+    const fns = template.findResources('AWS::Lambda::Function');
+    const refreshFn = Object.values(fns).find((f: any) =>
+      (f as any).Properties?.Environment?.Variables?.SST_Parameter_value_CONTRACT_PATH_PREFIX !== undefined
+    ) as any;
+    expect(refreshFn).toBeDefined();
+    expect(refreshFn.Properties.Environment.Variables.SST_Parameter_value_CONTRACT_PATH_PREFIX).toBe(expectedPrefix);
   });
 
   it('grants the functional worker bedrock:InvokeModel via its IAM role, with no stored key (R-118, D-55, NFR-2)', () => {

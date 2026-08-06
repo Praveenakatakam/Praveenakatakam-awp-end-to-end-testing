@@ -48,13 +48,17 @@ async function getJson<T = unknown>(fetchImpl: FetchImpl, url: string, token: st
 }
 
 /** POST /generate-tests (writer) → run summary (R-80). */
-export async function triggerGeneration(fetchImpl: FetchImpl, apiUrl: string, token: string): Promise<unknown> {
+export async function triggerGeneration(
+  fetchImpl: FetchImpl,
+  apiUrl: string,
+  token: string,
+): Promise<{ runId: string; counts: Record<string, number> }> {
   const res = await fetchImpl(`${apiUrl}/generate-tests`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`POST /generate-tests → ${res.status}`);
-  return res.json() as Promise<unknown>;
+  return res.json() as Promise<{ runId: string; counts: Record<string, number> }>;
 }
 
 /** GET /test-artifacts/latest → the artifact set (R-90). */
@@ -125,22 +129,28 @@ export function writeArtifactTree(destDir: string, artifacts: ArtifactSet): stri
 
 // ---- Functional (LLM) generation — `--functional` (T-38 · §3.11, R-126) ----
 
-/** POST /generate-functional-tests (writer) → { jobId } (async, 202 · R-115). */
-export async function triggerFunctionalGeneration(fetchImpl: FetchImpl, apiUrl: string, token: string): Promise<{ jobId: string }> {
+/** POST /generate-functional-tests (writer) → { jobId, status } (async, 202 · R-115). */
+export async function triggerFunctionalGeneration(
+  fetchImpl: FetchImpl,
+  apiUrl: string,
+  token: string
+): Promise<{ jobId: string; status?: string }> {
   const res = await fetchImpl(`${apiUrl}/generate-functional-tests`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status !== 202) throw new Error(`POST /generate-functional-tests → ${res.status} (expected 202)`);
-  const body = (await res.json()) as { jobId?: string };
+  const body = (await res.json()) as { jobId?: string; status?: string };
   if (!body?.jobId) throw new Error('no jobId in the generation response');
-  return { jobId: body.jobId };
+  return { jobId: body.jobId, status: body.status };
 }
 
 /** Terminal-state record for an async functional-generation job (R-125). */
 export interface FunctionalJob {
   status?: string;
   error?: string;
+  planCount?: number;
+  skipCount?: number;
 }
 
 export interface PollOptions {

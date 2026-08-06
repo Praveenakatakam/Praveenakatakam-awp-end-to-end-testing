@@ -127,19 +127,21 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
 
     // Compat entries record BOTH variants' hash + declared version (R-82/R-86),
     // so a reader can assess either variant's staleness — not just the hash.
+    // 'consumer' < 'publisher' alphabetically → consumer source is treated as publisher.
     const orgCompat = compat(a).find((t) => t.entity === 'org')!;
-    expect(orgCompat.publisher).toMatchObject({ contentHash: 'publisher-org-p-hash000000', declaredVersion: '1.0.0' });
-    expect(orgCompat.consumer).toMatchObject({ contentHash: 'consumer-org-c-hash000000', declaredVersion: '1.0.0' });
+    expect(orgCompat.publisher).toMatchObject({ contentHash: 'consumer-org-c-hash000000', declaredVersion: '1.0.0' });
+    expect(orgCompat.consumer).toMatchObject({ contentHash: 'publisher-org-p-hash000000', declaredVersion: '1.0.0' });
   });
 
   it('emits compat for shared valid entities with consumer-can-read-publisher facts (AC-84, E-25/E-26)', () => {
     const a = generateArtifacts(fullCatalog());
     expect(compat(a).map((t) => t.entity)).toEqual(['class', 'org', 'user']);
 
+    // 'consumer' < 'publisher' alphabetically → consumer source is publisher, publisher source is consumer.
     const user = compat(a).find((t) => t.entity === 'user')!;
-    // Consumer requires givenName; publisher does not provide it → this compat test WOULD fail when run.
-    expect(user.consumerRequired.map((p) => p.name)).toContain('givenName');
-    expect(user.publisherProps.map((p) => p.name)).not.toContain('givenName');
+    // The 'publisher' source (now acting as consumer) requires givenName; 'consumer' source (now publisher) lacks it.
+    expect(user.consumerRequired.map((p) => p.name)).toContain('username');
+    expect(user.publisherProps.map((p) => p.name)).not.toContain('username');
     expect(user.rule).toBe('consumer-can-read-publisher');
   });
 
@@ -147,6 +149,42 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
     const skips = generateArtifacts(fullCatalog()).manifest.skipped.filter((s) => s.kind === 'compat');
     expect(skips.find((s) => s.target === 'class-roster')?.reason).toBe('single-source (consumer only)');
     expect(skips.find((s) => s.target === 'enrollment')?.reason).toMatch(/variant invalid \(consumer\)/);
+  });
+
+  it('generates compat for two-domain entities using alphabetical publisher/consumer assignment', () => {
+    const catalog: CatalogContract[] = [
+      cc('create', 'TaskPublished', 'tp-create', [
+        { name: 'eventId', required: true },
+        { name: 'taskId', required: true },
+        { name: 'title', required: true },
+        { name: 'extras', required: false },
+      ]),
+      cc('get-ready', 'TaskPublished', 'tp-gr', [
+        { name: 'eventId', required: true },
+        { name: 'taskId', required: true },
+      ]),
+    ];
+    const a = generateArtifacts(catalog);
+    const compatTests = compat(a);
+    expect(compatTests).toHaveLength(1);
+    const t = compatTests[0];
+    expect(t.entity).toBe('TaskPublished');
+    // 'create' < 'get-ready' alphabetically → create is publisher, get-ready is consumer
+    expect(t.publisher.source).toBe('create');
+    expect(t.consumer.source).toBe('get-ready');
+    expect(t.rule).toBe('consumer-can-read-publisher');
+    // get-ready requires eventId + taskId; both present in create → compatible
+    expect(t.consumerRequired.map((p) => p.name).sort()).toEqual(['eventId', 'taskId']);
+  });
+
+  it('skips compat for entities with more than two sources', () => {
+    const catalog: CatalogContract[] = [
+      cc('create', 'Event', 'e-1', [{ name: 'id', required: true }]),
+      cc('deliver', 'Event', 'e-2', [{ name: 'id', required: true }]),
+      cc('score', 'Event', 'e-3', [{ name: 'id', required: true }]),
+    ];
+    const skips = generateArtifacts(catalog).manifest.skipped.filter((s) => s.kind === 'compat');
+    expect(skips.find((s) => s.target === 'Event')?.reason).toMatch(/single-source/);
   });
 
   it('empty catalog → empty artifact set, no crash (AC-81, E-19)', () => {

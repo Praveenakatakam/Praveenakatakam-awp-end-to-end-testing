@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - 'scripts'
 
 # Link internal "@registry/*" deps (declared with "*") to local workspace
 # packages instead of fetching from the registry. npm workspaces did this by

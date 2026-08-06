@@ -127,6 +127,22 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
     expect(await screen.findByLabelText('yaml')).toHaveTextContent('DataContract');
   });
 
+  it('shows (version not bumped) label when versionNotBumped is true (AC-62 / R-62)', async () => {
+    fakeApi.getContract.mockResolvedValue({
+      entry: { id: 'org', entity: 'org', name: 'Org Contract', declaredVersion: '1.0.0', validation: 'valid', currentVersion: 2 },
+      versions: [
+        { versionNumber: 1, hash: 'aaa00001', versionNotBumped: false },
+        { versionNumber: 2, hash: 'bbb00002', versionNotBumped: true },
+      ],
+    });
+    render(<App />);
+    await screen.findByText('org');
+    await userEvent.click(screen.getAllByRole('button', { name: /publisher v/i })[0]);
+    // The bumped version entry shows the warning label; the first version does not.
+    const history = await screen.findByLabelText('metadata');
+    expect(history).toHaveTextContent('version not bumped');
+  });
+
   it('shows a per-property diff for a divergent entity (AC-63)', async () => {
     fakeApi.getEntity.mockResolvedValue({
       entity: 'user',

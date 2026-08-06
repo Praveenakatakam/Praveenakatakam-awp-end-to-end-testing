@@ -3,7 +3,7 @@ import { parseRequirements, extractSpecVersion } from '../src/requirements.js';
 
 // A fixture that mirrors the companion repos' docs/spec.md shape: a
 // "Functional Requirements (EARS)" section with `### 3.x` sub-headings and
-// `- **R-nn** — …` bullets (keyword-led, ubiquitous, no-modality, sub-ids),
+// `**R-nn** …` bold-paragraph lines (keyword-led, ubiquitous, no-modality, sub-ids),
 // plus content OUTSIDE the requirements section that must be ignored.
 const SPEC = `# Example App — Specification
 
@@ -11,7 +11,7 @@ const SPEC = `# Example App — Specification
 
 ## 2. Out of Scope
 
-- **R-99** — This bullet is not in the requirements section and MUST be ignored.
+**R-99** This bullet is not in the requirements section and MUST be ignored.
 
 ## 3. Functional Requirements (EARS)
 
@@ -19,21 +19,21 @@ const SPEC = `# Example App — Specification
 
 ### 3.1 Data Contract (ODCS)
 
-- **R-01** — The system SHALL define one ODCS data contract that validates against the schema.
-- **R-04** — Each property SHALL declare a logicalType, and SHOULD mark required fields.
-- **R-05** — WHERE a property is enumerated, the contract SHALL express the allowed values.
+**R-01** The system SHALL define one ODCS data contract that validates against the schema.
+**R-04** Each property SHALL declare a logicalType, and SHOULD mark required fields.
+**R-05** WHERE a property is enumerated, the contract SHALL express the allowed values.
 
 ### 3.2 API — Auth
 
-- **R-10** — WHEN a client calls any protected endpoint, THE API SHALL require a valid token.
-- **R-11** — IF a request presents no token, THE API SHALL respond 401 and SHALL NOT execute.
-- **R-12** — WHILE a request is authenticated, THE API SHALL make the subject available.
-- **R-17a** — WHERE a cursor is supplied, THE API SHALL page (sub-id requirement).
-- **R-20** — Before returning any record, THE API validates it (no modality keyword here).
+**R-10** WHEN a client calls any protected endpoint, THE API SHALL require a valid token.
+**R-11** IF a request presents no token, THE API SHALL respond 401 and SHALL NOT execute.
+**R-12** WHILE a request is authenticated, THE API SHALL make the subject available.
+**R-17a** WHERE a cursor is supplied, THE API SHALL page (sub-id requirement).
+**R-20** Before returning any record, THE API validates it (no modality keyword here).
 
 ## 4. Non-Functional Requirements
 
-- **R-98** — This one is after the section and MUST be ignored too.
+**R-98** This one is after the section and MUST be ignored too.
 `;
 
 describe('parseRequirements (T-27 · R-102, R-103, R-104)', () => {
@@ -79,7 +79,7 @@ describe('parseRequirements (T-27 · R-102, R-103, R-104)', () => {
   });
 
   it('returns [] when there is no Functional Requirements section, or empty input', () => {
-    expect(parseRequirements('# Doc\n\n## 1. Intro\n\n- **R-01** — orphan SHALL.')).toEqual([]);
+    expect(parseRequirements('# Doc\n\n## 1. Intro\n\n**R-01** orphan SHALL.')).toEqual([]);
     expect(parseRequirements('')).toEqual([]);
   });
 });

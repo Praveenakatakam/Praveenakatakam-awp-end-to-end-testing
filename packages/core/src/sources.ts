@@ -10,10 +10,12 @@ export interface SourceConfig {
   label: string;
   owner: string;
   repo: string;
-  /** Default branch crawled (source of truth — D-8). */
+  /** Branch crawled (source of truth — D-8). Overridden at runtime via SST Parameter SOURCE_BRANCH. */
   branch: string;
+  /** Only tree entries whose path starts with this prefix are treated as contracts. Overridden at runtime via SST Parameter CONTRACT_PATH_PREFIX. */
+  contractPathPrefix?: string;
 }
 
 export const SOURCES: SourceConfig[] = [
-  { label: 'awp-app-plane', owner: 'collegeboard-software', repo: 'awp-app-plane', branch: 'feat/end-to-end-testing-registry' },
+  { label: 'awp-app-plane', owner: 'collegeboard-software', repo: 'awp-app-plane', branch: 'feat/end-to-end-testing-registry', contractPathPrefix: 'docs/contracts/' },
 ];

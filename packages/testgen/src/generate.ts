@@ -23,8 +23,23 @@ import {
   type Skip,
 } from './manifest.js';
 
-const PUBLISHER = 'publisher';
-const CONSUMER = 'consumer';
+/**
+ * Resolve publisher and consumer variants for a set of same-entity contracts.
+ *
+ * When exactly two sources carry the entity, the alphabetically-first source
+ * is treated as publisher and the second as consumer — a stable, deterministic
+ * assignment (R-88). Any other count is not a valid compat pair.
+ */
+function resolveCompatPair(
+  variants: CatalogContract[]
+): { pub: CatalogContract; con: CatalogContract } | null {
+  const sources = [...new Set(variants.map((v) => v.source))].sort();
+  if (sources.length !== 2) return null;
+  return {
+    pub: variants.find((v) => v.source === sources[0])!,
+    con: variants.find((v) => v.source === sources[1])!,
+  };
+}
 
 export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
   const conformance: ConformanceTest[] = [];
@@ -58,18 +73,18 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
     });
   }
 
-  // --- Compat: one per entity carried by both publisher AND consumer (R-84) ---
+  // --- Compat: one per entity with exactly two sources (R-84) ---
   const entities = [...new Set(catalog.map((c) => c.entity))].sort();
   for (const entity of entities) {
     const variants = catalog.filter((c) => c.entity === entity);
-    const pub = variants.find((v) => v.source === PUBLISHER);
-    const con = variants.find((v) => v.source === CONSUMER);
+    const pair = resolveCompatPair(variants);
 
-    if (!pub || !con) {
-      const only = pub ? PUBLISHER : con ? CONSUMER : variants.map((v) => v.source).join(',');
+    if (!pair) {
+      const only = variants.map((v) => v.source).join(',');
       skipped.push({ kind: 'compat', target: entity, reason: `single-source (${only} only)` });
       continue;
     }
+    const { pub, con } = pair;
     if (pub.validation !== 'valid' || con.validation !== 'valid') {
       const bad = [pub, con]
         .filter((v) => v.validation !== 'valid')

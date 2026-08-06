@@ -96,4 +96,28 @@ describe('read API handlers (T-13 · R-50..R-55)', () => {
     vi.spyOn(repository, 'getRun').mockResolvedValueOnce(undefined);
     expect((await read.crawl(ev({ runId: 'z' }))).statusCode).toBe(404);
   });
+
+  it('GET /crawls/{runId} body includes per-source requirements counts (R-55 / R-108)', async () => {
+    const runRecord = {
+      runId: 'r-req',
+      startedAt: '2026-07-28T00:00:00Z',
+      endedAt: '2026-07-28T00:00:10Z',
+      sources: [
+        {
+          label: 'awp-app-plane',
+          outcome: 'success',
+          valid: 2,
+          invalid: 0,
+          unchanged: 0,
+          newVersion: 0,
+          requirements: { discovered: 5, conforming: 4, nonConforming: 1, changed: 1, removed: 0 },
+        },
+      ],
+    };
+    vi.spyOn(repository, 'getRun').mockResolvedValueOnce(runRecord);
+    const res = await read.crawl(ev({ runId: 'r-req' }));
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.sources[0].requirements).toMatchObject({ discovered: 5, conforming: 4, nonConforming: 1 });
+  });
 });

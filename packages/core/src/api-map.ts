@@ -38,6 +38,9 @@ export const API_MAP: Record<string, Record<string, EntityApiTarget>> = {
   consumer: {
     class: { path: '/me/classes', baseUrlEnv: 'CONSUMER_API_URL', tokenEnv: 'CONSUMER_TOKEN', recordsAt: 'items' },
   },
+  'get-ready': {
+    TaskPublished: { path: '/api/grdy/assignments/getTasks', baseUrlEnv: 'GET_READY_API_URL', tokenEnv: 'GET_READY_TOKEN', recordsAt: '' },
+  },
 };
 
 /** Resolve the API target for a {source, entity}, or undefined when unmapped (R-83b). */

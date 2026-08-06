@@ -1,0 +1,14 @@
+{
+  "name": "@registry/scripts",
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@registry/core": "*",
+    "@registry/functest": "*",
+    "@registry/testgen": "*"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.0"
+  }
+}

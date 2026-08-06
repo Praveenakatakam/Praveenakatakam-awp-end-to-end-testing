@@ -8,5 +8,10 @@
     "@registry/core": "*",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.0",
+    "typescript": "*"
   }
 }

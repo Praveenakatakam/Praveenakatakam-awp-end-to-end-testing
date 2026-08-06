@@ -1,92 +1,88 @@
 // GENERATED — DO NOT EDIT. Regenerate via `npm run generate-tests` (see generated-tests/manifest.json).
-// Manifest test #2 — compat class (consumer-can-read-publisher).
-// consumer consumer/b3f6d5c1-class-oneroster-v12@8f734db9c0c9
-// publisher publisher/7c2d4e5f-class-oneroster-v12@955990121e05
+// Manifest test #1 — compat TaskPublished (consumer-can-read-publisher).
+// consumer get-ready/urn:bawp:get-ready:assignments-api@72642b9a766c
+// publisher create/urn:bawp:create:content-events@f9c3a51c653b
 import { describe, it, expect } from "vitest";
 
 const consumerRequired: { name: string; logicalType?: string }[] = [
   {
-    "name": "classType",
+    "name": "description",
     "logicalType": "string"
   },
   {
-    "name": "course",
-    "logicalType": "object"
+    "name": "duration",
+    "logicalType": "integer"
   },
   {
-    "name": "dateLastModified",
-    "logicalType": "date"
-  },
-  {
-    "name": "school",
-    "logicalType": "object"
-  },
-  {
-    "name": "sourcedId",
+    "name": "id",
     "logicalType": "string"
   },
   {
-    "name": "status",
-    "logicalType": "string"
+    "name": "itemTypes",
+    "logicalType": "array"
   },
   {
-    "name": "terms",
+    "name": "standards",
     "logicalType": "array"
   },
   {
     "name": "title",
+    "logicalType": "string"
+  },
+  {
+    "name": "totalItemCount",
+    "logicalType": "integer"
+  },
+  {
+    "name": "type",
     "logicalType": "string"
   }
 ];
 const publisherProps = new Map<string, string | undefined>(
   ([
   {
-    "name": "classCode",
+    "name": "duration",
+    "logicalType": "integer"
+  },
+  {
+    "name": "eventId",
     "logicalType": "string"
   },
   {
-    "name": "classType",
-    "logicalType": "string"
+    "name": "itemCount",
+    "logicalType": "integer"
   },
   {
-    "name": "course",
-    "logicalType": "object"
-  },
-  {
-    "name": "dateLastModified",
-    "logicalType": "date"
-  },
-  {
-    "name": "grades",
+    "name": "items",
     "logicalType": "array"
   },
   {
-    "name": "location",
+    "name": "publishedAt",
     "logicalType": "string"
   },
   {
-    "name": "metadata",
-    "logicalType": "object"
-  },
-  {
-    "name": "school",
-    "logicalType": "object"
-  },
-  {
-    "name": "sourcedId",
+    "name": "publishedBy",
     "logicalType": "string"
   },
   {
-    "name": "status",
+    "name": "schemaVersion",
     "logicalType": "string"
   },
   {
-    "name": "subjects",
+    "name": "standards",
     "logicalType": "array"
   },
   {
-    "name": "terms",
-    "logicalType": "array"
+    "name": "taskId",
+    "logicalType": "string"
+  },
+  {
+    "name": "taskType",
+    "logicalType": "string"
+  },
+  {
+    "name": "tenantId",
+    "logicalType": "string"
   },
   {
     "name": "title",
@@ -95,7 +91,7 @@ const publisherProps = new Map<string, string | undefined>(
 ] as { name: string; logicalType?: string }[]).map((p) => [p.name, p.logicalType]),
 );
 
-describe("compat: class (consumer-can-read-publisher)", () => {
+describe("compat: TaskPublished (consumer-can-read-publisher)", () => {
   for (const req of consumerRequired) {
     it(`publisher provides consumer-required '${req.name}'`, () => {
       expect(publisherProps.has(req.name), `missing '${req.name}' in publisher`).toBe(true);

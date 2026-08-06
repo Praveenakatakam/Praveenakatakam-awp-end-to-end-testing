@@ -38,6 +38,9 @@ export interface SourceOutcome {
   newVersion: number;
   unchanged: number;
   reason?: string;
+  /** Effective crawl config (branch + path prefix) for diagnostics. */
+  branch: string;
+  pathPrefix?: string;
   /** Per-source EARS requirement counts (§3.10, R-108). */
   requirements?: RequirementCounts;
 }
@@ -89,6 +92,8 @@ export async function performCrawl(
       invalid: 0,
       newVersion: 0,
       unchanged: 0,
+      branch: source.branch,
+      pathPrefix: source.contractPathPrefix,
     };
     try {
       const { files, specRef } = await crawlSourceFull(api, source);
@@ -98,27 +103,29 @@ export async function performCrawl(
       for (const file of files) {
         const result = parseAndValidate(file.bytes);
         const meta = extractMetadata(result.parsed, file.path);
+        const contractSource = meta.domain ?? source.label;
 
         if (result.validation === 'valid') counts.valid++;
         else {
           counts.invalid++;
           // Per-file failure with the offending path/id (NFR-5).
-          log.warn('crawl.file.invalid', { runId, source: source.label, path: file.path, id: meta.id });
+          log.warn('crawl.file.invalid', { runId, source: contractSource, path: file.path, id: meta.id });
         }
 
         // In-source id collision: catalog the first, warn on the rest (R-30a).
         if (meta.id && seenIds.has(meta.id)) {
-          collisions.push({ source: source.label, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
-          log.warn('crawl.id.collision', { runId, source: source.label, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
+          collisions.push({ source: contractSource, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
+          log.warn('crawl.id.collision', { runId, source: contractSource, id: meta.id, paths: [seenIds.get(meta.id)!, file.path] });
           continue;
         }
         if (meta.id) seenIds.set(meta.id, file.path);
 
         const ingest = await repo.ingestContract({
-          source: source.label,
+          source: contractSource,
           id: meta.id,
           entity: meta.entity,
           name: meta.name,
+          domain: meta.domain,
           path: file.path,
           blobSha: file.blobSha,
           commitSha: file.commitSha,
@@ -210,11 +217,20 @@ export async function handleRefresh(
 
 /** Lambda entry (writer-only; the authorizer has already enforced the group). */
 export async function handler(): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> {
-  const token = (Config as unknown as Record<string, string>).GITHUB_TOKEN;
-  const api = createOctokitApi(token);
+  const cfg = Config as unknown as Record<string, string>;
+  const api = createOctokitApi(cfg.GITHUB_TOKEN);
+
+  // Apply SST Parameter overrides so branch and path prefix can be changed
+  // per stage without a code redeploy.
+  const sources: SourceConfig[] = SOURCES.map((s) => ({
+    ...s,
+    ...(cfg.SOURCE_BRANCH ? { branch: cfg.SOURCE_BRANCH } : {}),
+    ...(cfg.CONTRACT_PATH_PREFIX ? { contractPathPrefix: cfg.CONTRACT_PATH_PREFIX } : {}),
+  }));
+
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = new Date().toISOString();
-  const res = await handleRefresh(api, SOURCES, repository, runId, startedAt);
+  const res = await handleRefresh(api, sources, repository, runId, startedAt);
   return { statusCode: res.statusCode, headers: { 'content-type': 'application/json' }, body: res.body };
 }
 

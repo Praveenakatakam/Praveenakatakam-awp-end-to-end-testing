@@ -18,7 +18,7 @@ function SignIn({ onToken }: { onToken: (t: string) => void }) {
   const [error, setError] = useState('');
   return (
     <main>
-      <h1>ODCS Contract Registry</h1>
+      <h1>BAWP End-to-End Testing Registry</h1>
       <h2>Sign in</h2>
       <form
         onSubmit={async (e) => {
@@ -49,10 +49,12 @@ function Detail({ api, source, id }: { api: Api; source: string; id: string }) {
   const e = data.entry ?? {};
   const meta: [string, unknown][] = [
     ['Entity', e.entity],
+    ['Domain', e.domain],
     ['Name', e.name],
     ['Declared version', e.declaredVersion],
     ['Current version', e.currentVersion],
     ['Validation', e.validation],
+    ['Source', e.source],
     ['Source commit', e.commitSha],
     ['File path', e.filePath],
     ['Last crawled', e.lastCrawledAt],
@@ -168,14 +170,78 @@ function RequirementsView({ api }: { api: Api }) {
   );
 }
 
+function CrawlLog({ summary }: { summary: any }) {
+  const duration =
+    summary.startedAt && summary.endedAt
+      ? ((new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime()) / 1000).toFixed(1)
+      : null;
+  return (
+    <section aria-label="crawl log" style={{ fontFamily: 'monospace', fontSize: '0.85em', margin: '0.5em 0' }}>
+      <p style={{ margin: '0 0 0.25em' }}>
+        ✓ Crawl done{duration ? ` in ${duration}s` : ''} · run {summary.runId}
+      </p>
+      {summary.sources?.map((s: any) => (
+        <details key={s.label} open>
+          <summary style={{ cursor: 'pointer' }}>
+            {s.outcome === 'failed' ? '✗' : '✓'} <strong>{s.label}</strong>
+            {` (${s.branch}:${s.pathPrefix ?? '/'})`}
+            {s.outcome === 'success' &&
+              ` — ${s.discovered} discovered · ${s.valid} valid · ${s.invalid} invalid`}
+            {s.outcome === 'failed' && ` — failed: ${s.reason}`}
+          </summary>
+          {s.outcome === 'success' && (
+            <ul style={{ margin: '0.2em 0 0.2em 1.2em', padding: 0 }}>
+              <li>
+                new versions: {s.newVersion} · unchanged: {s.unchanged}
+              </li>
+              {s.requirements && !s.requirements.failed && (
+                <li>
+                  requirements: {s.requirements.discovered} discovered · {s.requirements.conforming} conforming ·{' '}
+                  {s.requirements.nonConforming} non-conforming · {s.requirements.changed} changed ·{' '}
+                  {s.requirements.removed} removed
+                </li>
+              )}
+              {s.requirements?.failed && <li>⚠ requirements failed: {s.requirements.reason}</li>}
+            </ul>
+          )}
+        </details>
+      ))}
+      {summary.collisions?.length > 0 && (
+        <details>
+          <summary style={{ cursor: 'pointer' }}>
+            ⚠ {summary.collisions.length} id collision(s)
+          </summary>
+          <ul style={{ margin: '0.2em 0 0.2em 1.2em', padding: 0 }}>
+            {summary.collisions.map((c: any, i: number) => (
+              <li key={i}>
+                {c.source} / {c.id}: {c.paths.join(', ')}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [token, setToken] = useState<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<{ source: string; id: string } | null>(null);
   const [diff, setDiff] = useState<any>(null);
-  const [status, setStatus] = useState('');
   const [view, setView] = useState<'entity' | 'source' | 'requirements'>('entity');
+  const [crawlRunning, setCrawlRunning] = useState(false);
+  const [crawlElapsed, setCrawlElapsed] = useState(0);
+  const [crawlSummary, setCrawlSummary] = useState<any>(null);
+  const [crawlError, setCrawlError] = useState('');
+
+  useEffect(() => {
+    if (!crawlRunning) return;
+    const t0 = Date.now();
+    const id = setInterval(() => setCrawlElapsed((Date.now() - t0) / 1000), 100);
+    return () => clearInterval(id);
+  }, [crawlRunning]);
 
   useEffect(() => {
     currentToken().then((t) => {
@@ -193,6 +259,22 @@ export default function App() {
     if (token) load(token);
   }, [token]);
 
+  async function runRefresh() {
+    setCrawlRunning(true);
+    setCrawlElapsed(0);
+    setCrawlSummary(null);
+    setCrawlError('');
+    try {
+      const summary = await api!.refresh();
+      setCrawlSummary(summary);
+      await load(token!);
+    } catch (err) {
+      setCrawlError((err as Error).message);
+    } finally {
+      setCrawlRunning(false);
+    }
+  }
+
   if (!ready) return <p>Loading…</p>;
   if (!token) return <SignIn onToken={setToken} />;
 
@@ -201,16 +283,9 @@ export default function App() {
   return (
     <main>
       <header>
-        <h1>ODCS Contract Registry</h1>
+        <h1>BAWP End-to-End Testing Registry</h1>
         {isWriter(token) && (
-          <button
-            onClick={async () => {
-              setStatus('Crawling…');
-              const summary = await api!.refresh();
-              setStatus(`Crawled ${summary.sources?.length ?? 0} source(s)`);
-              await load(token);
-            }}
-          >
+          <button onClick={runRefresh} disabled={crawlRunning}>
             Refresh
           </button>
         )}
@@ -223,7 +298,17 @@ export default function App() {
           Sign out
         </button>
       </header>
-      {status && <p role="status">{status}</p>}
+      {crawlRunning && (
+        <p role="status" aria-live="polite">
+          Crawling… {crawlElapsed.toFixed(1)}s
+        </p>
+      )}
+      {crawlError && (
+        <p role="alert" style={{ color: 'red' }}>
+          Refresh failed: {crawlError}
+        </p>
+      )}
+      {crawlSummary && <CrawlLog summary={crawlSummary} />}
       <nav aria-label="view toggle">
         <button aria-pressed={view === 'entity'} disabled={view === 'entity'} onClick={() => setView('entity')}>
           By entity
@@ -246,7 +331,7 @@ export default function App() {
                 {g.variants.map((v) => (
                   <li key={v.source}>
                     <button onClick={() => setSelected({ source: v.source, id: v.id })}>
-                      {v.source} v{v.currentVersion} ({v.validation})
+                      {v.domain ?? v.source} v{v.currentVersion} ({v.validation})
                     </button>
                   </li>
                 ))}

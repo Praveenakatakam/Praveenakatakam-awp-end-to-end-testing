@@ -8,6 +8,7 @@ export interface Entry {
   id: string;
   entity: string;
   name?: string;
+  domain?: string;
   currentVersion: number;
   currentHash: string;
   validation: string;
@@ -20,6 +21,7 @@ export interface EntityGroup {
 }
 
 export interface SourceGroup {
+  /** The ODCS domain (e.g. "deliver", "onboard"), or the crawler source label when domain is absent. */
   source: string;
   contracts: Entry[];
 }
@@ -76,15 +78,16 @@ export function groupByEntity(entries: Entry[]): EntityGroup[] {
     .sort((a, b) => a.entity.localeCompare(b.entity));
 }
 
-/** Group catalog entries by source, each source carrying its contracts sorted by entity (R-65). */
+/** Group catalog entries by ODCS domain (falling back to crawler source label), sorted by entity within each group (R-65). */
 export function groupBySource(entries: Entry[]): SourceGroup[] {
-  const bySource = new Map<string, Entry[]>();
+  const byDomain = new Map<string, Entry[]>();
   for (const e of entries) {
-    const list = bySource.get(e.source) ?? [];
+    const key = e.domain ?? e.source;
+    const list = byDomain.get(key) ?? [];
     list.push(e);
-    bySource.set(e.source, list);
+    byDomain.set(key, list);
   }
-  return [...bySource.entries()]
+  return [...byDomain.entries()]
     .map(([source, contracts]) => ({
       source,
       contracts: [...contracts].sort((a, b) => a.entity.localeCompare(b.entity)),

@@ -86,6 +86,7 @@ export interface IngestInput {
   id: string;
   entity: string;
   name?: string;
+  domain?: string;
   path: string;
   blobSha: string;
   commitSha: string;
@@ -100,6 +101,7 @@ export interface CatalogEntry {
   id: string;
   entity: string;
   name?: string;
+  domain?: string;
   currentVersion: number;
   currentHash: string;
   declaredVersion?: string;
@@ -253,6 +255,7 @@ class Repository {
           id: input.id,
           entity: input.entity,
           name: input.name,
+          domain: input.domain,
           currentVersion: decision.nextVersion,
           currentHash: input.blobSha,
           declaredVersion: input.declaredVersion,

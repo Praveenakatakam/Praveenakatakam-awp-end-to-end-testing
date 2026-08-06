@@ -1,7 +1,9 @@
 # ODCS Contract Registry — Specification
 
-> **Status:** Draft (Phase 1 — Specify, LLM Functional Test Generator component) · **Spec version:** 0.6.1 · **Owner:** naimish
+> **Status:** Draft (Phase 1 — Specify, LLM Functional Test Generator component) · **Spec version:** 0.6.2 · **Owner:** naimish
 > This spec is the **oracle**. Code, tests, and design derive from it. If code and spec disagree, the spec wins until explicitly changed here.
+>
+> **v0.6.2 (2026-07-28) — periodic health check cleanup (recipe Step 11, HC-1…HC-5 remediation).** Updated the spec to match the live system after the `awp-app-plane` source migration: **R-01** updated to describe the single `awp-app-plane` source (plus the runtime-override mechanism via SST Parameters); **R-03** updated to `docs/contracts/` prefix; **R-102** updated for domain-prefixed requirement ids (`**{DOMAIN}-R-nn** <text>`) and relaxed markdown format. Eight undocumented decisions promoted to the log (**D-63**…**D-70**): source migration, domain-prefixed id format, `SOURCE_BRANCH`/`CONTRACT_PATH_PREFIX` SST Parameters, `get-ready` API\_MAP entry, dual-flow Cognito client, custom domain, `additionalProperties` error surfacing, functional test skip mechanism). Open questions resolved in code now recorded. No requirement _behaviour_ weakened.
 >
 > **v0.6.1 (2026-07-17) — periodic health check (recipe Step 11, five-vector HC-1…HC-5, fresh-eyes auditors); no requirement behaviour weakened.** Closed drift the audit surfaced: **R-124** provenance (catalog context + per-skip reasons) is now persisted on the DynamoDB **job record**, not only the S3 manifest; the emitted **conformance** assertion now **names the offending record** (R-83); **R-60** wording corrected to describe the native Cognito SRP sign-in gate (the shipped, intentional behaviour — not a Hosted-UI redirect). Six implementation decisions made in code during the Bedrock/functest work were promoted to the log (**D-57**…**D-62**: worker sizing, IAM scope, `max_tokens`, publisher canonical-variant, entity-match heuristic, Scan-vs-GSI listing). New tests: `bedrock:InvokeModel` IAM-grant / no-stored-key, functional route wiring, redaction-on-failure, E-47 untouched-on-failure. **212 tests green** (194 offline + 18 web), `tsc` clean.
 >
@@ -27,11 +29,11 @@
 
 ## 1. Purpose and Context
 
-This is a reference AWS application that implements an **ODCS contract registry**: a service that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling the two sibling reference repositories — [`awp-odcs-publishing`](https://github.com/collegeboard-personal/awp-odcs-publishing) (the _publisher_) and [`awp-odcs-consuming`](https://github.com/collegeboard-personal/awp-odcs-consuming) (the _consumer_) — **on demand** via the GitHub API.
+This is a reference AWS application that implements an **ODCS contract registry**: a service that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling the [`awp-app-plane`](https://github.com/collegeboard-software/awp-app-plane) monorepo on the `feat/end-to-end-testing-registry` branch **on demand** via the GitHub API (D-63).
 
-Each repository carries its own copy of four OneRoster v1.2 ODCS contracts — `org`, `user`, `class`, `enrollment`. Today these copies are **vendored independently and have already diverged** (`org` is identical across both; `user`/`class`/`enrollment` differ). The registry's job is to make that divergence **visible and queryable**: it catalogs **both apps' variants as they are, without reconciling them**, so a human or downstream tool can see exactly which contract each app publishes/consumes and where they disagree.
+The repository hosts ODCS contracts for multiple sub-systems (publisher, consumer, and other services). Contracts carry an ODCS `domain` field (e.g. `publisher`, `consumer`) that the registry uses as the catalog source label, making cross-service contract divergence **visible and queryable** without the registry needing separate per-service repositories. Requirements are expressed in domain-namespaced EARS format (e.g. `**PLT-R-01**`, `**CRE-R-24**`) and are cataloged alongside the contracts they govern.
 
-The demonstrated principle mirrors the two apps: a data contract is **validated, never assumed**. Here the registry validates every crawled document against the official ODCS v3.1.0 JSON schema before it is cataloged, and records the result rather than silently trusting the source.
+The demonstrated principle: a data contract is **validated, never assumed**. The registry validates every crawled document against the official ODCS v3.1.0 JSON schema before it is cataloged, and records the result rather than silently trusting the source.
 
 ---
 
@@ -62,9 +64,9 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 
 ### 3.1 Sources & Configuration
 
-- **R-01** — The registry SHALL be configured with a fixed set of **source repositories**, each carrying a stable **source label** and its GitHub `owner/repo` and default branch. v1 SHALL define exactly two: `publisher` → `collegeboard-personal/awp-odcs-publishing` and `consumer` → `collegeboard-personal/awp-odcs-consuming`. (Each source additionally exposes an EARS requirements document at `docs/spec.md` — R-100.)
+- **R-01** — The registry SHALL be configured with a fixed set of **source repositories**, each carrying a stable **source label**, its GitHub `owner/repo`, and a target branch. v1 SHALL define exactly one source entry: `awp-app-plane` → `collegeboard-software/awp-app-plane`, branch `feat/end-to-end-testing-registry` (D-63). The branch and contract path prefix MAY be overridden per deployment stage via **SST Parameters** (`SOURCE_BRANCH`, `CONTRACT_PATH_PREFIX`) without a code redeploy (D-65). The catalog source label for an individual contract is resolved as the contract's ODCS `domain` field when present, falling back to the source entry's label when absent (D-63). (Each source additionally exposes an EARS requirements document at `docs/spec.md` — R-100.)
 - **R-02** — The registry SHALL authenticate to the GitHub API using a credential supplied as an **SST Secret** (never committed to source, never returned by any endpoint).
-- **R-03** — WHERE a source repository defines contract files, the registry SHALL look for them under the repo's `contract/` directory matching the glob `*.odcs.yaml`.
+- **R-03** — WHERE a source repository defines contract files, the registry SHALL look for them under the configured **contract path prefix** (default `docs/contracts/`, overridable via the `CONTRACT_PATH_PREFIX` SST Parameter — D-65) matching the glob `*.odcs.ya?ml`.
 
 ### 3.2 Crawl / Refresh (write path)
 
@@ -176,7 +178,7 @@ The demonstrated principle mirrors the two apps: a data contract is **validated,
 
 #### 3.10.2 Extraction & EARS parsing
 
-- **R-102** — For each source, THE registry SHALL extract every numbered requirement bullet (`- **R-nn** — <text>`) appearing under the document's **"Functional Requirements (EARS)"** section (`## 3. …`), capturing each requirement's **id** (`R-nn`, including sub-ids like `R-17a`), its full **text**, and the **sub-section heading** (e.g. `### 3.2 Crawl / Refresh`) it falls under.
+- **R-102** — For each source, THE registry SHALL extract every numbered requirement bullet (`**{DOMAIN-}R-nn** <text>`, where the domain prefix is optional — e.g. `**PLT-R-17a**` or `**R-01**`) appearing under the document's **"Functional Requirements (EARS)"** section (`## 3. …`), capturing each requirement's **id** (including optional domain prefix and sub-letter, e.g. `CRE-R-24` or `R-17a`), its full **text**, and the **sub-section heading** (e.g. `### 3.2 Crawl / Refresh`) it falls under. The bullet does NOT require a leading list marker (`-`) or an em-dash separator — the bold id followed by a space and the text is sufficient (D-64).
 - **R-103** — For each extracted requirement, THE registry SHALL derive its **EARS type** from the leading keyword — `WHEN`→`event`, `IF`→`unwanted`, `WHILE`→`state`, `WHERE`→`optional`, none-of-these→`ubiquitous` — and its **modality** (`SHALL` / `SHOULD` / `MAY`), taking the first modality keyword present.
 - **R-104** — IF an extracted requirement carries **no** modality keyword (`SHALL`/`SHOULD`/`MAY`), THE registry SHALL catalog it flagged **`earsConforming: false`** (still cataloged, never dropped — fault-isolating, mirrors R-21/D-27); otherwise **`earsConforming: true`**.
 - **R-105** — IF a source's `docs/spec.md` is **absent, or is present but contains no requirements section**, THE registry SHALL **replace that source's requirement snapshot with the empty set** — the source now declares zero requirements, so its prior requirements are **removed** (latest-snapshot semantics, D-45) — recording the crawl as a **success** with `discovered: 0` and the prior count as `removed`. IF the **source's crawl fails** — it is unreachable, or its branch/tree/contract-blob fetch errors (R-13) — THE registry SHALL instead leave that source's previously-cataloged requirements **unchanged** (no deletion — the state was not observed, mirrors R-13/NFR-4). (A failure fetching or parsing **only** `docs/spec.md`, after the source's contracts are already cataloged, is neither "absent" nor a whole-source failure — it is isolated per **R-105a**, which also leaves the prior snapshot unchanged.) The distinction is deliberate: _reachable-but-empty_ is an observed "zero requirements" (wipe); an _unobserved_ state — whole-source failure or an isolated spec-doc read/parse error — keeps the prior snapshot.
@@ -371,9 +373,9 @@ _(Each entry: **Decision / Reason / Affects**. D-1…D-11 below were fixed durin
 
 **D-5 — Source repos are fixed configuration, not runtime input.**
 
-- **Decision:** The crawl targets a fixed, configured list (the two example apps); callers cannot point the crawler at arbitrary repos.
-- **Reason:** Security and scope; a demo registry over two known repos.
-- **Affects:** §2, R-01.
+- **Decision:** The crawl targets a fixed, configured list; callers cannot point the crawler at arbitrary repos at request time. The branch and contract path prefix are deployment-time configuration overridable via SST Parameters (D-65), not runtime API inputs — adding a new source repo still requires a code/redeploy change.
+- **Reason:** Security and scope; a demo registry over known repos.
+- **Affects:** §2, R-01, D-65.
 
 **D-6 — Authenticated reads _and_ writes (Cognito).**
 
@@ -723,6 +725,56 @@ _(D-50…D-56 added 2026-07-16 for the LLM-Powered Functional Test Generator —
 - **Decision:** The functional generator produces and stores tests and lands them in `generated-tests/functional/` for review; **executing** them is a separate future feature.
 - **Reason:** Re-affirms D-29 for this new test class; running true cross-service e2e needs both apps deployed + live creds + a runner — infra out of scope here.
 - **Affects:** §2, R-123; D-29 (re-affirmed).
+
+<!-- Decisions D-63…D-70 added 2026-07-28 during the HC-1…HC-5 cleanup (recipe Step 11). Promotes decisions that were live in code but unrecorded, and documents the awp-app-plane source migration. -->
+
+**D-63 — The crawl target was migrated from the two OneRoster demo repos to the single `awp-app-plane` monorepo.**
+
+- **Decision:** `SOURCES` in `packages/core/src/sources.ts` now defines one entry: `awp-app-plane` → `collegeboard-software/awp-app-plane`, branch `feat/end-to-end-testing-registry`. The original `publisher` → `collegeboard-personal/awp-odcs-publishing` and `consumer` → `collegeboard-personal/awp-odcs-consuming` sources are retired. A contract's catalog source label is now resolved from its ODCS `domain` field (e.g. `domain: publisher`), falling back to the source entry's label. This is the mechanism that produces `publisher`/`consumer`-labelled catalog entries from a single crawl source, which the testgen compat logic requires.
+- **Reason:** The registry was retargeted to crawl the real `awp-app-plane` integration repo rather than the original OneRoster demo repos, to exercise live contracts in the CollegeBoard platform context.
+- **Affects:** R-01, R-03, §1; `packages/core/src/sources.ts`, `packages/functions/src/refresh.ts` (domain-override at line `const contractSource = meta.domain ?? source.label`).
+
+**D-64 — The requirements parser was extended to support domain-prefixed ids and a relaxed markdown format.**
+
+- **Decision:** The `REQ_BULLET` regex in `packages/core/src/requirements.ts` accepts `**{DOMAIN-}R-nn** <text>` (optional domain prefix such as `PLT-`, `CRE-`, `XCT-`; no leading `-` list marker required; no em-dash separator required). The old format `- **R-nn** — text` is still matched as a subset.
+- **Reason:** The `awp-app-plane` source repo uses namespaced requirement ids (`CRE-R-24`, `XCT-R-11`, `PLT-R-01`) rather than the plain `R-nn` schema in the original spec. The parser was updated to match the real target's format.
+- **Affects:** R-102; `packages/core/src/requirements.ts` (`REQ_BULLET` regex).
+
+**D-65 — `SOURCE_BRANCH` and `CONTRACT_PATH_PREFIX` are SST Parameters that allow per-stage crawl override without a code redeploy.**
+
+- **Decision:** Two `Config.Parameter`s (`SOURCE_BRANCH`, `CONTRACT_PATH_PREFIX`) are defined in `AuthStack.ts` and consumed in `refresh.ts` to override the crawl branch and contract path prefix at runtime. `SourceConfig` gained an optional `contractPathPrefix` field; `isContractFile()` in `github.ts` is parameterised by prefix.
+- **Reason:** The migration from fixed demo repos to `awp-app-plane` required crawling `docs/contracts/` on `feat/end-to-end-testing-registry`. Making these SST Parameters allows switching per stage without a redeploy and keeps the config in SSM as the single source of truth.
+- **Affects:** R-01, R-03, D-5; `stacks/AuthStack.ts`, `packages/core/src/sources.ts`, `packages/functions/src/refresh.ts`, `packages/core/src/github.ts`.
+
+**D-66 — `API_MAP` was extended with a `get-ready` source entry and a `TaskPublished` entity.**
+
+- **Decision:** `packages/core/src/api-map.ts` contains a third source `get-ready` → `{ TaskPublished: { path: "/api/grdy/assignments/getTasks", baseUrlEnv: "GET_READY_API_URL", tokenEnv: "GET_READY_TOKEN", recordsAt: "" } }` alongside the existing `publisher/org` and `consumer/class` entries.
+- **Reason:** The `awp-app-plane` contracts describe a `TaskPublished` CDC flow between a `create` service and a `get-ready` consumer. The API map is extended incrementally as new entity/endpoint mappings become known.
+- **Affects:** R-83b, R-85; `packages/core/src/api-map.ts`.
+
+**D-67 — The Cognito app client enables both `USER_SRP_AUTH` and `USER_PASSWORD_AUTH` flows simultaneously.**
+
+- **Decision:** `AuthStack.ts` configures `authFlows: { userSrp: true, userPassword: true }`. The SPA uses SRP for its native sign-in gate (R-60); the `generate-tests` CLI uses `USER_PASSWORD_AUTH` to authenticate as `writer@demo` programmatically (D-35). Both flows must be on simultaneously because they serve different callers.
+- **Reason:** `USER_PASSWORD_AUTH` is simpler than implementing a full SRP challenge in a CLI script; enabling both flows on the same client is the standard approach when supporting both interactive and non-interactive authentication.
+- **Affects:** R-60, D-17, D-35; `stacks/AuthStack.ts`.
+
+**D-68 — The SPA is deployed to a custom domain `test-gen-{stage}.e2etest-nonprod.collegeboard.org`.**
+
+- **Decision:** `WebStack.ts` configures a custom domain `test-gen-${stage}.e2etest-nonprod.collegeboard.org` in the `e2etest-nonprod.collegeboard.org` Route 53 hosted zone.
+- **Reason:** The CollegeBoard non-prod hosted zone provides stable per-stage URLs following the `{app}-{stage}.{zone}` convention, making the registry bookmarkable and accessible without consulting stack outputs.
+- **Affects:** NFR-6; `stacks/WebStack.ts`.
+
+**D-69 — `additionalProperties` validation violations now surface the offending property name in the error message.**
+
+- **Decision:** `packages/core/src/odcs-validator.ts` `toError()` enriches `additionalProperties` keyword errors with the `additionalProperty` name (mirroring the existing `required` → `missing` enrichment), so invalid-contract errors are more actionable.
+- **Reason:** When a contract carries a field not in the ODCS v3.1.0 schema, the error message now names the offending field rather than just reporting "additional properties not allowed". The `required` enrichment already set the precedent.
+- **Affects:** R-21; `packages/core/src/odcs-validator.ts`.
+
+**D-70 — Emitted functional tests use `describe.skipIf` on all env vars and `it.todo` for assertions.**
+
+- **Decision:** The functional test emit layer (`packages/functest/src/emit.ts`) wraps each suite with `describe.skipIf(!ready)` where `ready` is a boolean over all required env vars (e.g. `PUBLISHER_API_URL`, `PUBLISHER_TOKEN`, `CONSUMER_API_URL`, `CONSUMER_TOKEN`). Post-propagation assertions are emitted as `it.todo(...)` stubs — they record the assertion intent without being executable by the current runner.
+- **Reason:** `describe.skipIf` is the Vitest-idiomatic way to skip an entire suite without failing when env vars are absent (R-83a analog for functional tests). `it.todo` surfaces the expected assertions visibly in test output while keeping the committed file inert until a future runner fills them in (D-56).
+- **Affects:** R-83a, R-122, R-123, D-26, D-56; `packages/functest/src/emit.ts`.
 
 <!-- Decisions promoted at the 2026-07-17 periodic health check (recipe Step 11, HC-4): implementation choices made in code during the D-50…D-56 Bedrock/functest work that lacked a decisions-log entry. -->
 

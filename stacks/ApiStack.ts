@@ -15,7 +15,7 @@ import { StorageStack } from './StorageStack';
  *   R-50..R-55 — the read endpoints.
  */
 export function ApiStack({ stack }: StackContext) {
-  const { githubToken, userPoolIdParam, userPoolClientIdParam } = use(AuthStack);
+  const { githubToken, userPoolIdParam, userPoolClientIdParam, sourceBranchParam, contractPathPrefixParam } = use(AuthStack);
   const { registry, contracts } = use(StorageStack);
 
   // The authorizer verifies Cognito access tokens itself (aws-jwt-verify); it
@@ -75,7 +75,7 @@ export function ApiStack({ stack }: StackContext) {
       'POST /refresh': {
         function: {
           handler: 'packages/functions/src/refresh.handler',
-          bind: [githubToken],
+          bind: [githubToken, sourceBranchParam, contractPathPrefixParam],
           timeout: '30 seconds',
         },
       },

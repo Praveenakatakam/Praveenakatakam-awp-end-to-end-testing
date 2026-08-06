@@ -1,6 +1,6 @@
 # ODCS Contract Registry — Technical Design
 
-> **Phase 2 — Plan.** Derived from `docs/spec.md` (the oracle, v0.6.0) and `docs/acceptance-criteria.md`. This says _how_; the spec says _what_. Changes here are cheap; changes after implementation are not. Review the checklist at the end (§8) before approval.
+> **Phase 2 — Plan.** Derived from `docs/spec.md` (the oracle, v0.6.2) and `docs/acceptance-criteria.md`. This says _how_; the spec says _what_. Changes here are cheap; changes after implementation are not. Review the checklist at the end (§8) before approval.
 >
 > **§1–§8 describe the registry core** (spec R-01…R-72). **§9 describes the Test Generator component** (spec R-80…R-93, D-23…D-34), added at spec v0.4.0. **§10 describes the Requirements Catalog component** (spec R-100…R-114, D-44…D-48), added at spec v0.5.0. **§11 describes the LLM Functional Test Generator component** (spec R-115…R-126, D-50…D-56), added at spec v0.6.0 — **implemented 2026-07-16 (T-33…T-39)**. All reuse the core's parse/validate/property-model and the existing single-table + S3 + HTTP-API + authorizer patterns; the Test Generator's net-new surface is one pure package (`@registry/testgen`), two endpoints, a generation-run item kind, an S3 artifact prefix, and a CLI; the Requirements Catalog's is one pure parser (`requirements.ts`), a `REQ#` item kind, three read endpoints, and a SPA view; the Functional Generator's is a pure plan-synthesis package + an injectable `LlmClient` (Bedrock SDK), a `FJOB#` item kind, an async job + two routes, and a CLI mode.
 >
@@ -12,7 +12,7 @@
 
 ![ODCS Contract Registry architecture](diagrams/registry-architecture.png)
 
-> Editable source: [`diagrams/registry-architecture.drawio`](diagrams/registry-architecture.drawio) (draw.io / AWS symbols). Crawl detail: the Refresh Lambda acquires a DynamoDB single-flight lock (D-15), then per source runs Trees+Blobs → parse → validate (Ajv) → extract → catalog, and writes the run summary before unlocking. The GitHub PAT lives in SST Secret `GITHUB_TOKEN`. Storage: DynamoDB single-table (entries · versions · crawl-runs · lock; GSI byEntity/byKind; SSE) + S3 ContractsBucket (raw ODCS YAML per version; block-public; SSE).
+> Editable source: [`diagrams/registry-architecture.drawio`](diagrams/registry-architecture.drawio) (draw.io / AWS symbols). Crawl detail: the Refresh Lambda acquires a DynamoDB single-flight lock (D-15), then per source runs Trees+Blobs → parse → validate (Ajv) → extract → catalog, and writes the run summary before unlocking. The catalog source label for each contract is resolved from its ODCS `domain` field, falling back to the source entry's label (D-63). The GitHub PAT lives in SST Secret `GITHUB_TOKEN`. Storage: DynamoDB single-table (entries · versions · crawl-runs · lock; GSI byEntity/byKind; SSE) + S3 ContractsBucket (raw ODCS YAML per version; block-public; SSE-S3).
 
 ### Components & responsibilities
 
@@ -23,8 +23,8 @@
 | **User/group seed** (SST `Script`, deploy-time)                                | Create `reader` + `writer` demo users, assign groups (idempotent)                                                                                                                                            | R-72                        |
 | **RegistryAuthorizer** (SST `Api` **lambda** authorizer, `packages/functions`) | Verify Cognito access token (`aws-jwt-verify`); read `cognito:groups` + `routeKey`; require `writer` for `POST /refresh`, `reader\|writer` otherwise; Allow/Deny at the edge (D-21)                          | R-16, R-56, R-71            |
 | **API** (SST `Api`, HTTP API + lambda authorizer + Lambdas)                    | AuthN/authZ gate via the authorizer; read endpoints; refresh trigger                                                                                                                                         | R-10, R-50…R-56             |
-| **Refresh/Crawl Lambda** (`packages/functions`)                                | Single-flight crawl of all sources, ingest, catalog, run summary                                                                                                                                             | R-10…R-15, R-30…R-34        |
-| **GitHub source client** (`packages/core`)                                     | Fine-grained PAT auth; Git Trees (recursive) + Blobs; select `contract/*.odcs.yaml`                                                                                                                          | R-01…R-03, R-10, R-11, D-14 |
+| **Refresh/Crawl Lambda** (`packages/functions`)                                | Single-flight crawl of all configured sources (currently `awp-app-plane`); resolves catalog source label from each contract's ODCS `domain` field (D-63); ingest, catalog, run summary                       | R-10…R-15, R-30…R-34, D-63  |
+| **GitHub source client** (`packages/core`)                                     | Fine-grained PAT auth; Git Trees (recursive) + Blobs; select `*.odcs.ya?ml` under the configured contract path prefix (default `docs/contracts/`, overridable via `CONTRACT_PATH_PREFIX` SST Parameter — D-65) | R-01…R-03, R-10, R-11, D-14, D-65 |
 | **ODCS validator** (`packages/core`, `Ajv2019` + `ajv-formats` + `js-yaml`)    | Parse YAML; validate against vendored `odcs-v3.1.0.schema.json`; structured failures                                                                                                                         | R-20, R-21                  |
 | **Metadata extractor** (`packages/core`)                                       | id/name/version/entity(=`schema[0].name`↦filename) etc.                                                                                                                                                      | R-22, D-12                  |
 | **Semantic differ** (`packages/core`)                                          | Per-property added/removed/changed between two parsed contracts                                                                                                                                              | R-53, D-18                  |
@@ -49,8 +49,9 @@ On-demand, SSE (`TableEncryption.AWS_MANAGED`), mirroring the apps' `Table` idio
 | **Crawl run**                                                         | `RUN#{runId}`       | `RUN`                    | `startedAt`, `endedAt`, `sources[]` {label, outcome, counts}, `collisions[]`, GSI keys below                                                                                                                                                   |
 | **Lock** (single-flight, D-15)                                        | `LOCK`              | `CRAWL`                  | `runId`, `acquiredAt`, `ttl` (epoch; DynamoDB TTL attribute)                                                                                                                                                                                   |
 | **Requirement** (current snapshot of a `{source, R-id}`, §10 · R-106) | `REQ#{source}`      | `R#{id}`                 | `text`, `earsType` (event/unwanted/state/optional/ubiquitous), `modality` (SHALL/SHOULD/MAY/`null`), `section`, `earsConforming` (bool), `changedInLastCrawl` (bool), `specHash` (blob SHA of `docs/spec.md`), `specVersion?`, `lastCrawledAt` |
+| **Functional job** (§11 · R-124)                                       | `FJOB#{jobId}`      | `FJOB`                   | `kind: "FUNCTIONAL_GEN"` (reuses `byKind` GSI, SK `startedAt`), `status` (pending/running/succeeded/failed), `startedAt`, `finishedAt?`, `modelId`, `promptVersion`, `planCount`, `skipCount`, `catalogContext` (contractCount, requirementCount, per-item hashes), `skips[]`, `artifactKey`, `error?` |
 
-> The **generation-run** item kind (`GEN#{runId}/GEN`, `kind:"GENERATION"`) is defined in §9.3. Requirement items are **latest-snapshot only** — deliberately no `REQVER#` history rows (D-45), unlike contracts.
+> The **generation-run** item kind (`GEN#{runId}/GEN`, `kind:"GENERATION"`) is defined in §9.3. Requirement items are **latest-snapshot only** — deliberately no `REQVER#` history rows (D-45), unlike contracts. Functional-job items use the same `byKind` GSI as generation runs, with `kind:"FUNCTIONAL_GEN"`.
 
 **GSIs**
 
@@ -67,17 +68,18 @@ On-demand, SSE (`TableEncryption.AWS_MANAGED`), mirroring the apps' `Table` idio
 
 ```jsonc
 {
-  "source": "publisher",
+  "source": "publisher",       // resolved from contract's ODCS `domain` field, or source entry label (D-63)
   "id": "5d8f2b4a-org-oneroster-v12",
   "entity": "org",
   "name": "OneRoster v1.2 Org",
+  "domain": "publisher",       // raw ODCS `domain` field value, when present (D-63, D-10)
   "currentVersion": 1,
-  "currentHash": "a1b2c3…", // git blob SHA
+  "currentHash": "a1b2c3…",   // git blob SHA
   "declaredVersion": "1.0.0",
   "validation": "valid",
-  "commitSha": "def456…", // branch tip at crawl time
+  "commitSha": "def456…",      // branch tip at crawl time
   "lastCrawledAt": "2026-07-08T…Z",
-  "filePath": "contract/org.odcs.yaml",
+  "filePath": "docs/contracts/org.odcs.yaml",
 }
 ```
 
@@ -106,7 +108,7 @@ s3://{ContractsBucket}/contracts/{source}/{id}/{versionNumber}-{shortHash}.odcs.
 s3://{ContractsBucket}/requirements/{source}/spec.md          # latest snapshot only (R-114, §10)
 ```
 
-Every contract version's exact bytes are stored (R-41); the `Version` row's `s3Key` points at it. Each source's current `docs/spec.md` is stored **once** (overwritten on content change — latest-snapshot, D-45), for provenance and source-document retrieval. Bucket blocks public access and is SSE-encrypted (R-42).
+Every contract version's exact bytes are stored (R-41); the `Version` row's `s3Key` points at it. Each source's current `docs/spec.md` is stored **once** (overwritten on content change — latest-snapshot, D-45), for provenance and source-document retrieval. Bucket blocks public access and uses **SSE-S3** (`BucketEncryption.S3_MANAGED`, AES-256) encryption (R-42). DynamoDB uses `TableEncryption.AWS_MANAGED` (SSE-KMS).
 
 ### 2.5 Vendored ODCS meta-schema
 
@@ -156,7 +158,7 @@ Base: `/` on the HTTP API. All routes go through a single **Lambda REQUEST autho
 
 ### 4.1 Dependency versions (pinned to the apps)
 
-`ajv ^8.17.1`, `ajv-formats ^3.0.1`, `js-yaml ^4.1.0`, `sst ^2.43.7`, `aws-cdk-lib 2.224.0`, `constructs 10.3.0`, `typescript ^5.4.5`, `vitest ^1.6.0`, `react ^18.3.1`, `vite ^5.3.3`, `amazon-cognito-identity-js` (consuming-app version). **New:** `@octokit/rest` (latest v20) for the crawler; `aws-jwt-verify` (^4) for the Lambda authorizer's Cognito access-token verification. Node 24 via `spack.yaml`; `nodejs20.x` Lambda runtime + arm64 (matching the apps' `setDefaultFunctionProps`).
+`ajv ^8.17.1`, `ajv-formats ^3.0.1`, `js-yaml ^4.1.0`, `sst ^2.43.7`, `aws-cdk-lib 2.238.0`, `constructs 10.3.0`, `typescript ^5.4.5`, `vitest ^3.2.6`, `react ^18.3.1`, `vite ^5.3.3`, `amazon-cognito-identity-js` (consuming-app version). **New:** `@octokit/rest` (latest v20) for the crawler; `aws-jwt-verify` (^4) for the Lambda authorizer's Cognito access-token verification; `@aws-sdk/client-bedrock-runtime` for LLM plan synthesis (D-55). Node 24 via `spack.yaml`; `nodejs20.x` Lambda runtime + arm64 (matching the apps' `setDefaultFunctionProps`).
 
 ---
 
@@ -259,7 +261,7 @@ Turns the discovered catalog into runnable end-to-end tests. **Generates and sto
 | **`deriveJsonSchema`** (`testgen`)                                                                                                   | ODCS `schema[0].properties` → embedded JSON Schema for Ajv record validation (D-30)                                                                                      | R-83, R-86                                           |
 | **`checkCompat`** (`testgen`)                                                                                                        | consumer-can-read-publisher over the shared **normalized property model** (reused from `core`)                                                                           | R-84, R-84a, D-24                                    |
 | **`generateArtifacts` (assembles the manifest inline) + `serializeManifest` / `emitConformanceTest` / `emitCompatTest`** (`testgen`) | manifest JSON + `*.generated.test.ts` strings, stable ordering, "do-not-edit" headers                                                                                    | R-86, R-87, R-88                                     |
-| **`API_MAP`** (`packages/core/src/api-map.ts`, beside `sources.ts`)                                                                  | `source → entity → { path, baseUrlEnv, tokenEnv, recordsAt }` (D-31); unmapped entities skip conformance                                                                 | R-83b, R-85                                          |
+| **`API_MAP`** (`packages/core/src/api-map.ts`, beside `sources.ts`)                                                                  | `source → entity → { path, baseUrlEnv, tokenEnv, recordsAt }` (D-31); currently covers `publisher/org`, `consumer/class`, and `get-ready/TaskPublished` (D-66); unmapped entities skip conformance | R-83b, R-85, D-66                                    |
 | **`normalizeContractSchema`** (extracted into `core`)                                                                                | shared property normalizer used by **both** `diff.ts` and `testgen.checkCompat` (reuse, not reinvent)                                                                    | R-84a, R-53                                          |
 | **`generate.handler`** (`packages/functions`)                                                                                        | `POST /generate-tests` (writer): load catalog → `generateArtifacts` → persist → summary                                                                                  | R-80, R-80a, R-81, R-89                              |
 | **`test-artifacts` read handlers** (`packages/functions`)                                                                            | `GET /test-artifacts[/{runId}                                                                                                                                            | /latest]` (reader): run record + inline artifact set | R-90 |
@@ -442,13 +444,13 @@ The registry crawls each source repo's own **EARS requirements** (`docs/spec.md`
 
 1. Locates the `## 3. Functional Requirements (EARS)` section (from that `## 3` heading up to the next top-level `## ` heading), ignoring bullets elsewhere (e.g. decision/edge-case tables).
 2. Tracks the current `### 3.x <title>` sub-heading as it scans.
-3. Matches each requirement bullet `- **R-nn** — <text>` (id regex `R-\d+[a-z]?`), capturing `id`, `text` (trimmed, inline markdown preserved), and `section` (the enclosing sub-heading title).
+3. Matches each requirement bullet `**{DOMAIN-}R-nn** <text>` (id regex `(?:[A-Z]+-)?R-\d+[a-z]?`; leading list marker and em-dash separator are optional — D-64), capturing `id` (including optional domain prefix such as `PLT-`, `CRE-`), `text` (trimmed, inline markdown preserved), and `section` (the enclosing sub-heading title).
 4. Derives `earsType` from the first keyword token of `text` — `WHEN`→`event`, `IF`→`unwanted`, `WHILE`→`state`, `WHERE`→`optional`, else `ubiquitous` — and `modality` = the first of `SHALL|SHOULD|MAY` found (word-boundary), or `null`.
 5. Sets `earsConforming = modality !== null` (R-104).
 
 ```ts
 export interface ParsedRequirement {
-  id: string; // "R-17a"
+  id: string; // "PLT-R-01" or "R-17a"
   text: string;
   section: string; // "Crawl / Refresh (write path)"
   earsType: 'event' | 'unwanted' | 'state' | 'optional' | 'ubiquitous';

@@ -17,6 +17,8 @@
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.140",
-    "aws-sdk-client-mock": "^4.0.1"
+    "@types/js-yaml": "^4.0.9",
+    "aws-sdk-client-mock": "^4.0.1",
+    "js-yaml": "^4.1.0"
   }
 }

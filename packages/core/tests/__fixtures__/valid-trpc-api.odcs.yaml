@@ -1,0 +1,110 @@
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: urn:bawp:deliver:class-assignment-monitor-api
+name: Deliver Class Assignment Monitor tRPC API
+status: active
+tenant: bawp
+domain: deliver
+
+description:
+  purpose: >-
+    Proctor-facing real-time exam monitoring API. Served as a tRPC router
+    by the deliver BFF.
+  usage: "Internal. allowedConsumers: [frontend]"
+
+servers:
+  - server: deliver-trpc-api
+    type: api
+    location: https://api.bawp.internal/deliver/trpc
+    environment: production
+
+schema:
+  - name: ClassAssignment
+    logicalType: object
+    description: An active or historical class-level exam assignment.
+    properties:
+      - name: id
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+      - name: assignmentTitle
+        logicalType: string
+        required: true
+      - name: registrationCount
+        logicalType: integer
+        required: true
+      - name: status
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [active, canceled, ended, not-started]
+      - name: duration
+        logicalType: integer
+        required: true
+        description: Minutes
+
+  - name: Registration
+    logicalType: object
+    description: A student registration within a class assignment.
+    properties:
+      - name: id
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+      - name: seatNumber
+        logicalType: integer
+        required: true
+      - name: status
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues:
+                - none
+                - exam-checkin-started
+                - waiting-room-arrival
+                - section-start-time
+                - section-resume
+                - break
+                - is-offline
+                - is-online
+                - exit-confirmed
+                - exam-submission-pending
+                - exam-submission-complete
+                - not-arrived
+      - name: firstName
+        logicalType: string
+        required: false
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+      - name: lastName
+        logicalType: string
+        required: false
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+
+team:
+  name: Deliver Domain
+  members:
+    - username: data-contracts-guild-deliver
+      role: owner
+
+customProperties:
+  - property: noticePeriod
+    value: P30D

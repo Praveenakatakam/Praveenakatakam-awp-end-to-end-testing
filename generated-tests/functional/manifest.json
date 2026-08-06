@@ -6,2413 +6,819 @@
   "plans": [
     {
       "requirementIds": [
-        "R-01"
+        "CRE-R-24"
       ],
-      "title": "CDC propagation of a new `class` entity from publisher to consumer, validated against the ODCS v3.1.0 contract",
+      "title": "TaskPublished CDC propagation when Item's 4th review step (order=4) is approved via review.advance",
       "setup": [
         {
-          "description": "Ensure the publisher service is running and reachable, with CDC pipeline active and connected to the consumer service."
+          "description": "Ensure a valid tenant exists and tenantId is available for use in all requests."
         },
         {
-          "description": "Ensure the consumer service is running and reachable at its live API target /me/classes."
+          "description": "Ensure a Task exists in the publisher (awp-app-plane / create service) with at least one Item, a valid taskType, duration, title, and a populated items[] array (each item carrying itemId, itemType, sectionIndex, itemIndex, scoringRule, and MCQ keys/answerOptions)."
         },
         {
-          "description": "Confirm the ODCS v3.1.0 JSON schema is available for contract validation."
+          "description": "Ensure the Task's review workflow has review steps order=1, order=2, and order=3 already in an Approved/Ready state, leaving the 4th review step (order=4) as the final pending step."
         },
         {
-          "description": "Ensure no pre-existing class record with the test sourcedId exists on either publisher or consumer to avoid state collisions."
+          "description": "Confirm the create-evb EventBridge bus is reachable and a consumer (get-ready service) is subscribed to events with source=bawp.create and detail-type=TaskPublished."
         },
         {
-          "description": "Confirm the CDC lag/propagation window is known and a suitable wait period is configured before consumer assertions are made."
+          "description": "Record the taskId and all item metadata (itemId, itemType, sectionIndex, itemIndex, scoringRule, keys, answerOptions) for later assertion."
         }
       ],
       "trigger": {
-        "source": "publisher",
-        "entity": "class",
+        "source": "create",
+        "entity": "TaskPublished",
         "method": "POST",
-        "path": "/classes",
-        "payloadShape": "JSON object containing all required fields: sourcedId (string), status (string), dateLastModified (date), title (string), classType (string), course (object), school (object), terms (non-empty array); optionally includes classCode (string), grades (array), location (string), metadata (object), subjects (array)"
+        "path": "/api/review/advance",
+        "payloadShape": "Object containing taskId (string, required), tenantId (string, required), and review step advancement data targeting the 4th review step (order=4) with an Approved/Ready decision."
       },
       "propagation": {
         "kind": "cdc",
-        "waitFor": "CDC pipeline delivers the new class record from publisher to consumer"
+        "waitFor": "TaskPublished event delivered to create-evb EventBridge bus (source=bawp.create, detail-type=TaskPublished) and consumed by the get-ready service."
       },
       "assertions": [
         {
           "service": "publisher",
-          "assertion": "The POST response status is 2xx, confirming the class entity was accepted and persisted by the publisher."
+          "assertion": "The review.advance call for the 4th review step (order=4) returns a success response (HTTP 2xx), confirming the step transitioned to Approved/Ready."
         },
         {
           "service": "publisher",
-          "assertion": "The response body includes the created class record with all submitted required fields (sourcedId, status, dateLastModified, title, classType, course, school, terms) matching the submitted values."
+          "assertion": "A TaskPublished event is emitted to the create-evb EventBridge bus with source exactly equal to 'bawp.create' and detail-type exactly equal to 'TaskPublished'."
+        },
+        {
+          "service": "publisher",
+          "assertion": "The TaskPublished event detail contains all required fields: schemaVersion, eventId, tenantId, taskId, title, taskType, itemCount, items[], publishedAt, and publishedBy — all non-null and non-empty."
+        },
+        {
+          "service": "publisher",
+          "assertion": "The taskId in the event payload matches the taskId of the Task whose 4th review step was just approved."
+        },
+        {
+          "service": "publisher",
+          "assertion": "The tenantId in the event payload matches the tenantId used in the review.advance request."
+        },
+        {
+          "service": "publisher",
+          "assertion": "The itemCount field equals the actual number of entries in the items[] array in the event payload."
+        },
+        {
+          "service": "publisher",
+          "assertion": "Each entry in items[] contains itemId, itemType, sectionIndex, itemIndex, and scoringRule fields; MCQ-typed items additionally carry non-empty keys and answerOptions fields."
+        },
+        {
+          "service": "publisher",
+          "assertion": "publishedAt is a valid ISO 8601 timestamp string representing the approximate time of the review.advance action."
+        },
+        {
+          "service": "publisher",
+          "assertion": "If standards were associated with the Task, the standards array in the event is non-empty and matches the Task's configured standards; otherwise the standards field is an empty array or omitted."
+        },
+        {
+          "service": "publisher",
+          "assertion": "If duration was set on the Task, the duration integer field in the event matches the Task's configured duration value."
         },
         {
           "service": "consumer",
-          "assertion": "After CDC propagation, a GET to /me/classes returns a 2xx response and the 'items' array contains an entry whose sourcedId matches the one created on the publisher."
+          "assertion": "After CDC propagation, calling GET /api/grdy/assignments/getTasks on the get-ready service returns a response that includes the newly published Task, identifiable by the matching taskId."
         },
         {
           "service": "consumer",
-          "assertion": "The matching class record in 'items' contains all required ODCS contract fields: sourcedId (string), status (string), dateLastModified (date), title (string), classType (string), course (object), school (object), terms (array)."
+          "assertion": "The Task record visible in get-ready contains title, taskType, itemCount, and taskId values that are consistent with those in the published TaskPublished event payload."
         },
         {
           "service": "consumer",
-          "assertion": "Each required field in the propagated class record is non-null and conforms to its declared ODCS v3.1.0 type: sourcedId and status and title and classType are strings; dateLastModified is a valid date; course and school are objects; terms is a non-empty array."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Optional fields present in the publisher payload (classCode, grades, location, metadata, subjects) are also present in the consumer record and match their published values, confirming full contract mirroring of the producer's shape."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The full class record as received at /me/classes (items entry) validates without errors against the official ODCS v3.1.0 JSON schema, confirming the consumer contract is structurally equivalent to the producer's org contract shape."
+          "assertion": "The items[] data visible for the Task in get-ready reflects the serialised items from the TaskPublished event, with each item retaining its itemId, itemType, sectionIndex, itemIndex, and scoringRule."
         }
       ],
-      "inputHash": "0b37d2cd58732fc59e75ab2a330a0e0a61f033073f084412baec48d82567b016"
+      "inputHash": "86f940e2fb09ef5c71ca0e1ce70d75a0340e6b5597b5817e05f9ce01ef1d301b"
     },
     {
       "requirementIds": [
-        "R-03"
+        "XCT-R-11"
       ],
-      "title": "CDC propagation of class entity validates ODCS enum data-quality rules on consumer (classType ∈ {homeroom, scheduled}, status ∈ {active, tobedeleted})",
+      "title": "TaskPublished CDC propagation from create service to get-ready consumer via create-evb",
       "setup": [
         {
-          "description": "Ensure the publisher service is running and has write access to the class entity endpoint."
+          "description": "Ensure the create service is running and connected to the create-evb EventBridge bus."
         },
         {
-          "description": "Ensure the consumer service is running and its /me/classes endpoint is accessible."
+          "description": "Ensure the get-ready service is running and subscribed to TaskPublished events on create-evb."
         },
         {
-          "description": "Ensure the CDC pipeline between publisher and consumer is active and operational."
+          "description": "Ensure a valid tenantId and publishedBy user identity are available for the test."
         },
         {
-          "description": "Ensure no pre-existing class record with the test sourcedId exists on either service; clean up if necessary."
+          "description": "Ensure the get-ready consumer endpoint /api/grdy/assignments/getTasks is reachable and queryable."
         },
         {
-          "description": "Confirm the ODCS contract for class is loaded on the consumer, including data-quality rules: classType ∈ {homeroom, scheduled} and status ∈ {active, tobedeleted}."
+          "description": "Record the current list of tasks visible to the get-ready consumer so a post-propagation diff can be made."
         }
       ],
       "trigger": {
-        "source": "publisher",
-        "entity": "class",
+        "source": "create",
+        "entity": "TaskPublished",
         "method": "POST",
-        "path": "/classes",
-        "payloadShape": "Object containing all required class fields: sourcedId (unique string), status (one of: active, tobedeleted), dateLastModified (ISO date string), title (non-empty string), classType (one of: homeroom, scheduled), course (object with at minimum a sourcedId reference), school (object with at minimum a sourcedId reference), terms (non-empty array of term references). Optional fields may include classCode, grades, location, metadata, subjects."
+        "path": "/api/create/tasks",
+        "payloadShape": "Object containing: taskId (UUID string), taskType (string), title (string), tenantId (string), publishedBy (string), publishedAt (ISO-8601 datetime string), items (non-empty array with at least 1 entry), itemCount (integer matching items length), schemaVersion (string, value '1.0.0'), eventId (UUID string); optionally duration (integer) and standards (array)."
       },
       "propagation": {
         "kind": "cdc",
-        "waitFor": "The newly created class record appears in the consumer's /me/classes response under the 'items' array, identified by the matching sourcedId."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns HTTP 200 and the response body contains an 'items' array."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The 'items' array contains exactly one record whose 'sourcedId' matches the sourcedId submitted by the publisher in the trigger."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's 'classType' field is present and its value is one of the ODCS-allowed enum values: 'homeroom' or 'scheduled'. Any other value constitutes a data-quality rule violation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's 'status' field is present and its value is one of the ODCS-allowed enum values: 'active' or 'tobedeleted'. Any other value constitutes a data-quality rule violation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's 'classType' value exactly matches the value supplied by the publisher in the trigger payload (no transformation or truncation occurred in transit)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's 'status' value exactly matches the value supplied by the publisher in the trigger payload (no transformation or truncation occurred in transit)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "All other required fields (sourcedId, dateLastModified, title, course, school, terms) are present and non-null on the propagated record, confirming full contract fidelity beyond the enum fields."
-        }
-      ],
-      "inputHash": "c26c4f33732164050037568944585427973753d2877a27e9873b43c9534a6fe9"
-    },
-    {
-      "requirementIds": [
-        "R-03"
-      ],
-      "title": "CDC propagation of org entity from publisher to consumer, validating OneRoster v1.2 Org field mapping",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and accessible at its /orgs endpoint."
-        },
-        {
-          "description": "Ensure the consumer service is running and its CDC listener is active and subscribed to org change events from the publisher."
-        },
-        {
-          "description": "Ensure no pre-existing org record with the test sourcedId exists in either service to avoid collision."
-        },
-        {
-          "description": "Confirm CDC pipeline (e.g., Debezium, Kafka, or equivalent) is healthy and able to relay org events from publisher to consumer."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "A JSON object representing a OneRoster v1.2 Org with all required fields: sourcedId (unique string), status (string, e.g. 'active'), dateLastModified (ISO 8601 date string), name (string), type (string, e.g. 'school'); and optional fields: identifier (string), metadata (object with arbitrary key-value pairs), parent (object with at minimum a sourcedId reference), children (array of org reference objects)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer service reflects the newly created org record, identifiable by the same sourcedId written to the publisher."
+        "waitFor": "TaskPublished event emitted on create-evb and consumed by get-ready service"
       },
       "assertions": [
         {
           "service": "publisher",
-          "assertion": "The POST /orgs response returns a 2xx status code, confirming the org was accepted and persisted by the publisher."
+          "assertion": "The create service emits a TaskPublished event onto create-evb with schemaVersion exactly equal to '1.0.0'."
         },
         {
           "service": "publisher",
-          "assertion": "The org record retrievable from the publisher (via GET /orgs or equivalent) contains exactly the fields: sourcedId, status, dateLastModified, metadata, name, type, identifier, parent, and children — matching the OneRoster v1.2 Org schema defined in §3.1."
+          "assertion": "The emitted TaskPublished event carries a non-null, well-formed UUID in the eventId field."
         },
         {
           "service": "publisher",
-          "assertion": "The required fields sourcedId, status, dateLastModified, name, and type are present and non-null in the persisted org record on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, the consumer contains an org record whose sourcedId matches the one written to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record on the consumer contains all nine OneRoster v1.2 Org fields: sourcedId, status, dateLastModified, metadata, name, type, identifier, parent, and children — no fields are dropped or renamed during CDC transit."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The required fields sourcedId, status, dateLastModified, name, and type are present, non-null, and their values exactly match those originally submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The children field on the consumer-side org record is of array type, matching the contract schema definition."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The metadata field on the consumer-side org record is of object type, matching the contract schema definition."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The parent field on the consumer-side org record is of object type, matching the contract schema definition."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The dateLastModified field on the consumer-side org record is a valid ISO 8601 date string, consistent with the contract schema's date type."
-        }
-      ],
-      "inputHash": "5aea846f67d8a8fb96da5e966c9651518ed167566f6c181420569bfb91faab8b"
-    },
-    {
-      "requirementIds": [
-        "R-06"
-      ],
-      "title": "R-06: sourcedId declared as unique primary key of the org object — CDC propagation from publisher to consumer",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and reachable at its live API base URL with access to the /orgs endpoint."
-        },
-        {
-          "description": "Ensure the consumer service is running and connected to the CDC pipeline that receives org change events from the publisher."
-        },
-        {
-          "description": "Ensure no pre-existing org record shares the sourcedId value chosen for this test, guaranteeing uniqueness preconditions are clean."
-        },
-        {
-          "description": "Confirm CDC infrastructure (e.g. event bus / outbox) is active and capable of propagating org write events from publisher to consumer."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "A JSON object representing a new org with all required fields: sourcedId (a unique string acting as primary key), name (string), status (string), type (string), and dateLastModified (date). Optional fields such as identifier, metadata, parent, and children may be omitted."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer service has received and processed the CDC event for the newly created org identified by the posted sourcedId."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST /orgs response returns a success status code (2xx), confirming the org was created."
+          "assertion": "The emitted TaskPublished event's items array contains at least 1 entry, and itemCount matches the length of items."
         },
         {
           "service": "publisher",
-          "assertion": "The created org record returned by the publisher contains a sourcedId field whose value exactly matches the sourcedId provided in the request payload, confirming it is stored as the primary key."
-        },
-        {
-          "service": "publisher",
-          "assertion": "A second POST to /orgs with the same sourcedId value must be rejected (non-2xx, e.g. 409 Conflict), confirming sourcedId uniqueness is enforced at the publisher."
+          "assertion": "All required fields (eventId, itemCount, items, publishedAt, publishedBy, schemaVersion, taskId, taskType, tenantId, title) are present and non-null in the emitted TaskPublished event."
         },
         {
           "service": "consumer",
-          "assertion": "After CDC propagation, the consumer holds an org record whose sourcedId matches the one posted to the publisher, confirming the primary key is preserved end-to-end."
+          "assertion": "After CDC propagation, a GET to /api/grdy/assignments/getTasks returns a response that includes a task record whose taskId matches the taskId supplied in the trigger payload."
         },
         {
           "service": "consumer",
-          "assertion": "The org record on the consumer side contains all required fields (sourcedId, name, status, type, dateLastModified) with values identical to those sent in the original publisher POST payload."
+          "assertion": "The task record returned by /api/grdy/assignments/getTasks reflects the correct title, taskType, tenantId, publishedBy, and publishedAt values from the TaskPublished event — confirming event-driven metadata ingest replaced any prior HTTP poll."
         },
         {
           "service": "consumer",
-          "assertion": "No duplicate org records with the same sourcedId exist on the consumer, confirming that sourcedId uniqueness semantics are upheld across the CDC boundary."
+          "assertion": "The task record returned by /api/grdy/assignments/getTasks contains schemaVersion '1.0.0', confirming the get-ready service persisted or forwarded the schema version carried in the event."
+        },
+        {
+          "service": "consumer",
+          "assertion": "The task record was available in get-ready without any manual polling action by the test — its presence confirms the consumer reacted to the TaskPublished event asynchronously via create-evb."
         }
       ],
-      "inputHash": "3814f8e76e03d7f47188bfce45af27073a1a3dedae392c285501f85b835e662a"
-    },
-    {
-      "requirementIds": [
-        "R-10"
-      ],
-      "title": "CDC propagation: publisher emits class event on `class-events` topic → consumer ingester parses envelope and validates class data against ODCS schema",
-      "setup": [
-        {
-          "description": "Ensure the `class-events` SNS topic is active and the subscriber Lambda is deployed and wired to the consumer ingestion pipeline."
-        },
-        {
-          "description": "Ensure the consumer service is running and its `/me/classes` endpoint is reachable."
-        },
-        {
-          "description": "Prepare a valid class payload satisfying all required ODCS fields: classType, course (object), dateLastModified (date), school (object), sourcedId (string), status (string), terms (array), and title (string)."
-        },
-        {
-          "description": "Record any pre-existing class records on the consumer via GET /me/classes so that the new record can be distinguished after propagation."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "An SNS-envelope-wrapped class object containing all required ODCS fields: sourcedId (string), status (string), title (string), classType (string), course (object), school (object), terms (array), dateLastModified (date); optionally including classCode (string), grades (array), location (string), metadata (object), subjects (array)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Subscriber Lambda on `class-events` topic completes invocation and the consumer store reflects the ingested record"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, GET /me/classes returns a response whose `items` array contains a record matching the sourcedId published by the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a non-null `classType` field matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `course` field of type object, matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `dateLastModified` field that is a valid date value matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `school` field of type object, matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `status` field matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `terms` field of type array, matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The ingested class record in `items` has a `title` field matching the value supplied in the published payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If optional fields (classCode, grades, location, metadata, subjects) were included in the published payload, confirm they appear with correct types (string, array, string, object, array respectively) in the ingested record in `items`."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No schema-validation error is logged or surfaced by the ingester Lambda for the delivered class message; the record is stored without rejection."
-        }
-      ],
-      "inputHash": "95b05305d16867e36130b28ba8d5dcaa085868c579a2bb7a36a67546aea4f58d"
-    },
-    {
-      "requirementIds": [
-        "R-13"
-      ],
-      "title": "Cross-service CDC propagation of POST /orgs upsert (create and overwrite) validated against ODCS org schema",
-      "setup": [
-        {
-          "description": "Ensure no org with the test sourcedId (e.g. 'test-org-001') exists on the publisher or consumer before the test begins; delete or confirm absence via the publisher's GET /orgs endpoint filtering by sourcedId."
-        },
-        {
-          "description": "Record the current item count at publisher GET /orgs to use as a baseline for assertions."
-        },
-        {
-          "description": "Confirm the CDC pipeline between publisher and consumer is active and healthy, with known maximum propagation latency."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "JSON object containing all required ODCS org fields: sourcedId (string, unique test value), status (string), dateLastModified (date string), name (string), type (string); optionally including identifier (string), metadata (object), parent (object), children (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC pipeline delivers the upserted org record from publisher to consumer; poll or await event confirmation up to the maximum known propagation latency"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST /orgs response status is 201 Created when the sourcedId did not previously exist, confirming a new org was created."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body from POST /orgs includes the org record with all submitted fields (sourcedId, status, dateLastModified, name, type) matching the request payload exactly."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs on the publisher returns the newly created org in the 'items' array, with all required fields (sourcedId, status, dateLastModified, name, type) matching the posted values."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, the consumer's store contains an org record whose sourcedId matches the one posted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record on the consumer has name, type, status, and dateLastModified values identical to those submitted in the POST /orgs request payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "A second POST /orgs with the same sourcedId but updated field values (e.g. a new name and dateLastModified) returns 200 OK, confirming the overwrite/upsert path was taken."
-        },
-        {
-          "service": "publisher",
-          "assertion": "After the overwrite POST, GET /orgs on the publisher returns exactly one org record for that sourcedId (no duplicate), and its fields reflect the updated values from the second POST."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation of the overwrite event, the consumer's org record for the same sourcedId is updated to reflect the new field values from the second POST, with no duplicate records for that sourcedId."
-        }
-      ],
-      "inputHash": "58242b462915aaf8546d219637f18c5a1603a71f17b87be247896a7fac8e23b8"
-    },
-    {
-      "requirementIds": [
-        "R-15"
-      ],
-      "title": "R-15: GET /orgs/{sourcedId} returns 200 OK with org representation, propagated via CDC to consumer",
-      "setup": [
-        {
-          "description": "Ensure at least one org record exists on the publisher service by creating or confirming an org with known sourcedId, name, status, type, and dateLastModified fields populated to satisfy the contract schema required fields."
-        },
-        {
-          "description": "Record the sourcedId of the pre-existing or newly created org to be used in the trigger and assertions."
-        },
-        {
-          "description": "Confirm the CDC pipeline between publisher and consumer is active and healthy before running the test."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "PUT",
-        "path": "/orgs/{sourcedId}",
-        "payloadShape": "Object containing required fields: sourcedId (string), name (string), status (string), type (string), dateLastModified (date); optional fields: identifier (string), metadata (object), parent (object), children (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer has received and persisted the org record identified by the known sourcedId"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "After the write, GET /orgs/{sourcedId} on the publisher returns HTTP 200 OK."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body contains an org object whose sourcedId matches the known sourcedId used in the trigger."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body org object includes all required fields: sourcedId, name, status, type, and dateLastModified, each with a non-null value matching what was written."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body structure is consistent with the contract schema: children is an array (if present), metadata is an object (if present), parent is an object (if present), and identifier is a string (if present)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, the consumer's store contains an org record with the same sourcedId as written to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer's org record has name, status, type, and dateLastModified values that exactly match those written by the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Optional fields (identifier, metadata, parent, children) on the consumer's org record, if present, match the corresponding values from the publisher's written payload."
-        }
-      ],
-      "inputHash": "92788e72f3c891ed49abb2263321202509828aa5f5563fef97dd1c3aa1e176a9"
-    },
-    {
-      "requirementIds": [
-        "R-17"
-      ],
-      "title": "CDC propagation of a newly created org from publisher to consumer, verified against paginated GET /orgs",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and reachable at its live API target /orgs."
-        },
-        {
-          "description": "Ensure the consumer service is running and subscribed to CDC events for the org entity."
-        },
-        {
-          "description": "Ensure the CDC pipeline (e.g. Debezium or equivalent) is active and routing org change events from publisher to consumer."
-        },
-        {
-          "description": "Record the current count of orgs on both publisher and consumer to establish a baseline for assertions."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "Object containing all required org fields: sourcedId (string), status (string), dateLastModified (date), name (string), type (string); optionally including identifier (string), children (array), parent (object), and metadata (object)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer service reflects the newly created org in its own data store, as confirmed by the org's sourcedId being present in the consumer's org list."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "After POST /orgs, the publisher responds with a success status and the created org is retrievable via GET /orgs, appearing in the paginated response body under the 'items' array with the correct sourcedId, name, status, type, and dateLastModified matching the posted payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs on the publisher returns HTTP 200 OK with a paginated structure: the response includes an 'items' array and pagination metadata (e.g. totalCount or equivalent per OQ-4), and the newly created org is present in the appropriate page."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, GET /orgs on the consumer returns HTTP 200 OK and the 'items' array contains the newly created org identified by its sourcedId."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record on the consumer contains all required fields — sourcedId, status, dateLastModified, name, type — with values that exactly match those posted to the publisher, confirming faithful CDC propagation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Optional fields included in the POST payload (identifier, children, parent, metadata) are also present and match on the consumer side, with no data loss during CDC propagation."
-        }
-      ],
-      "inputHash": "9aaeb0741de963f9aa870c73017db65192fdaad281bfdf814e263a25a245b287"
-    },
-    {
-      "requirementIds": [
-        "R-17b"
-      ],
-      "title": "Org type-filtered query propagates via CDC and returns only matching orgs; invalid type returns 400",
-      "setup": [
-        {
-          "description": "Ensure at least two orgs of distinct types exist in the publisher's DynamoDB table — e.g., one org with type='district' (orgA) and one with type='school' (orgB) — each with all required fields (sourcedId, status, name, type, dateLastModified) populated and confirmed present via the publisher's /orgs endpoint."
-        },
-        {
-          "description": "Confirm the DynamoDB GSI keyed on 'type' is active and in ACTIVE status before the test run begins."
-        },
-        {
-          "description": "Confirm the consumer service is subscribed to CDC events from the publisher's org table and that its local org store is in sync (i.e., both orgA and orgB are visible on the consumer side)."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "Object containing required org fields: sourcedId (string), status (string), name (string), type (string, valid enum value e.g. 'department'), dateLastModified (date); optionally: identifier (string), metadata (object), parent (object), children (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the newly created org (type='department') is consumed and the record is visible on the consumer side"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "POST /orgs with a valid org payload (type='department') returns HTTP 201 (or 200), and the response body includes the newly created org's sourcedId and type='department'."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs?type=department returns HTTP 200, and the response body 'items' array contains only orgs whose type field equals 'department', including the newly created org; no orgs of type 'district' or 'school' appear in 'items'."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs?type=district returns HTTP 200, and the response body 'items' array contains only orgA (type='district'); the newly created org (type='department') does not appear."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs?type=INVALID_ENUM_VALUE returns HTTP 400, with an error response indicating the supplied type is not a valid enum value."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, querying the consumer's org store filtered by type='department' returns the newly created org with all required fields (sourcedId, status, name, type, dateLastModified) intact and matching the publisher's record."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, querying the consumer's org store filtered by type='district' returns orgA and does not return the newly created org (type='department'), confirming type-based isolation is consistent on the consumer side."
-        }
-      ],
-      "inputHash": "bf8567c20bc088086bcf1b342ee81230d82e177a30591f3aff01344456f0ed88"
-    },
-    {
-      "requirementIds": [
-        "R-18"
-      ],
-      "title": "PUT /orgs/{sourcedId} — existing org is replaced and propagates to consumer via CDC",
-      "setup": [
-        {
-          "description": "Ensure an org with a known sourcedId already exists in the publisher datastore (e.g., pre-created via POST /orgs) so that the PUT target is an existing record."
-        },
-        {
-          "description": "Record the current field values of the existing org (name, type, status, dateLastModified, etc.) so that post-PUT state can be compared against the replacement values."
-        },
-        {
-          "description": "Confirm the consumer service's CDC pipeline is active and subscribed to org change events from the publisher."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "PUT",
-        "path": "/orgs/{sourcedId}",
-        "payloadShape": "Full org replacement body containing all required fields: sourcedId (matching path param), name, status, type, dateLastModified (updated timestamp); optionally includes identifier, metadata, parent, children."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer has received and applied the CDC event for the updated org sourcedId."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "HTTP response status is 200 OK."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body represents the replaced org and contains the sourcedId matching the path parameter."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org's name, type, status, and dateLastModified in the response match exactly the values supplied in the PUT request body."
-        },
-        {
-          "service": "publisher",
-          "assertion": "A subsequent GET /orgs/{sourcedId} on the publisher returns the org with the updated field values (name, type, status, dateLastModified) from the PUT body, confirming full replacement in the datastore."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer's org record for the same sourcedId reflects the replaced values: name, type, status, and dateLastModified match those sent in the PUT request body."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No duplicate org entries exist for the same sourcedId on the consumer; only the single replaced record is present."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Fields not included in the PUT body (e.g., parent, children, metadata, identifier) are stored on the consumer exactly as provided in the replacement payload (absent or null if omitted), confirming full replacement semantics rather than partial merge."
-        }
-      ],
-      "inputHash": "e895a98ad7383ef20e264b96a919ae9d669b652c64b9a62fb5f715a2dcb82f79"
-    },
-    {
-      "requirementIds": [
-        "R-19",
-        "R-32"
-      ],
-      "title": "DELETE /orgs/{sourcedId} hard-deletes the org, returns 200 OK, and emits no CDC event to the consumer",
-      "setup": [
-        {
-          "description": "Ensure a valid org record exists on the publisher with a known sourcedId (e.g. pre-created via POST /orgs or seeded directly in DynamoDB), containing all required fields: sourcedId, name, status, type, dateLastModified."
-        },
-        {
-          "description": "Record the target org's sourcedId for use in the DELETE request and subsequent assertions."
-        },
-        {
-          "description": "Confirm the org is currently readable on the publisher by issuing GET /orgs/{sourcedId} and receiving a 200 response with the correct item."
-        },
-        {
-          "description": "Confirm the consumer's data store reflects the org's presence (e.g. it was previously synced via a prior CDC event) so absence after the delete can be meaningfully asserted."
-        },
-        {
-          "description": "Set up a CDC event monitor/listener on the SNS topic (or equivalent CDC propagation channel) to capture any events that arrive after the DELETE is triggered, for the duration of the propagation wait window."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "DELETE",
-        "path": "/orgs/{sourcedId}",
-        "payloadShape": "No request body; the target org is identified solely by the {sourcedId} path parameter."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Wait the full CDC propagation window (e.g. 30 seconds) to allow any potential DynamoDB Stream REMOVE record processing to complete and confirm no SNS publish occurs."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The DELETE /orgs/{sourcedId} response status code is exactly 200 OK."
-        },
-        {
-          "service": "publisher",
-          "assertion": "After the DELETE, issuing GET /orgs/{sourcedId} on the publisher returns a 404 or empty result, confirming the org has been hard-deleted from DynamoDB and is no longer retrievable."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org's sourcedId no longer appears in the 'items' array returned by GET /orgs on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No CDC event (SNS message or equivalent) referencing the deleted org's sourcedId was received on the consumer during the propagation wait window — confirming that the DynamoDB Stream REMOVE record was NOT published to SNS per R-32."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer's data store still contains whatever state it held for the org prior to the DELETE (i.e. it was not updated or removed via CDC), because no delete CDC event was propagated."
-        }
-      ],
-      "inputHash": "c2b01fe5ba614ef2774a15f96215a53fe9ae8cd303841e66b035e86d408a1675"
-    },
-    {
-      "requirementIds": [
-        "R-20",
-        "OQ-8"
-      ],
-      "title": "Outbound ODCS Org Schema Validation: 500 on Non-Conforming Payload, Valid Payload Passes",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and reachable at its live API base URL."
-        },
-        {
-          "description": "Ensure a CDC pipeline (change-data-capture) is configured between the publisher /orgs endpoint and the consumer service."
-        },
-        {
-          "description": "Pre-seed the publisher data store with at least one fully conforming org record containing all required ODCS fields: sourcedId, status, name, type, dateLastModified. Capture its sourcedId for use in assertions."
-        },
-        {
-          "description": "Confirm the consumer service is subscribed to org change events from the publisher and has a known endpoint or data store that can be queried to verify propagated org records."
-        },
-        {
-          "description": "Establish a test mechanism (e.g., a flag, mock, or fault-injection hook) on the publisher that can simulate an outbound serialisation failure — producing a representation that violates the ODCS org schema (e.g., missing a required field such as 'name') — for a designated org record, to validate the 500 error branch."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "JSON object representing a new org with all required ODCS fields: sourcedId (string), status (string), name (string), type (string), dateLastModified (date), plus optional fields: identifier (string), children (array), metadata (object), parent (object)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the newly created org record has been consumed and processed by the consumer service, confirmed via polling or event acknowledgement"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "When POST /orgs is made with a fully conforming ODCS org payload, the publisher responds with HTTP 2xx (e.g., 201 Created) and the response body contains the org record nested under the 'items' array."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org record returned in the 'items' array of the publisher response contains all required ODCS fields: sourcedId (string), status (string), name (string), type (string), and dateLastModified (date). No required field is absent or null."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org record returned in the 'items' array conforms fully to the ODCS org contract schema: children is array (if present), identifier is string (if present), metadata is object (if present), parent is object (if present)."
-        },
-        {
-          "service": "publisher",
-          "assertion": "When the publisher's outbound serialisation is injected with a fault that causes the org representation to violate the ODCS org schema (e.g., missing required field 'name'), the publisher responds with HTTP 500 Internal Server Error."
-        },
-        {
-          "service": "publisher",
-          "assertion": "When the publisher responds with HTTP 500 due to outbound validation failure, the response body does NOT contain a non-conforming org payload — i.e., the 'items' array is absent or empty, and no partial or malformed org object is returned."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation of the successfully created org, the consumer's data store contains an org record matching the sourcedId of the org created on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record held by the consumer after CDC propagation contains all required ODCS fields (sourcedId, status, name, type, dateLastModified) with values matching those submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No org record corresponding to the fault-injected (schema-violating) org write attempt appears in the consumer's data store, confirming that the publisher's 500 response suppressed propagation of a non-conforming payload."
-        }
-      ],
-      "inputHash": "11a71f1cd6df4d58bab19c58015b5123d40f3a54459a76518082f793d330c881"
-    },
-    {
-      "requirementIds": [
-        "R-21"
-      ],
-      "title": "Server-side dateLastModified is set on org create/update, ignoring any client-supplied value",
-      "setup": [
-        {
-          "description": "Record the current UTC timestamp (T_before) immediately before issuing the write request to the publisher."
-        },
-        {
-          "description": "Ensure no org with the test sourcedId exists on the publisher; if one does, delete it or use a unique sourcedId to guarantee a clean state."
-        },
-        {
-          "description": "Prepare a request payload that includes a deliberately incorrect/stale dateLastModified value (e.g. a date far in the past such as 2000-01-01) to confirm the server ignores it."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "Object with required fields: sourcedId (unique string), status (string), name (string), type (string), dateLastModified (intentionally stale/incorrect UTC date string); optionally: identifier (string), children (array), parent (object), metadata (object)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC pipeline delivers the newly created/updated org record to the consumer, confirmed when the consumer can retrieve the org by its sourcedId"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The HTTP response status code is 2xx (201 Created or 200 OK)."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The response body contains the org record with a dateLastModified field that is a valid UTC timestamp."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The dateLastModified value in the response is NOT equal to the client-supplied stale date (e.g. 2000-01-01); it must reflect the server-generated timestamp."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The dateLastModified value in the response is greater than or equal to T_before and less than or equal to T_after (timestamp recorded immediately after the request completes), confirming server set it to the current UTC time."
-        },
-        {
-          "service": "publisher",
-          "assertion": "All other required fields (sourcedId, status, name, type) in the response match the values supplied in the request payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, the consumer's copy of the org (retrieved by sourcedId) contains a dateLastModified field equal to the server-generated value observed in the publisher response, not the client-supplied stale date."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer's org record contains all required fields (sourcedId, status, name, type, dateLastModified) with values consistent with those returned by the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If the same org is subsequently updated via PUT/PATCH on the publisher with another stale dateLastModified value, the consumer reflects the new server-generated dateLastModified (more recent than the first), confirming the behaviour holds for updates as well."
-        }
-      ],
-      "inputHash": "e377816f6f66b0353bb2fd3961e3d91eaf4e03cbe4f76b855ca3c52cabc39ec9"
-    },
-    {
-      "requirementIds": [
-        "R-24",
-        "R-55",
-        "R-35"
-      ],
-      "title": "Administrator user SHALL NOT appear on any class roster after CDC propagation of class write",
-      "setup": [
-        {
-          "description": "Ensure a user record exists with roles containing only 'administrator' (explicitly excluding 'student' and 'teacher') in the publisher system, with a known sourcedId."
-        },
-        {
-          "description": "Ensure the administrator user has been provisioned a login account in Cognito via the user-events → account-provisioning flow (R-24/R-55), confirming operator endpoint access is available."
-        },
-        {
-          "description": "Ensure at least one class record exists in the publisher with a valid sourcedId, classType, course, dateLastModified, school, status, terms, and title; this class will serve as the roster baseline."
-        },
-        {
-          "description": "Confirm no prior association exists between the administrator user and any class roster on the consumer side before the test trigger is fired."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "PUT",
-        "path": "/classes/{sourcedId}",
-        "payloadShape": "Object containing required fields: sourcedId (string), classType (string), course (object), dateLastModified (date), school (object), status (string), terms (array), title (string); and optional fields: classCode (string), grades (array), location (string), metadata (object), subjects (array). The enrolled/associated user references, if any, must reference only users with 'student' or 'teacher' roles — the administrator user's sourcedId must NOT appear in any enrollment or membership associations within this payload."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the class entity emitted by the publisher is fully consumed and processed by the consumer service, updating the consumer's class roster data store."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns HTTP 200 with a response body containing an 'items' array; the class updated by the trigger is present in 'items' (matched by sourcedId), confirming CDC propagation succeeded."
-        },
-        {
-          "service": "consumer",
-          "assertion": "None of the entries in the 'items' array returned by GET /me/classes are associated with the administrator user's sourcedId — the administrator does not appear as an enrolled member, student, or teacher on any class roster."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The class record present in GET /me/classes 'items' contains only user associations (if any) whose roles are 'student' or 'teacher', never 'administrator', confirming R-35 roster exclusivity."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The administrator user, when authenticating via the provisioned Cognito login account, receives access to operator endpoints (R-55) but a GET /me/classes for that administrator session returns an 'items' array that contains no roster entries attributing the administrator as a class participant."
-        }
-      ],
-      "inputHash": "20cf832fa88dbb944af428f8235f5ddc746f7938ccc5f9210ed2a02679fcddf4"
-    },
-    {
-      "requirementIds": [
-        "R-25"
-      ],
-      "title": "Org stored in DynamoDB with sourcedId as partition key propagates via CDC to consumer",
-      "setup": [
-        {
-          "description": "Ensure the DynamoDB table for orgs exists and is empty of any test fixture data that could collide with the test org's sourcedId."
-        },
-        {
-          "description": "Ensure the CDC pipeline (e.g., DynamoDB Streams + consumer listener) is active and healthy between the publisher and consumer."
-        },
-        {
-          "description": "Record the current item count at GET /orgs on the publisher to establish a baseline."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "JSON object containing required fields: sourcedId (string, serves as DynamoDB partition key), name (string), status (string), type (string), dateLastModified (date); optional fields: identifier (string), metadata (object), parent (object), children (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "DynamoDB Streams event for the new org item to be processed and reflected on the consumer"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "After the POST to /orgs, the response status is 2xx and the returned org object contains a sourcedId matching the value submitted in the request payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "A GET /orgs request returns a list under 'items' that includes the newly created org, with the correct sourcedId, name, status, type, and dateLastModified matching the submitted values."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org record in DynamoDB can be retrieved using sourcedId as the partition key, confirming it is the primary key for the table (i.e., no duplicate or missing record when queried by sourcedId)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation completes, the consumer's representation of orgs includes the newly created org identified by the same sourcedId."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record on the consumer side has all required fields (sourcedId, name, status, type, dateLastModified) matching the values originally written by the publisher, confirming data fidelity through the CDC pipeline."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No duplicate org records exist on the consumer for the given sourcedId, confirming the partition key uniqueness constraint is respected end-to-end."
-        }
-      ],
-      "inputHash": "903b4a33bb95ff4444874d512e271ef3f6202c7b5c3c44e092dd0c03243269d0"
-    },
-    {
-      "requirementIds": [
-        "R-28",
-        "R-17b"
-      ],
-      "title": "GSI on `type` propagates org write and supports GET /orgs?type= query on consumer",
-      "setup": [
-        {
-          "description": "Ensure the publisher DynamoDB table has a Global Secondary Index (GSI) partitioned on the `type` field, as required by R-28."
-        },
-        {
-          "description": "Ensure the consumer service is subscribed to CDC events originating from the publisher org table."
-        },
-        {
-          "description": "Record (or clear) any pre-existing org records with the target `type` value (e.g. 'department') on both publisher and consumer to establish a clean baseline count."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "JSON object containing all required org fields: sourcedId (unique string), name (non-empty string), type (string — the value to be queried via GSI, e.g. 'department'), status (string), dateLastModified (ISO-8601 date string); optional fields: identifier, children (array), metadata (object), parent (object)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event emitted from publisher DynamoDB org table is consumed and the consumer's data store reflects the new org record"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs?type=<posted type value> on the publisher returns HTTP 200 and the response body contains an `items` array that includes the newly created org record, identified by its `sourcedId`, confirming the GSI on `type` routes the query correctly."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The org record returned in `items` from GET /orgs?type=<posted type value> contains all required fields (sourcedId, name, type, status, dateLastModified) matching the values supplied in the POST payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs?type=<a different type value not used in the POST> returns HTTP 200 with an `items` array that does NOT contain the newly created org's `sourcedId`, confirming the GSI partition correctly isolates records by `type`."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, GET /orgs?type=<posted type value> on the consumer returns HTTP 200 and the `items` array includes the newly created org record identified by its `sourcedId`."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The org record surfaced on the consumer via the type-filtered query contains field values (sourcedId, name, type, status, dateLastModified) consistent with the original POST payload sent to the publisher, confirming data fidelity through CDC."
-        }
-      ],
-      "inputHash": "b8e44b06beadb055b7ec3b953ba110fdd6eeeb44f6937f3d8d7e9b43e6bb8e69"
-    },
-    {
-      "requirementIds": [
-        "R-30"
-      ],
-      "title": "CDC propagation of a valid `class` event persists class keyed by sourcedId with required fields in the rostering store",
-      "setup": [
-        {
-          "description": "Ensure the rostering store (consumer) is accessible at /me/classes and no pre-existing class record exists for the test sourcedId that will be used in the trigger."
-        },
-        {
-          "description": "Ensure the publisher CDC pipeline is active and configured to emit `class` events to the consumer rostering store."
-        },
-        {
-          "description": "Prepare a valid class payload with all required fields: sourcedId, status, dateLastModified, title, classType, course (GUIDRef object), school (GUIDRef object), and terms (array of GUIDRef objects), plus an optional classCode."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "Object containing: sourcedId (required, string, unique identifier), status (required, string), dateLastModified (required, date), title (required, string), classType (required, string), classCode (string), course (required, GUIDRef object), school (required, GUIDRef object), terms (required, array of GUIDRef objects)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC pipeline delivers the class event to the consumer rostering store"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "A GET to /me/classes returns a response whose `items` array contains a record whose `sourcedId` exactly matches the sourcedId submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `title` field whose value exactly matches the `title` submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `classCode` field whose value exactly matches the `classCode` submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `classType` field whose value exactly matches the `classType` submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `course` field that is a GUIDRef object whose identifier matches the `course` GUIDRef submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `school` field that is a GUIDRef object whose identifier matches the `school` GUIDRef submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` has a `terms` field that is a non-empty array of GUIDRef objects whose identifiers match those of the `terms` array submitted in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched record in `items` is keyed (retrievable) by its `sourcedId`, confirming persistence in the rostering store under that key."
-        }
-      ],
-      "inputHash": "fd168565ef9d7e3e6a926f2d680cc7c7d985950686fe4874a360ab6770f72b3b"
-    },
-    {
-      "requirementIds": [
-        "R-31"
-      ],
-      "title": "CDC propagation of enrollment event persists enrollment keyed by sourcedId with role, status, and GUIDRefs (by user and by class)",
-      "setup": [
-        {
-          "description": "Ensure the rostering store is accessible and the consumer service is running with CDC ingestion active."
-        },
-        {
-          "description": "Ensure a valid class record exists in the publisher with a known sourcedId, classType, course, dateLastModified, school, status, terms, and title."
-        },
-        {
-          "description": "Ensure a valid user record exists in the publisher with a known sourcedId that will be referenced in the enrollment event."
-        },
-        {
-          "description": "Confirm no existing enrollment record links the target user sourcedId to the target class sourcedId in the consumer rostering store before the test begins."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "Object containing all required class fields: sourcedId (string, unique), status (string), dateLastModified (date), title (string), classType (string), course (object with GUIDRef), school (object with GUIDRef), terms (array of GUIDRefs); plus an associated enrollment sub-event carrying: sourcedId (string), role ('student' or 'teacher'), status (string), user (GUIDRef object), and class (GUIDRef object referencing the class sourcedId above)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Enrollment CDC event emitted by publisher is consumed and persisted by the rostering store in the consumer service."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, GET /me/classes returns an 'items' array that includes the class with the sourcedId matching the one sent in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The enrollment record in the rostering store is keyed by the enrollment's sourcedId and can be retrieved uniquely by that key."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The enrollment record is indexed and retrievable by the user's sourcedId (lookup by user), and it references the correct user GUIDRef matching the one supplied in the enrollment event."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The enrollment record is indexed and retrievable by the class's sourcedId (lookup by class), and it references the correct class GUIDRef matching the class sourcedId supplied in the trigger."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The persisted enrollment record's 'role' field exactly matches the value sent in the enrollment event ('student' or 'teacher')."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The persisted enrollment record's 'status' field exactly matches the value sent in the enrollment event."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The persisted enrollment record's 'user' GUIDRef field is present and matches the user sourcedId provided in the enrollment event payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The persisted enrollment record's 'class' GUIDRef field is present and matches the class sourcedId provided in the enrollment event payload."
-        }
-      ],
-      "inputHash": "7566bc0aabecb2c55c4ebb0d6a9fb3cbe3c951e12b79be13b9b72efddec78593"
-    },
-    {
-      "requirementIds": [
-        "R-31"
-      ],
-      "title": "CDC Propagation: Publisher publishes INSERT/MODIFY envelope for org entity to SNS, shaped to ODCS org schema",
-      "setup": [
-        {
-          "description": "Ensure the SNS topic is configured and the consumer is subscribed to receive messages from the publisher's SNS topic."
-        },
-        {
-          "description": "Ensure the CDC pipeline (Stream → Pipe → Publisher → SNS) is active and healthy."
-        },
-        {
-          "description": "Ensure no pre-existing org record with the test sourcedId exists in the publisher, to guarantee a clean INSERT event."
-        },
-        {
-          "description": "Record the current timestamp before triggering the write, to allow assertion on the envelope timestamp ordering."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "A JSON object representing a new org record conforming to the ODCS org schema, containing all required fields: sourcedId (unique string), name (string), status (string), type (string), dateLastModified (date), and optionally: identifier (string), children (array), parent (object), metadata (object)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "SNS message delivery confirmed on the consumer's subscribed endpoint after the publisher processes the INSERT stream record through the CDC pipeline"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST to /orgs returns a success response (2xx), and the created org record is retrievable via GET /orgs with all submitted required fields (sourcedId, name, status, type, dateLastModified) present and correct under the 'items' collection."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer receives exactly one SNS envelope message where 'eventType' is 'INSERT', confirming the stream record type was correctly mapped."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The received SNS envelope contains a 'timestamp' field that is a valid date/datetime value and is not earlier than the timestamp recorded before the trigger was fired."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The received SNS envelope contains a 'sourcedId' field whose value exactly matches the sourcedId supplied in the POST request payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The received SNS envelope contains a 'data' object whose fields conform to the ODCS org schema: required fields 'sourcedId', 'name', 'status', 'type', and 'dateLastModified' are all present with values matching the written org record; optional fields 'identifier', 'children', 'parent', and 'metadata' are present only if they were included in the original payload, with correct values and types (children as array, parent as object, metadata as object, identifier as string)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The 'data' object in the envelope does NOT contain any fields outside the ODCS org schema (no extra or invented fields), confirming the new image is correctly shaped to the contract."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After additionally performing a PUT or PATCH on the same org record at /orgs to trigger a MODIFY stream record, the consumer receives a subsequent SNS envelope where 'eventType' is 'MODIFY', 'sourcedId' matches the same record, and 'data' reflects the updated field values shaped to the ODCS org schema."
-        }
-      ],
-      "inputHash": "56a1ac51f94fb52be813e706dea93efa3bfb1e176857875125035264460da55b"
-    },
-    {
-      "requirementIds": [
-        "R-32"
-      ],
-      "title": "Enrollment with status:active adds referenced user to referenced class's roster in the enrollment's role",
-      "setup": [
-        {
-          "description": "Ensure a known class exists in the publisher with a valid sourcedId, title, classType, course, dateLastModified, school, status, and terms fields populated."
-        },
-        {
-          "description": "Ensure a known user exists in the publisher with a valid sourcedId, ready to be enrolled."
-        },
-        {
-          "description": "Ensure no prior enrollment exists for the known user in the known class, so the roster starts empty for that user."
-        },
-        {
-          "description": "Confirm the consumer's rostering store is accessible at /me/classes and that the class under test is not yet reflected in the consumer's roster for the known user."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/enrollments",
-        "payloadShape": "An enrollment object referencing the known class's sourcedId and the known user's sourcedId, with status set to 'active' and a role field specifying the user's role (e.g., 'student' or 'teacher') within that class."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC pipeline delivers the active enrollment event to the rostering store and the consumer reflects the updated class roster membership."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns a response where the 'items' array contains an entry whose 'sourcedId' matches the known class's sourcedId, confirming the class appears on the consumer side."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The class entry in 'items' with the matching sourcedId has 'status' equal to 'active', reflecting the active enrollment state propagated via CDC."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster for the matched class entry includes the known user's sourcedId as a member, confirming the user was added to the class roster."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The known user's membership in the matched class is recorded with the role specified in the enrollment payload (e.g., 'student' or 'teacher'), confirming the role field from the enrollment was correctly applied."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No duplicate entries exist for the known class's sourcedId in the 'items' array, confirming idempotent roster propagation."
-        }
-      ],
-      "inputHash": "c9147473eb93e86d9b6d45b0e1fc89db69f2b8a215e2bc15c70e3e55627e981f"
-    },
-    {
-      "requirementIds": [
-        "R-33"
-      ],
-      "title": "CDC Pipeline: Publisher DLQ Routing on Invalid org Envelope Payload (R-33)",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and connected to the CDC pipeline (Stream → Pipe → Publisher → SNS)."
-        },
-        {
-          "description": "Ensure the dead-letter queue (DLQ) is accessible and currently empty (or its message count is recorded as a baseline) so new arrivals can be detected."
-        },
-        {
-          "description": "Ensure the SNS topic used for org publish events is accessible and its message count / delivery log is baselined."
-        },
-        {
-          "description": "Confirm the ODCS org schema is loaded by the publisher, with required fields: dateLastModified, name, sourcedId, status, type."
-        },
-        {
-          "description": "Prepare an intentionally invalid org envelope whose `data` payload is missing at least one required field (e.g., omit `status` and `type`) so that schema validation is guaranteed to fail."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "An org envelope object whose `data` field contains an org record missing one or more ODCS-required fields (e.g., `status` and `type` are absent); all other envelope wrapper fields (e.g., sourcedId, name, dateLastModified) may be present but the deliberately invalid `data` payload must fail ODCS org schema validation."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Publisher has completed its validation step and made a routing decision (publish to SNS or route to DLQ); allow sufficient time for the CDC pipeline to process and for the DLQ to receive the message if routed."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The publisher's validation step returns a schema-validation failure for the submitted org `data` payload, specifically citing the missing required ODCS fields (e.g., `status`, `type`)."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The publisher does NOT emit the invalid org message to the SNS topic; the SNS topic's message count / delivery log remains unchanged from the baseline recorded during setup."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The publisher routes the invalid org envelope to the DLQ; the DLQ contains exactly one new message compared to the baseline, and that message's `data` payload matches the invalid org record that was submitted."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The DLQ message includes sufficient metadata to identify the failure reason (e.g., a validation-error descriptor referencing the ODCS org schema and the specific missing required fields)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The consumer does NOT receive any org update event on its CDC stream for this invalid submission; no new org record corresponding to the submitted sourcedId appears under /orgs `items` on the consumer side."
-        }
-      ],
-      "inputHash": "3ec5594b9f5f7a2c838c71aab092ade20399aa1241d8e1a1c00c974f32625aa6"
-    },
-    {
-      "requirementIds": [
-        "R-34",
-        "R-70"
-      ],
-      "title": "Out-of-Order Class CDC Propagation: Enrollment Persisted with Dangling Class Reference Resolved Lazily and Flagged by Integrity Validator",
-      "setup": [
-        {
-          "description": "Ensure the rostering store (consumer) is in a clean state with no pre-existing class matching the test sourcedId that will be used in the trigger."
-        },
-        {
-          "description": "Ensure no enrollment referencing the test class sourcedId exists in the consumer rostering store prior to test execution."
-        },
-        {
-          "description": "Confirm the integrity validator (R-70) is active and its report output is observable (e.g., via a validation report endpoint or log sink)."
-        },
-        {
-          "description": "Record the baseline count of items at the consumer /me/classes endpoint so post-trigger deltas can be measured precisely."
-        },
-        {
-          "description": "Pre-create an enrollment record in the publisher that references the test class sourcedId (the class that has NOT yet been ingested by the consumer), simulating out-of-order delivery where the enrollment arrives before its referenced class."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "Object containing all required class fields: sourcedId (string, matching the dangling reference used in the pre-created enrollment), status (string), dateLastModified (date), title (string), classType (string), course (object with at least a sourcedId reference), school (object with at least a sourcedId reference), terms (non-empty array of term references), plus any optional fields such as classCode, grades, subjects, location, or metadata."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the class entity has been consumed and the rostering store has processed the write; allow sufficient time for the lazy-resolution pass and the integrity validator cycle to complete."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, a GET /me/classes returns an item in 'items' whose sourcedId exactly matches the sourcedId supplied in the trigger payload, confirming the class was persisted in the rostering store."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The persisted class record at /me/classes contains all required fields (sourcedId, status, dateLastModified, title, classType, course, school, terms) with values identical to those sent in the trigger payload, confirming data fidelity through the CDC pipeline."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The enrollment that was pre-created with a dangling reference to the test class sourcedId is still present in the rostering store (i.e., it was NOT dropped or rejected during or after CDC delivery), confirming the system persisted the out-of-order enrollment as required."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After the class is ingested via CDC, the enrollment's class reference (previously dangling) is resolvable at read time to the newly ingested class record, confirming lazy resolution occurred without requiring re-ingestion of the enrollment."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Before the class CDC event is fully processed (i.e., while the reference was still dangling), the integrity validator (R-70) has produced a report entry flagging the enrollment's unresolved class reference — the report entry must identify the affected enrollment and the missing class sourcedId, confirming dangling references are reported rather than silently dropped."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After the class is successfully ingested and the reference is resolved, no new dangling-reference violation for this enrollment–class pair appears in subsequent integrity validator reports, confirming the validator reflects the resolved state."
-        }
-      ],
-      "inputHash": "276f3700d7ef1fa2794a8be2a7c12e31448d5bcee6c77f1155ab6be98098c83a"
-    },
-    {
-      "requirementIds": [
-        "R-41"
-      ],
-      "title": "Cross-service CDC propagation: Authenticated org creation on publisher propagates to consumer",
-      "setup": [
-        {
-          "description": "Ensure a valid authenticated session/token is available for the publisher service, with sufficient permissions to create and edit orgs."
-        },
-        {
-          "description": "Ensure the consumer service is running and subscribed to CDC events for the org entity."
-        },
-        {
-          "description": "Record any pre-existing org entries on both publisher (/orgs) and consumer to establish a baseline for assertions."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "org",
-        "method": "POST",
-        "path": "/orgs",
-        "payloadShape": "An object containing all required org fields: sourcedId (string), status (string), dateLastModified (date), name (string), type (string); optionally including identifier (string), children (array), parent (object), and metadata (object)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer service reflects the newly created org record, detectable by querying the consumer's org list and finding the matching sourcedId."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "After POST /orgs, the response status is 2xx and the returned org object contains all submitted fields: sourcedId, status, dateLastModified, name, and type match the values sent in the request payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "GET /orgs returns a collection under 'items' that includes the newly created org, identified by its sourcedId, with name, type, status, dateLastModified, and any optional fields (identifier, children, parent, metadata) matching the created values."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, the consumer's org list includes a record whose sourcedId matches the newly created org's sourcedId."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated org record on the consumer has name, type, status, and dateLastModified values that exactly match those submitted by the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If optional fields (identifier, children, parent, metadata) were included in the publisher POST payload, the propagated consumer record reflects those same values without loss or corruption."
-        }
-      ],
-      "inputHash": "b49fe4aa8785a7f1f7e65a232194ae34d3328374fb187e7d7b6d0c5400fed201"
-    },
-    {
-      "requirementIds": [
-        "R-43"
-      ],
-      "title": "R-43: Authenticated caller is scoped exclusively to their own class data — cross-user isolation via CDC propagation",
-      "setup": [
-        {
-          "description": "Provision User A (teacher) in the publisher with a known username; obtain a valid bearer token whose username claim resolves to User A's user.sourcedId."
-        },
-        {
-          "description": "Provision User B (teacher) in the publisher with a distinct username; obtain a valid bearer token whose username claim resolves to User B's user.sourcedId."
-        },
-        {
-          "description": "Create at least two class records in the publisher: Class-A assigned to User A (as teacher/roster member) and Class-B assigned exclusively to User B (as teacher/roster member). Each class must satisfy the required contract fields: sourcedId, status, title, classType, course, dateLastModified, school, terms."
-        },
-        {
-          "description": "Allow CDC propagation to complete so that both class records are fully replicated to the consumer service before the test assertions begin."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "Object containing all required class fields: sourcedId (unique string), status (string), title (string), classType (string), course (object with sourcedId), dateLastModified (ISO-8601 date), school (object with sourcedId), terms (non-empty array of term references); optionally classCode, grades, location, metadata, subjects. Two separate POST requests are made — one creating Class-A linked to User A, one creating Class-B linked to User B."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Both Class-A and Class-B appear as replicated records accessible on the consumer service before assertions are evaluated."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "When User A's token is used to GET /me/classes, the response HTTP status is 200 and the 'items' array contains Class-A (matching its sourcedId)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "When User A's token is used to GET /me/classes, the 'items' array does NOT contain Class-B (User B's sourcedId must be absent), confirming cross-user isolation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "When User B's token is used to GET /me/classes, the response HTTP status is 200 and the 'items' array contains Class-B (matching its sourcedId)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "When User B's token is used to GET /me/classes, the 'items' array does NOT contain Class-A (User A's sourcedId must be absent), confirming cross-user isolation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each class object returned in 'items' for User A contains all required contract fields: sourcedId, status, title, classType, course, dateLastModified, school, and terms — and all field values match those originally published for Class-A."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each class object returned in 'items' for User B contains all required contract fields: sourcedId, status, title, classType, course, dateLastModified, school, and terms — and all field values match those originally published for Class-B."
-        },
-        {
-          "service": "consumer",
-          "assertion": "A request to GET /me/classes made with no token (unauthenticated) returns a non-200 status (e.g., 401 Unauthorized), confirming the endpoint is protected."
-        }
-      ],
-      "inputHash": "38df842b407961d9ef2ce7060b926862ec5d969dbe2778e7093f3bc9b5f72d87"
-    },
-    {
-      "requirementIds": [
-        "R-50"
-      ],
-      "title": "CDC propagation of a new `class` entity from publisher to consumer, validating ODCS v3.1.0 contract conformance",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and its ODCS data contract for the `class` entity is registered, conforming to apiVersion: v3.1.0 and kind: DataContract."
-        },
-        {
-          "description": "Ensure the consumer service is running and subscribed to CDC events for the `class` entity from the publisher."
-        },
-        {
-          "description": "Ensure no pre-existing `class` record with the test sourcedId exists on either publisher or consumer to avoid collision."
-        },
-        {
-          "description": "Confirm the CDC pipeline (e.g., message broker / change-data-capture stream) between publisher and consumer is healthy and latency bounds are known."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "JSON object containing all required fields: sourcedId (string), status (string), dateLastModified (date), title (string), classType (string), course (object with at minimum a sourcedId reference), school (object with at minimum a sourcedId reference), terms (non-empty array of term references); optional fields: classCode (string), grades (array), location (string), metadata (object), subjects (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the newly created class sourcedId to be consumed and persisted by the consumer service"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST /classes response returns HTTP 201 (or 200), and the response body contains the created class record with the same sourcedId supplied in the request payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The returned class record includes all required fields — sourcedId, status, dateLastModified, title, classType, course, school, and terms — each populated with values matching those supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, a GET /me/classes response returns HTTP 200 and the `items` array contains an entry whose sourcedId matches the sourcedId of the class created on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class record in `items` contains all required fields (sourcedId, status, dateLastModified, title, classType, course, school, terms) with values identical to those written by the publisher, confirming lossless CDC propagation."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class record's optional fields (classCode, grades, location, metadata, subjects) — if supplied in the trigger payload — are also present and match the publisher values, confirming no optional fields are dropped during CDC."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The `status` field value on the propagated class record is a valid ODCS-defined status string (e.g., 'active' or 'tobedeleted'), confirming contract-level value conformance."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The `dateLastModified` field on the propagated record is a valid ISO 8601 date string, conforming to the ODCS contract's declared `date` type for that field."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The `course` and `school` fields on the propagated record are objects (not null, not primitives), and the `terms` field is a non-empty array, all consistent with the ODCS v3.1.0 contract schema for `class`."
-        }
-      ],
-      "inputHash": "cdf0929e714418ebb0e878ea0688eb511fe201b8f6f0a4d81c6f3bedbffc9cbc"
-    },
-    {
-      "requirementIds": [
-        "R-51"
-      ],
-      "title": "Student GET /me/classes returns only active-enrolled classes with title, code, and teacher name(s) via CDC propagation",
-      "setup": [
-        {
-          "description": "Ensure a known student account exists in the publisher with valid authentication credentials."
-        },
-        {
-          "description": "Create or confirm at least two class records on the publisher: one (Class A) in which the student holds an active `student` enrollment, and one (Class B) in which the student holds no enrollment or a non-active enrollment (e.g., status=inactive or tobedeleted)."
-        },
-        {
-          "description": "Create or confirm a third class record (Class C) in which the student holds an active enrollment with a role other than `student` (e.g., `teacher`), to verify role filtering."
-        },
-        {
-          "description": "For Class A, ensure at least one teacher is associated with an active `teacher` enrollment so that teacher name(s) can be verified in the response."
-        },
-        {
-          "description": "Verify that each class record in the publisher contract has all required fields populated: sourcedId, status, classType, course, dateLastModified, school, terms, title — and classCode where applicable."
-        },
-        {
-          "description": "Allow CDC propagation to complete so the consumer service reflects the current publisher state before the test trigger is executed."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "PUT",
-        "path": "/classes/{classSourcedId}",
-        "payloadShape": "Object containing required class fields: sourcedId (string), status (string, value='active'), classType (string), course (object with sourcedId), dateLastModified (date), school (object with sourcedId), terms (array of term references), title (string); optionally classCode (string), grades (array), location (string), metadata (object), subjects (array). Used to establish or update Class A as active and fully formed before the student queries their classes."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer service reflects the updated class record for Class A with status=active before the student authentication and GET /me/classes call is executed."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes authenticated as the known student returns HTTP 200 with a response body containing an `items` array."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The `items` array contains Class A (identified by its classCode and/or sourcedId), which has an active `student` enrollment for the authenticated student."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each item in `items` includes the class `title` field (non-null, non-empty string matching the publisher's title for that class)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each item in `items` includes the class `classCode` field matching the value stored on the publisher for that class."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each item in `items` includes a representation of the teacher name(s) associated with the class (e.g., a teachers array or embedded teacher objects), and for Class A this matches the teacher(s) with an active `teacher` enrollment on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Class B (student has no enrollment, or enrollment status is non-active) does NOT appear in the `items` array."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Class C (student holds an active enrollment with a role other than `student`) does NOT appear in the `items` array."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The total count of items in the `items` array equals exactly the number of classes in which the student holds an active `student` enrollment on the publisher — no more, no less."
-        }
-      ],
-      "inputHash": "34aba7d8afcbb8dfca44afa91807c67132838a8bb26891208fec8cd809c22397"
-    },
-    {
-      "requirementIds": [
-        "R-52"
-      ],
-      "title": "Teacher receives only their active-enrolled classes and can fetch rosters only for classes they teach",
-      "setup": [
-        {
-          "description": "Ensure a teacher account (Teacher A) exists in the publisher with valid authentication credentials."
-        },
-        {
-          "description": "Ensure at least two classes exist in the publisher: Class-1 and Class-2, each with required fields (sourcedId, title, classType, course, school, terms, status, dateLastModified)."
-        },
-        {
-          "description": "Ensure Teacher A has an active 'teacher' enrollment in Class-1 but NOT in Class-2 (Teacher A has no enrollment or an inactive enrollment in Class-2)."
-        },
-        {
-          "description": "Ensure at least two active student members are enrolled in Class-1, and at least one active student is enrolled in Class-2."
-        },
-        {
-          "description": "Wait for CDC propagation so that all enrollment and class records are reflected in the consumer service before test execution."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "PUT",
-        "path": "/classes/{classSourcedId}",
-        "payloadShape": "Object containing required class fields: sourcedId (string), title (string), classType (string), course (object), school (object), terms (array), status (string set to 'active'), dateLastModified (date); plus optional fields classCode (string), grades (array), location (string), subjects (array), metadata (object). Represents the canonical class record for Class-1 to confirm it is active and associated with Teacher A's enrollment."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Class and enrollment records for Teacher A, Class-1, and Class-2 are fully replicated to the consumer service and visible via /me/classes"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "Authenticated GET /me/classes as Teacher A returns HTTP 200 with a response body containing an 'items' array that includes Class-1 (matching sourcedId, title, classType, status='active')."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The 'items' array returned by GET /me/classes does NOT include Class-2, confirming only classes with an active 'teacher' enrollment for Teacher A are returned."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Each class object in the 'items' array contains all required contract fields: sourcedId, title, classType, course, school, terms, status, dateLastModified."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Authenticated GET /me/classes/{Class-1-sourcedId}/roster as Teacher A returns HTTP 200 and the response contains only active student members enrolled in Class-1."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Authenticated GET /me/classes/{Class-2-sourcedId}/roster as Teacher A returns HTTP 403 (or equivalent authorization error), confirming that a teacher cannot access the roster of a class they do not teach."
-        }
-      ],
-      "inputHash": "cdf2ab620aa6e36ef58597705cd6b345b622de4f4c2ee4eb349de72660ac7485"
-    },
-    {
-      "requirementIds": [
-        "R-53"
-      ],
-      "title": "R-53: class entity mandatory fields propagate via CDC from publisher to consumer",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and accessible with a valid authentication token for write operations on the class entity."
-        },
-        {
-          "description": "Ensure the consumer service is running and accessible at /me/classes, with the response envelope exposing records under the 'items' key."
-        },
-        {
-          "description": "Ensure the CDC pipeline (change-data-capture) between the publisher and consumer is active and healthy."
-        },
-        {
-          "description": "Record any pre-existing class records on the consumer at /me/classes to distinguish the newly propagated record during assertions."
-        },
-        {
-          "description": "Prepare a unique sourcedId value to unambiguously identify the class created during this test."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "A JSON object representing a class record containing all required fields: sourcedId (unique string identifier), status (string), dateLastModified (date string in ISO 8601 format), title (string), classType (string), course (object with at minimum a sourcedId reference), school (object with at minimum a sourcedId reference), and terms (non-empty array of term object references). Optional fields such as classCode, grades, location, metadata, and subjects may be omitted."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event emitted by the publisher for the newly created class record to be fully ingested and queryable on the consumer at /me/classes"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST to /classes returns a success HTTP status code (2xx), confirming the class record was accepted and persisted by the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "A GET to /me/classes returns a response whose 'items' array contains exactly one entry matching the sourcedId used in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null, non-empty 'sourcedId' field equal to the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null, non-empty 'status' string field equal to the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null 'dateLastModified' field equal to the ISO 8601 date value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null, non-empty 'title' string field equal to the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null, non-empty 'classType' string field equal to the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null 'course' object field with at least a sourcedId reference, matching the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null 'school' object field with at least a sourcedId reference, matching the value submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matched class record in 'items' has a non-null, non-empty 'terms' array field containing the same term reference(s) submitted to the publisher."
-        }
-      ],
-      "inputHash": "2513c27fd0373da22dfda57f74c4b2ef585501b188ee24f058748d532a13d7a7"
-    },
-    {
-      "requirementIds": [
-        "R-54"
-      ],
-      "title": "CDC propagation of a new class with enumerated field values (status, classType) from publisher to consumer",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and reachable, with CDC enabled for the `class` entity."
-        },
-        {
-          "description": "Ensure the consumer service is running and reachable at /me/classes."
-        },
-        {
-          "description": "Ensure the CDC pipeline (e.g. message broker / change log) between publisher and consumer is healthy and has no backlog."
-        },
-        {
-          "description": "Record the current list of class items from the consumer at GET /me/classes so the newly propagated record can be isolated by its sourcedId."
-        },
-        {
-          "description": "Prepare a valid class payload where `status` is set to `active` (a member of {active, tobedeleted}) and `classType` is set to `scheduled` (a member of {homeroom, scheduled}), along with all other required fields: sourcedId, title, course, school, terms, dateLastModified."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "JSON object containing all required class fields: sourcedId (unique string), status ('active' or 'tobedeleted'), classType ('homeroom' or 'scheduled'), title (string), course (object with at minimum a sourcedId reference), school (object with at minimum a sourcedId reference), terms (non-empty array of term references each with a sourcedId), dateLastModified (ISO 8601 date string); optionally classCode (string), grades (array), location (string), subjects (array), metadata (object)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the newly created class sourcedId to appear in the consumer's /me/classes items list"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns an HTTP 200 response and the `items` array contains exactly one entry whose `sourcedId` matches the sourcedId used in the publisher POST trigger."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `status` field is present and equals the value posted to the publisher ('active'), confirming it is a valid member of the enumerated set {active, tobedeleted}."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `classType` field is present and equals the value posted to the publisher ('scheduled'), confirming it is a valid member of the enumerated set {homeroom, scheduled}."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `title` field matches the title value sent in the publisher POST payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `course` object is present and its sourcedId matches the course reference sent in the publisher POST payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `school` object is present and its sourcedId matches the school reference sent in the publisher POST payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `terms` array is present, non-empty, and each term entry's sourcedId matches the corresponding term reference sent in the publisher POST payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record's `dateLastModified` field is present and matches the dateLastModified value sent in the publisher POST payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "No additional unexpected class records sharing the same sourcedId appear more than once in the `items` array (i.e. no duplicate CDC delivery)."
-        }
-      ],
-      "inputHash": "3a31e66201cc8f17199489aef09133bf9d5c75696cae8e58f4d84539e0d2d9d9"
-    },
-    {
-      "requirementIds": [
-        "R-55"
-      ],
-      "title": "R-55: class.sourcedId as primary key and GUIDRef shape validation propagates via CDC from publisher to consumer",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is running and accessible with valid authentication credentials."
-        },
-        {
-          "description": "Ensure the consumer service is running and accessible at /me/classes with valid authentication credentials."
-        },
-        {
-          "description": "Ensure CDC pipeline between publisher and consumer is active and healthy."
-        },
-        {
-          "description": "Prepare a unique GUID to be used as sourcedId for the test class record, ensuring it does not already exist in either service."
-        },
-        {
-          "description": "Prepare valid GUIDRef objects for course, school, and terms[] fields — each with the correct GUIDRef shape (i.e., sourcedId, type, and href fields as defined by D-8) but not necessarily referencing real resolved entities."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "JSON object containing: sourcedId (required, unique GUID string), status (required, string), dateLastModified (required, ISO-8601 date string), title (required, string), classType (required, string), course (required, GUIDRef object with sourcedId/type/href), school (required, GUIDRef object with sourcedId/type/href), terms (required, non-empty array of GUIDRef objects each with sourcedId/type/href), and optionally classCode, grades, location, metadata, subjects"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "The CDC event triggered by the publisher POST is fully consumed and the class record is visible in the consumer service at /me/classes"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The POST /classes response returns a success status (2xx) and the response body includes the sourcedId matching the unique GUID supplied in the request, confirming it was accepted as the primary key."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The publisher response confirms that all required GUIDRef fields (course, school, terms[]) are present in the stored class record and each conforms to the D-8 GUIDRef shape (containing at minimum sourcedId, type, and href properties)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "A GET to /me/classes returns a collection whose 'items' array contains exactly one entry whose sourcedId matches the GUID used in the publisher POST, confirming CDC propagation delivered the record with the correct primary key."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record in 'items' has the course field as a GUIDRef object conforming to D-8 shape (sourcedId, type, href present), matching what was submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record in 'items' has the school field as a GUIDRef object conforming to D-8 shape (sourcedId, type, href present), matching what was submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The propagated class record in 'items' has the terms field as a non-empty array where every element is a GUIDRef object conforming to D-8 shape (sourcedId, type, href present), matching what was submitted to the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "All other required fields in the propagated class record (status, dateLastModified, title, classType) match the values originally submitted to the publisher, with no data loss or transformation during CDC propagation."
-        }
-      ],
-      "inputHash": "b519fff0fd0e13f73800f0992fa89254eb857472e2c14afe1aa3d5330b44a7b1"
-    },
-    {
-      "requirementIds": [
-        "R-56"
-      ],
-      "title": "CDC propagation of class update triggers outbound roster-payload contract validation on the consumer (R-56)",
-      "setup": [
-        {
-          "description": "Ensure a known class record exists on the publisher with a valid sourcedId, title, classType, course, dateLastModified, school, status, and terms populated; at least one active student (sourcedId, name) is enrolled; at least one teacher is assigned to the class."
-        },
-        {
-          "description": "Confirm that the consumer's /me/classes/{classSourcedId}/roster endpoint is reachable and authenticated credentials for the caller (with a known role) are available."
-        },
-        {
-          "description": "Confirm that the consumer has ingested the class record (i.e., the class appears under GET /me/classes items) before triggering the write."
-        },
-        {
-          "description": "Record the current state of the target class on the consumer so post-propagation changes can be compared."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "PUT",
-        "path": "/classes/{classSourcedId}",
-        "payloadShape": "Full class object with required fields: sourcedId (string), title (string), classType (string), course (object), dateLastModified (date), school (object), status (string), terms (array); optionally classCode (string), grades (array), location (string), metadata (object), subjects (array). The title field MUST be changed to a new distinct value to produce an observable delta."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "Consumer reflects the updated class title under GET /me/classes items for the affected classSourcedId"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes/{classSourcedId}/roster returns HTTP 200, confirming that outbound payload validation against the ODCS v3.1.0 class-roster contract succeeded (i.e., the assembled payload conformed to the contract and was not suppressed)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster response body contains a class-view composite that includes the updated title value pushed by the publisher, confirming CDC propagation reached the consumer before the response was assembled."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster response body includes the required class-view fields: sourcedId, title, classType, and the caller's role, as well as a teachers array — all present and non-null."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster response body includes a students array where every entry contains at minimum sourcedId and name fields, and all listed students are in active status."
-        },
-        {
-          "service": "consumer",
-          "assertion": "classCode, when present in the response, is a string; its absence is also acceptable (optional field per contract)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If a subsequent GET /me/classes/{classSourcedId}/roster is attempted while the assembled payload is forced to be non-conforming (e.g., by temporarily removing a required field via a contract-violating update), the consumer API MUST respond with HTTP 500 and MUST NOT return the non-conforming body — the response body must not contain recognisable roster data fields."
-        }
-      ],
-      "inputHash": "97b738eff24fa623315689b5606adde51c42d3df1b3ab248761622162583badc"
-    },
-    {
-      "requirementIds": [
-        "R-61"
-      ],
-      "title": "Student authenticated front-end displays sections via GET /me/classes after CDC propagation from publisher",
-      "setup": [
-        {
-          "description": "Ensure a valid student account exists in the publisher and consumer systems, and authentication credentials for that student are available."
-        },
-        {
-          "description": "Ensure at least one class entity exists in the publisher with all required fields populated: sourcedId, status, classType, course, dateLastModified, school, terms, and title."
-        },
-        {
-          "description": "Ensure the class entity is associated with the authenticated student (i.e., the student is enrolled in the class on the publisher side)."
-        },
-        {
-          "description": "Confirm CDC pipeline between publisher and consumer is active and healthy before the test run."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "Object containing required fields: sourcedId (string), status (string), classType (string), title (string), course (object), dateLastModified (date), school (object), terms (array); and optional fields: classCode (string), grades (array), location (string), metadata (object), subjects (array). The class must be linked to the test student."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the newly created class entity is consumed and persisted by the consumer service, confirmed by polling or event acknowledgment."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes authenticated as the test student returns HTTP 200."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The response body contains an 'items' array with at least one entry corresponding to the newly created class."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'title' field equal to the title supplied in the trigger payload (class title)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'classCode' field equal to the classCode supplied in the trigger payload (class code/section code)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'school' object reflecting the teacher/school association provided in the trigger payload (teacher context)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'sourcedId' field equal to the sourcedId supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'status' field equal to the status supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'course' object matching the course supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'terms' array matching the terms supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class item in 'items' contains a 'dateLastModified' field matching the dateLastModified supplied in the trigger payload."
-        }
-      ],
-      "inputHash": "b0aa9a96a1dc727c976406b6eea9289d07e9097e428acfd4c230a027194e6b6b"
-    },
-    {
-      "requirementIds": [
-        "R-62"
-      ],
-      "title": "Teacher-authenticated class list and roster display via CDC propagation",
-      "setup": [
-        {
-          "description": "Ensure a teacher account exists in the publisher with valid authentication credentials."
-        },
-        {
-          "description": "Ensure at least one class entity exists in the publisher assigned to the teacher, with all required fields: classType, course, dateLastModified, school, sourcedId, status, terms, and title."
-        },
-        {
-          "description": "Ensure the class has at least one student enrolled so the roster is non-empty."
-        },
-        {
-          "description": "Ensure CDC pipeline between publisher and consumer is active and healthy."
-        },
-        {
-          "description": "Authenticate as the teacher in both the publisher and consumer services and obtain valid session tokens."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "Object containing required fields: classType (string), course (object), dateLastModified (date), school (object), sourcedId (string), status (string), terms (array), title (string); and optional fields: classCode (string), grades (array), location (string), metadata (object), subjects (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "CDC event for the new class entity to be received and indexed by the consumer service"
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns HTTP 200 with a response body containing an 'items' array that includes the newly created class, identified by its sourcedId."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The class object within 'items' contains all required fields: classType, course, dateLastModified, school, sourcedId, status, terms, and title, with values matching those set on the publisher."
-        },
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes/{id}/roster (where {id} is the sourcedId of the newly created class) returns HTTP 200."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster response for the selected class includes at least one student record corresponding to the enrolled student(s) set up in the precondition."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The roster is only accessible while authenticated as a teacher; an unauthenticated or unauthorized request to GET /me/classes/{id}/roster returns a non-200 status (e.g., 401 or 403)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The class list returned by GET /me/classes only includes classes assigned to the authenticated teacher (i.e., no classes belonging to other teachers are present in the 'items' array)."
-        }
-      ],
-      "inputHash": "5737ea0e8fa6a79747a4975b0bfe7f227142221112e70f0c33783976ae644d08"
-    },
-    {
-      "requirementIds": [
-        "R-70"
-      ],
-      "title": "Integrity Validator: class.school Referential Constraint & classType/status Enum Validation via CDC Propagation",
-      "setup": [
-        {
-          "description": "Ensure the rostering store on the consumer is reachable and the integrity validator tooling is available and pointed at the consumer's rostering store."
-        },
-        {
-          "description": "Seed the publisher with a known valid org (school) record, capturing its sourcedId (e.g., knownOrgId)."
-        },
-        {
-          "description": "Seed the publisher with a valid class record whose school.sourcedId references knownOrgId, classType is a valid enum value (e.g., 'scheduled'), status is a valid enum value (e.g., 'active'), and all required fields (sourcedId, title, course, dateLastModified, terms, school, classType, status) are populated."
-        },
-        {
-          "description": "Confirm the valid class has fully propagated to the consumer store via CDC before beginning the write trigger step."
-        },
-        {
-          "description": "Record the sourcedId of the valid class as baseClassId for reference in assertions."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/me/classes",
-        "payloadShape": "Object containing all required class fields: sourcedId (string, unique), title (string), classType (valid enum string, e.g. 'scheduled'), status (valid enum string, e.g. 'active'), course (object with sourcedId), dateLastModified (ISO date string), terms (non-empty array of term references), school (object whose sourcedId intentionally references a NON-EXISTENT org to exercise the referential integrity failure path), and optionally classCode, grades, location, metadata, subjects."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "The newly created class record (identified by its sourcedId) is visible in the consumer store at GET /me/classes (present in the items array)."
-      },
-      "assertions": [
-        {
-          "service": "consumer",
-          "assertion": "GET /me/classes returns an items array that contains the newly created class record, identified by its sourcedId — confirming CDC propagation completed."
-        },
-        {
-          "service": "consumer",
-          "assertion": "Run the standalone integrity validator against the consumer rostering store. The validator MUST return a structured pass/fail report (e.g., JSON object or equivalent structured format), not plain text or an unstructured error message."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The structured report MUST contain at least one failure entry for the newly created class record, identifying the specific entity type as 'class', the specific sourcedId of the offending record, and the specific field 'school' as the failing referential constraint (school.sourcedId does not resolve to a known org in the store)."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The structured report MUST NOT declare the overall store state as 'healthy' — the presence of the unresolved class.school reference is a hard stop for a healthy declaration."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The structured report for the previously seeded valid class (baseClassId) MUST NOT contain any failures — confirming the validator correctly distinguishes passing records from failing ones and reports only genuine violations."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If any additional class records exist in the consumer store whose classType value is not a recognized valid enum (e.g., not one of 'scheduled', 'homeroom', or equivalent contract-defined values), each such record MUST appear in the structured report with entity 'class', its specific sourcedId, and field 'classType' named as the failure."
-        },
-        {
-          "service": "consumer",
-          "assertion": "If any additional class records exist in the consumer store whose status value is not a recognized valid enum (e.g., not one of 'active', 'tobedeleted', or equivalent contract-defined values), each such record MUST appear in the structured report with entity 'class', its specific sourcedId, and field 'status' named as the failure."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The structured report MUST enumerate every failure individually — multiple distinct violations across different records or fields must each appear as separate named entries, not collapsed or aggregated into a single generic error."
-        }
-      ],
-      "inputHash": "497bf576ee49fdfdcdcf083c3acc002ec97ca1119a85525873c3425b0d1deb44"
-    },
-    {
-      "requirementIds": [
-        "R-71a",
-        "D-13"
-      ],
-      "title": "CDC propagation of class entity verifies SNS message attributes eventType and classType are set on publish",
-      "setup": [
-        {
-          "description": "Ensure the publisher service is configured and connected to SNS with CDC enabled for the class entity."
-        },
-        {
-          "description": "Ensure the consumer service is subscribed to the SNS topic that receives class entity change events."
-        },
-        {
-          "description": "Ensure a valid class record does not already exist with the test sourcedId to guarantee a clean state."
-        },
-        {
-          "description": "Confirm the consumer endpoint GET /me/classes is reachable and returns a JSON body with an 'items' array."
-        }
-      ],
-      "trigger": {
-        "source": "publisher",
-        "entity": "class",
-        "method": "POST",
-        "path": "/classes",
-        "payloadShape": "JSON object containing required fields: sourcedId (string), status (string), dateLastModified (date), title (string), classType (string), course (object), school (object), terms (array); optionally includes classCode (string), grades (array), location (string), metadata (object), subjects (array)"
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "SNS message published and consumer has processed the CDC event for the new class sourcedId"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The SNS message published for the class creation event MUST include a message attribute named 'eventType' with a non-empty string value (e.g. representing the create/upsert event type for the class entity)."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The SNS message published for the class creation event MUST include a message attribute named 'classType' whose value exactly matches the value of data.classType supplied in the trigger payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The SNS message published for the class creation event MUST NOT include a message attribute named 'role', as that discriminator applies only to the enrollment entity."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, a GET to /me/classes must return a response where the 'items' array contains an entry whose 'sourcedId' matches the sourcedId used in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class entry in the consumer's /me/classes 'items' array must have a 'classType' field whose value equals the classType value submitted by the publisher in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The matching class entry in the consumer's /me/classes 'items' array must have 'status', 'title', 'course', 'school', and 'terms' fields consistent with the values submitted by the publisher in the trigger payload."
-        }
-      ],
-      "inputHash": "02ce5eea3ef3977cb3024f5cdaf8a2b81acec493287bef628d21513bc0784064"
+      "inputHash": "604729cb3807e06bb02b8053a305518f321d7044fae6b2dc320a6946a198d208"
     }
   ],
   "skipped": [
     {
-      "requirement": "consumer/R-02",
+      "requirement": "awp-app-plane/CRE-R-01",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-04",
+      "requirement": "awp-app-plane/CRE-R-02",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-05",
+      "requirement": "awp-app-plane/CRE-R-03",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-11",
+      "requirement": "awp-app-plane/CRE-R-04",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-12",
+      "requirement": "awp-app-plane/CRE-R-05",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-13",
+      "requirement": "awp-app-plane/CRE-R-06",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-14",
+      "requirement": "awp-app-plane/CRE-R-07",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-15",
+      "requirement": "awp-app-plane/CRE-R-08",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-16",
+      "requirement": "awp-app-plane/CRE-R-09",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-20",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-21",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-22",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-23",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-24a",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-25",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-33",
-      "reason": "no API mapping for entity 'enrollment'"
-    },
-    {
-      "requirement": "consumer/R-35",
-      "reason": "no API mapping for entity 'enrollment'"
-    },
-    {
-      "requirement": "consumer/R-40",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-41",
+      "requirement": "awp-app-plane/CRE-R-10",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-42",
+      "requirement": "awp-app-plane/CRE-R-11",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-50",
+      "requirement": "awp-app-plane/CRE-R-12",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-53",
-      "reason": "malformed plan (schema /trigger/method: must be equal to one of the allowed values)"
-    },
-    {
-      "requirement": "consumer/R-54",
+      "requirement": "awp-app-plane/CRE-R-13",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-55",
+      "requirement": "awp-app-plane/CRE-R-14",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "consumer/R-60",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "consumer/R-63",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "publisher/R-01",
+      "requirement": "awp-app-plane/CRE-R-15",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-02",
+      "requirement": "awp-app-plane/CRE-R-16",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-04",
+      "requirement": "awp-app-plane/CRE-R-17",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-05",
+      "requirement": "awp-app-plane/CRE-R-18",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-10",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "publisher/R-11",
+      "requirement": "awp-app-plane/CRE-R-19",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-12",
+      "requirement": "awp-app-plane/CRE-R-20",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-14",
+      "requirement": "awp-app-plane/CRE-R-21",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-16",
+      "requirement": "awp-app-plane/CRE-R-22",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-17a",
-      "reason": "malformed plan (schema /trigger/method: must be equal to one of the allowed values)"
-    },
-    {
-      "requirement": "publisher/R-26",
+      "requirement": "awp-app-plane/CRE-R-23",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-27",
+      "requirement": "awp-app-plane/CRE-R-25",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-30",
+      "requirement": "awp-app-plane/DLV-R-01",
+      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+    },
+    {
+      "requirement": "awp-app-plane/DLV-R-02",
+      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+    },
+    {
+      "requirement": "awp-app-plane/DLV-R-03",
+      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+    },
+    {
+      "requirement": "awp-app-plane/DLV-R-04",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-31a",
+      "requirement": "awp-app-plane/DLV-R-05",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-32",
+      "requirement": "awp-app-plane/DLV-R-06",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-34",
+      "requirement": "awp-app-plane/DLV-R-07",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-35",
+      "requirement": "awp-app-plane/DLV-R-08",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-40",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "publisher/R-42",
-      "reason": "no API mapping for entity 'user'"
-    },
-    {
-      "requirement": "publisher/R-51",
+      "requirement": "awp-app-plane/DLV-R-09",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-52",
+      "requirement": "awp-app-plane/DLV-R-10",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-60",
-      "reason": "no API mapping for entity 'enrollment'"
+      "requirement": "awp-app-plane/DLV-R-11",
+      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
     },
     {
-      "requirement": "publisher/R-61",
+      "requirement": "awp-app-plane/DLV-R-12",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-62",
+      "requirement": "awp-app-plane/DLV-R-13",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-70",
+      "requirement": "awp-app-plane/DLV-R-14",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-71",
+      "requirement": "awp-app-plane/DLV-R-15",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-72",
+      "requirement": "awp-app-plane/DLV-R-16",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-73",
+      "requirement": "awp-app-plane/DLV-R-17",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-74",
+      "requirement": "awp-app-plane/GRD-R-01",
       "reason": "references no cataloged entity"
     },
     {
-      "requirement": "publisher/R-75",
+      "requirement": "awp-app-plane/GRD-R-02",
       "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-03",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-04",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-05",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-06",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-07",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-08",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-09",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-10",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-11",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-12",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-13",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-14",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-15",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-16",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-17",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-18",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-19",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-20",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-21",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-22",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-23",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-24",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-25",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/GRD-R-26",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-01",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-02",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-03",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-04",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-05",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-06",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-07",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-08",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-09",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-10",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-11",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-12",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-13",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-14",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-15",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-16",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-17",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-18",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-19",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-20",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-21",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-22",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-23",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-24",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-25",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-26",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-27",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-28",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-29",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-30",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-31",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-32",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-33",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-34",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-35",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-36",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-37",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-38",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-39",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-40",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-41",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-42",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-43",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/ONB-R-44",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-01",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-02",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-03",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-04",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-05",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-06",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-07",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-08",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-09",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-10",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-11",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-12",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-13",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-14",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-15",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-16",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-17",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-18",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-19",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-20",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-21",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-22",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/PLT-R-23",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-01",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-02",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-03",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-04",
+      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-05",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-06",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-07",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-08",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-09",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-10",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-11",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-12",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-13",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-14",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-15",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-16",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-17",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-18",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-19",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/SCR-R-20",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-01",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-02",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-03",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-04",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-05",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-06",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-07",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-08",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-09",
+      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-10",
+      "reason": "single-service entity 'StudentTaskScoredEvent' (no cross-service counterpart)"
     }
   ]
 }

@@ -1,0 +1,90 @@
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: urn:bawp:deliver:result-package
+name: Deliver Result Package
+status: active
+tenant: bawp
+domain: deliver
+
+description:
+  purpose: >-
+    Emitted when a student's encrypted response upload is successfully unpacked
+    by the results-packager Lambda. This is the sole trigger for the scoring pipeline.
+  usage: "Internal. allowedConsumers: [score]"
+
+servers:
+  - server: deliver-result-package-bus
+    type: custom
+    environment: production
+    description: EventBridge bus — bawp.deliver.results-packager / response-package-delivered
+    customProperties:
+      - property: bus
+        value: "{cell}-{env}-dlvr-rpk-{rs}-bus"
+      - property: source
+        value: bawp.deliver.results-packager
+      - property: detailType
+        value: response-package-delivered
+
+schema:
+  - name: ResultPackage
+    logicalType: object
+    description: Envelope emitted for every successfully packaged student result.
+    properties:
+      - name: schemaVersion
+        logicalType: string
+        required: true
+        description: Contract version. Consumers must reject unknown major versions.
+      - name: eventId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: Idempotency key — consumers must deduplicate on this field.
+      - name: tenantId
+        logicalType: string
+        required: true
+      - name: assignmentId
+        logicalType: string
+        required: true
+      - name: classId
+        logicalType: string
+        required: true
+      - name: studentId
+        logicalType: string
+        required: true
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+          - property: classification
+            value: confidential-pii
+          - property: maskingRequired
+            value: "true"
+          - property: auditRequired
+            value: "true"
+      - name: taskId
+        logicalType: string
+        required: true
+      - name: sessionId
+        logicalType: string
+        required: true
+      - name: itemResponses
+        logicalType: array
+        required: true
+      - name: resultsPackageLocation
+        logicalType: string
+        required: false
+        description: S3 URI of the assembled result package.
+
+team:
+  name: Deliver Domain
+  members:
+    - username: data-contracts-guild-deliver
+      role: owner
+
+slaProperties:
+  - property: noticePeriod
+    value: P90D
+    unit: iso8601-duration

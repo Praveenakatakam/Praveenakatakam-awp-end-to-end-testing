@@ -4,143 +4,59 @@
   "tests": [
     {
       "kind": "conformance",
-      "source": "consumer",
-      "entity": "class",
-      "contractId": "b3f6d5c1-class-oneroster-v12",
-      "contentHash": "8f734db9c0c9ad797e7a24810ce024fd886f62dc",
+      "source": "get-ready",
+      "entity": "TaskPublished",
+      "contractId": "urn:bawp:get-ready:assignments-api",
+      "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
       "declaredVersion": "1.0.0",
       "target": {
-        "path": "/me/classes",
-        "baseUrlEnv": "CONSUMER_API_URL",
-        "tokenEnv": "CONSUMER_TOKEN",
-        "recordsAt": "items"
+        "path": "/api/grdy/assignments/getTasks",
+        "baseUrlEnv": "GET_READY_API_URL",
+        "tokenEnv": "GET_READY_TOKEN",
+        "recordsAt": ""
       },
       "jsonSchema": {
         "type": "object",
         "required": [
-          "classType",
-          "course",
-          "dateLastModified",
-          "school",
-          "sourcedId",
-          "status",
-          "terms",
-          "title"
+          "description",
+          "duration",
+          "id",
+          "itemTypes",
+          "standards",
+          "title",
+          "totalItemCount",
+          "type"
         ],
         "properties": {
-          "classCode": {
+          "description": {
             "type": "string"
           },
-          "classType": {
-            "type": "string",
-            "enum": [
-              "homeroom",
-              "scheduled"
-            ]
+          "duration": {
+            "type": "integer"
           },
-          "course": {
-            "type": "object"
+          "id": {
+            "type": "string"
           },
-          "dateLastModified": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "grades": {
+          "itemTypes": {
             "type": "array"
           },
-          "location": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object"
-          },
-          "school": {
-            "type": "object"
-          },
-          "sourcedId": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "tobedeleted"
-            ]
-          },
-          "subjects": {
-            "type": "array"
-          },
-          "terms": {
+          "standards": {
             "type": "array"
           },
           "title": {
             "type": "string"
-          }
-        },
-        "additionalProperties": true
-      }
-    },
-    {
-      "kind": "conformance",
-      "source": "publisher",
-      "entity": "org",
-      "contractId": "5d8f2b4a-org-oneroster-v12",
-      "contentHash": "70da82acc8ea69f1a54f92b6c6972eff5806217a",
-      "declaredVersion": "1.0.0",
-      "target": {
-        "path": "/orgs",
-        "baseUrlEnv": "PUBLISHER_API_URL",
-        "tokenEnv": "PUBLISHER_TOKEN",
-        "recordsAt": "items"
-      },
-      "jsonSchema": {
-        "type": "object",
-        "required": [
-          "dateLastModified",
-          "name",
-          "sourcedId",
-          "status",
-          "type"
-        ],
-        "properties": {
-          "children": {
-            "type": "array"
           },
-          "dateLastModified": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "identifier": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object"
-          },
-          "name": {
-            "type": "string"
-          },
-          "parent": {
-            "type": "object"
-          },
-          "sourcedId": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "tobedeleted"
-            ]
+          "totalItemCount": {
+            "type": "integer"
           },
           "type": {
             "type": "string",
             "enum": [
-              "department",
-              "school",
-              "district",
-              "local",
-              "state",
-              "national"
+              "practice",
+              "quiz",
+              "homework",
+              "classwork",
+              "assessment"
             ]
           }
         },
@@ -149,228 +65,48 @@
     },
     {
       "kind": "compat",
-      "entity": "class",
+      "entity": "TaskPublished",
       "publisher": {
-        "source": "publisher",
-        "contractId": "7c2d4e5f-class-oneroster-v12",
-        "contentHash": "955990121e052b1fb9d9672d896bec8b7fb73542"
+        "source": "create",
+        "contractId": "urn:bawp:create:content-events",
+        "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254",
+        "declaredVersion": "1.0.0"
       },
       "consumer": {
-        "source": "consumer",
-        "contractId": "b3f6d5c1-class-oneroster-v12",
-        "contentHash": "8f734db9c0c9ad797e7a24810ce024fd886f62dc"
+        "source": "get-ready",
+        "contractId": "urn:bawp:get-ready:assignments-api",
+        "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+        "declaredVersion": "1.0.0"
       },
       "rule": "consumer-can-read-publisher",
       "consumerRequired": [
         {
-          "name": "classType",
+          "name": "description",
           "logicalType": "string"
         },
         {
-          "name": "course",
-          "logicalType": "object"
+          "name": "duration",
+          "logicalType": "integer"
         },
         {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "school",
-          "logicalType": "object"
-        },
-        {
-          "name": "sourcedId",
+          "name": "id",
           "logicalType": "string"
         },
         {
-          "name": "status",
-          "logicalType": "string"
+          "name": "itemTypes",
+          "logicalType": "array"
         },
         {
-          "name": "terms",
+          "name": "standards",
           "logicalType": "array"
         },
         {
           "name": "title",
           "logicalType": "string"
-        }
-      ],
-      "publisherProps": [
-        {
-          "name": "classCode",
-          "logicalType": "string"
         },
         {
-          "name": "classType",
-          "logicalType": "string"
-        },
-        {
-          "name": "course",
-          "logicalType": "object"
-        },
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "grades",
-          "logicalType": "array"
-        },
-        {
-          "name": "location",
-          "logicalType": "string"
-        },
-        {
-          "name": "metadata",
-          "logicalType": "object"
-        },
-        {
-          "name": "school",
-          "logicalType": "object"
-        },
-        {
-          "name": "sourcedId",
-          "logicalType": "string"
-        },
-        {
-          "name": "status",
-          "logicalType": "string"
-        },
-        {
-          "name": "subjects",
-          "logicalType": "array"
-        },
-        {
-          "name": "terms",
-          "logicalType": "array"
-        },
-        {
-          "name": "title",
-          "logicalType": "string"
-        }
-      ]
-    },
-    {
-      "kind": "compat",
-      "entity": "enrollment",
-      "publisher": {
-        "source": "publisher",
-        "contractId": "8d3e5f60-enrollment-oneroster-v12",
-        "contentHash": "dd3c103680d9e47960e187b6d37c23482c9b55c8"
-      },
-      "consumer": {
-        "source": "consumer",
-        "contractId": "c4a7e6d2-enrollment-oneroster-v12",
-        "contentHash": "4bfb62f33948adb7c126c8e200bdbe33ddb163c3"
-      },
-      "rule": "consumer-can-read-publisher",
-      "consumerRequired": [
-        {
-          "name": "class",
-          "logicalType": "object"
-        },
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "role",
-          "logicalType": "string"
-        },
-        {
-          "name": "school",
-          "logicalType": "object"
-        },
-        {
-          "name": "sourcedId",
-          "logicalType": "string"
-        },
-        {
-          "name": "status",
-          "logicalType": "string"
-        },
-        {
-          "name": "user",
-          "logicalType": "object"
-        }
-      ],
-      "publisherProps": [
-        {
-          "name": "beginDate",
-          "logicalType": "date"
-        },
-        {
-          "name": "class",
-          "logicalType": "object"
-        },
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "endDate",
-          "logicalType": "date"
-        },
-        {
-          "name": "metadata",
-          "logicalType": "object"
-        },
-        {
-          "name": "primary",
-          "logicalType": "boolean"
-        },
-        {
-          "name": "role",
-          "logicalType": "string"
-        },
-        {
-          "name": "school",
-          "logicalType": "object"
-        },
-        {
-          "name": "sourcedId",
-          "logicalType": "string"
-        },
-        {
-          "name": "status",
-          "logicalType": "string"
-        },
-        {
-          "name": "user",
-          "logicalType": "object"
-        }
-      ]
-    },
-    {
-      "kind": "compat",
-      "entity": "org",
-      "publisher": {
-        "source": "publisher",
-        "contractId": "5d8f2b4a-org-oneroster-v12",
-        "contentHash": "70da82acc8ea69f1a54f92b6c6972eff5806217a"
-      },
-      "consumer": {
-        "source": "consumer",
-        "contractId": "5d8f2b4a-org-oneroster-v12",
-        "contentHash": "70da82acc8ea69f1a54f92b6c6972eff5806217a"
-      },
-      "rule": "consumer-can-read-publisher",
-      "consumerRequired": [
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "name",
-          "logicalType": "string"
-        },
-        {
-          "name": "sourcedId",
-          "logicalType": "string"
-        },
-        {
-          "name": "status",
-          "logicalType": "string"
+          "name": "totalItemCount",
+          "logicalType": "integer"
         },
         {
           "name": "type",
@@ -379,142 +115,51 @@
       ],
       "publisherProps": [
         {
-          "name": "children",
+          "name": "duration",
+          "logicalType": "integer"
+        },
+        {
+          "name": "eventId",
+          "logicalType": "string"
+        },
+        {
+          "name": "itemCount",
+          "logicalType": "integer"
+        },
+        {
+          "name": "items",
           "logicalType": "array"
         },
         {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "identifier",
+          "name": "publishedAt",
           "logicalType": "string"
         },
         {
-          "name": "metadata",
-          "logicalType": "object"
-        },
-        {
-          "name": "name",
+          "name": "publishedBy",
           "logicalType": "string"
         },
         {
-          "name": "parent",
-          "logicalType": "object"
-        },
-        {
-          "name": "sourcedId",
+          "name": "schemaVersion",
           "logicalType": "string"
         },
         {
-          "name": "status",
-          "logicalType": "string"
-        },
-        {
-          "name": "type",
-          "logicalType": "string"
-        }
-      ]
-    },
-    {
-      "kind": "compat",
-      "entity": "user",
-      "publisher": {
-        "source": "publisher",
-        "contractId": "6b1c3d4e-user-oneroster-v12",
-        "contentHash": "c8a233c90c3878d0d9857f59fa0da21d733ec859"
-      },
-      "consumer": {
-        "source": "consumer",
-        "contractId": "7a1c9e02-user-oneroster-v12",
-        "contentHash": "4228731fdfdc0b8f831d1e4829b20919e89e8d49"
-      },
-      "rule": "consumer-can-read-publisher",
-      "consumerRequired": [
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "enabledUser",
-          "logicalType": "boolean"
-        },
-        {
-          "name": "familyName",
-          "logicalType": "string"
-        },
-        {
-          "name": "givenName",
-          "logicalType": "string"
-        },
-        {
-          "name": "roles",
+          "name": "standards",
           "logicalType": "array"
         },
         {
-          "name": "sourcedId",
+          "name": "taskId",
           "logicalType": "string"
         },
         {
-          "name": "status",
+          "name": "taskType",
           "logicalType": "string"
         },
         {
-          "name": "username",
-          "logicalType": "string"
-        }
-      ],
-      "publisherProps": [
-        {
-          "name": "dateLastModified",
-          "logicalType": "date"
-        },
-        {
-          "name": "email",
+          "name": "tenantId",
           "logicalType": "string"
         },
         {
-          "name": "enabledUser",
-          "logicalType": "boolean"
-        },
-        {
-          "name": "familyName",
-          "logicalType": "string"
-        },
-        {
-          "name": "givenName",
-          "logicalType": "string"
-        },
-        {
-          "name": "identifier",
-          "logicalType": "string"
-        },
-        {
-          "name": "metadata",
-          "logicalType": "object"
-        },
-        {
-          "name": "middleName",
-          "logicalType": "string"
-        },
-        {
-          "name": "password",
-          "logicalType": "string"
-        },
-        {
-          "name": "roles",
-          "logicalType": "array"
-        },
-        {
-          "name": "sourcedId",
-          "logicalType": "string"
-        },
-        {
-          "name": "status",
-          "logicalType": "string"
-        },
-        {
-          "name": "username",
+          "name": "title",
           "logicalType": "string"
         }
       ]
@@ -523,43 +168,58 @@
   "skipped": [
     {
       "kind": "compat",
-      "target": "class-roster",
-      "reason": "single-source (consumer only)"
+      "target": "CdcEnvelope",
+      "reason": "single-source (onboard only)"
+    },
+    {
+      "kind": "compat",
+      "target": "ClassAssignment",
+      "reason": "single-source (deliver only)"
+    },
+    {
+      "kind": "compat",
+      "target": "ResultPackage",
+      "reason": "single-source (deliver only)"
+    },
+    {
+      "kind": "compat",
+      "target": "SessionEventDetail",
+      "reason": "single-source (get-ready only)"
+    },
+    {
+      "kind": "compat",
+      "target": "StudentTaskScoredEvent",
+      "reason": "single-source (score only)"
     },
     {
       "kind": "conformance",
-      "target": "consumer/5d8f2b4a-org-oneroster-v12",
-      "reason": "no API mapping for entity 'org'"
+      "target": "create/urn:bawp:create:content-events",
+      "reason": "no API mapping for entity 'TaskPublished'"
     },
     {
       "kind": "conformance",
-      "target": "consumer/7a1c9e02-user-oneroster-v12",
-      "reason": "no API mapping for entity 'user'"
+      "target": "deliver/urn:bawp:deliver:class-assignment-monitor-api",
+      "reason": "no API mapping for entity 'ClassAssignment'"
     },
     {
       "kind": "conformance",
-      "target": "consumer/c4a7e6d2-enrollment-oneroster-v12",
-      "reason": "no API mapping for entity 'enrollment'"
+      "target": "deliver/urn:bawp:deliver:result-package",
+      "reason": "no API mapping for entity 'ResultPackage'"
     },
     {
       "kind": "conformance",
-      "target": "consumer/c9a2e7d4-class-roster-response-v1",
-      "reason": "no API mapping for entity 'class-roster'"
+      "target": "get-ready/urn:bawp:get-ready:session-registration",
+      "reason": "no API mapping for entity 'SessionEventDetail'"
     },
     {
       "kind": "conformance",
-      "target": "publisher/6b1c3d4e-user-oneroster-v12",
-      "reason": "no API mapping for entity 'user'"
+      "target": "onboard/urn:bawp:onboard:catalog-events",
+      "reason": "no API mapping for entity 'CdcEnvelope'"
     },
     {
       "kind": "conformance",
-      "target": "publisher/7c2d4e5f-class-oneroster-v12",
-      "reason": "no API mapping for entity 'class'"
-    },
-    {
-      "kind": "conformance",
-      "target": "publisher/8d3e5f60-enrollment-oneroster-v12",
-      "reason": "no API mapping for entity 'enrollment'"
+      "target": "score/urn:bawp:score:student-scored-task",
+      "reason": "no API mapping for entity 'StudentTaskScoredEvent'"
     }
   ]
 }

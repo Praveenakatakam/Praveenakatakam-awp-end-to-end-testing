@@ -55,12 +55,14 @@ export interface SourceCrawl {
   specRef?: SpecRef;
 }
 
-const CONTRACT_GLOB = /^decs\/contracts\/.*\.odcs\.ya?ml$/i;
+const CONTRACT_EXT = /\.odcs\.ya?ml$/i;
 const SPEC_DOC_PATH = /(?:^|\/)spec\.md$/i;
 
-/** True for a tree entry that is a contract source file (R-03, excludes *.schema.json). */
-export function isContractFile(entry: TreeEntry): boolean {
-  return entry.type === 'blob' && CONTRACT_GLOB.test(entry.path);
+/** True for a tree entry that is a contract source file under the given path prefix (R-03). */
+export function isContractFile(entry: TreeEntry, pathPrefix?: string): boolean {
+  if (entry.type !== 'blob') return false;
+  if (pathPrefix && !entry.path.startsWith(pathPrefix)) return false;
+  return CONTRACT_EXT.test(entry.path);
 }
 
 /** True for the source repo's EARS requirements document (`docs/spec.md`, R-100). */
@@ -83,7 +85,7 @@ export async function crawlSourceFull(api: GitHubApi, source: SourceConfig): Pro
   const entries = await api.tree(source.owner, source.repo, commitSha);
 
   const files: CrawledFile[] = [];
-  for (const entry of entries.filter(isContractFile)) {
+  for (const entry of entries.filter((e) => isContractFile(e, source.contractPathPrefix))) {
     const bytes = await api.blob(source.owner, source.repo, entry.sha);
     files.push({ source: source.label, path: entry.path, blobSha: entry.sha, commitSha, bytes });
   }
