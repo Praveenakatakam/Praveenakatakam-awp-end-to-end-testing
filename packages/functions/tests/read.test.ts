@@ -83,6 +83,26 @@ describe('read API handlers (T-13 · R-50..R-55)', () => {
     expect(body.variants[0].source).toBe('publisher');
   });
 
+  it('divergent is false when consumer is a pure projection (onlyInA only, no onlyInB, no changed)', async () => {
+    vi.spyOn(repository, 'getEntityVariants').mockResolvedValue({
+      entity: 'user',
+      variants: [
+        { source: 'publisher', id: 'user-1', currentHash: 'hA' },
+        { source: 'consumer', id: 'user-1', currentHash: 'hB' },
+      ],
+      divergent: true,
+    });
+    vi.spyOn(repository, 'getRaw')
+      .mockResolvedValueOnce('schema:\n  - name: user\n    properties:\n      - name: a\n        required: true\n      - name: envelope\n        required: true\n')
+      .mockResolvedValueOnce('schema:\n  - name: user\n    properties:\n      - name: a\n        required: true\n');
+    const res = await read.entity(ev({ entity: 'user' }));
+    const body = JSON.parse(res.body!);
+    expect(body.divergent).toBe(false);
+    expect(body.diff.onlyInA.map((p: any) => p.path)).toContain('user.envelope');
+    expect(body.diff.onlyInB).toHaveLength(0);
+    expect(body.diff.changed).toHaveLength(0);
+  });
+
   it('GET /entities/{entity} 404 when the entity is unknown (AC-54)', async () => {
     vi.spyOn(repository, 'getEntityVariants').mockResolvedValue({ entity: 'ghost', variants: [], divergent: false });
     expect((await read.entity(ev({ entity: 'ghost' }))).statusCode).toBe(404);

@@ -54,16 +54,23 @@ export async function entity(event: APIGatewayProxyEventV2): Promise<APIGatewayP
     x.source === y.source ? 0 : x.source === 'publisher' ? -1 : y.source === 'publisher' ? 1 : x.source.localeCompare(y.source)
   );
 
+  let divergent = result.divergent;
   let diff: unknown;
   if (variants.length === 2) {
     const [a, b] = variants;
     const rawA = await repository.getRaw(a.source, a.id);
     const rawB = await repository.getRaw(b.source, b.id);
     if (rawA && rawB) {
-      diff = diffContracts(parseAndValidate(rawA).parsed, parseAndValidate(rawB).parsed);
+      const d = diffContracts(parseAndValidate(rawA).parsed, parseAndValidate(rawB).parsed);
+      diff = d;
+      // Publisher-only fields (onlyInA) are expected projections — the consumer
+      // intentionally omits envelope/implementation fields. Only flag divergent
+      // when the consumer references a field the publisher doesn't produce
+      // (onlyInB) or when a shared field has conflicting type/required (changed).
+      divergent = d.onlyInB.length > 0 || d.changed.length > 0;
     }
   }
-  return json(200, { entity: result.entity, variants, divergent: result.divergent, diff });
+  return json(200, { entity: result.entity, variants, divergent, diff });
 }
 
 /** GET /crawls (R-55). */
