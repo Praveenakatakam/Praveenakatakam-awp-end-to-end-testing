@@ -3,12 +3,13 @@
  *
  * Lands the generated end-to-end tests in this repo. Modes:
  *   (default)     auth as writer → POST /generate-tests → pull latest artifacts → write tree
+ *                 AND POST /generate-functional-tests → poll → write generated-tests/functional/
  *   --pull        pull the latest existing generation run only (no new generation)
  *   --local       reader → GET /contracts (+/raw) → run the SAME pure core → write tree
- *   --functional  writer → POST /generate-functional-tests → poll the async job →
- *                 write generated-tests/functional/ (LLM cross-service tests, §3.11).
- *                 Under `sst bind`, use GENERATE_FUNCTIONAL=1 instead — sst bind's
- *                 arg parser eats the `--functional` flag; env vars pass through.
+ *                 (skips functional — no LLM path in local mode)
+ *   --skip-functional  skip the LLM functional generation step. Also honoured via
+ *                 SKIP_FUNCTIONAL=1 (useful under `sst bind`, whose arg parser eats
+ *                 bare flags before the script sees them).
  *
  * It writes files ONLY — it never stages, commits, or pushes (D-34). The human
  * reviews `git diff` and commits. The tree is replaced wholesale each run so
@@ -344,25 +345,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const apiUrl = settings.apiUrl;
   const token = await resolveToken(settings);
 
-  // --functional (or GENERATE_FUNCTIONAL=1): LLM cross-service tests (async job →
-  // poll → write). §3.11. The env form is the one to use under `sst bind`, whose
-  // arg parser otherwise swallows the `--functional` flag before the script sees it.
-  if (argv.includes('--functional') || process.env.GENERATE_FUNCTIONAL === '1') {
-    console.log('[generate-tests] --functional: triggering LLM cross-service generation…');
-    const { jobId } = await triggerFunctionalGeneration(fetch, apiUrl, token);
-    console.log(`[generate-tests] job ${jobId} accepted; polling…`);
-    const { job, artifacts } = await pollFunctionalJob(fetch, apiUrl, token, jobId);
-    const written = writeFunctionalArtifactTree(OUTPUT_DIR, artifacts);
-    console.log(
-      `[generate-tests] job ${jobId} succeeded (${job.planCount ?? 0} plan(s), ${job.skipCount ?? 0} skipped); wrote ${written.length} file(s):`
-    );
-    for (const p of written) console.log(`  generated-tests/${p}`);
-    console.log('[generate-tests] review `git diff` and commit — this tool does not commit for you.');
-    return;
-  }
-
+  const skipFunctional = argv.includes('--skip-functional') || process.env.SKIP_FUNCTIONAL === '1';
   const mode = argv.includes('--local') ? 'local' : argv.includes('--pull') ? 'pull' : 'default';
 
+  // Compat + conformance tests (always).
   let artifacts: ArtifactSet;
   if (mode === 'local') {
     console.log('[generate-tests] --local: generating from the read API…');
@@ -378,6 +364,28 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const written = writeArtifactTree(OUTPUT_DIR, artifacts);
   console.log(`[generate-tests] wrote ${written.length} file(s) to generated-tests/:`);
   for (const p of written) console.log(`  generated-tests/${p}`);
+
+  // Functional (LLM) tests — default on; skip with --skip-functional or SKIP_FUNCTIONAL=1.
+  if (mode === 'local') {
+    console.log('[generate-tests] skipping functional generation (not available in --local mode)');
+  } else if (skipFunctional) {
+    console.log('[generate-tests] skipping functional generation (--skip-functional)');
+  } else {
+    console.log('[generate-tests] triggering LLM functional generation…');
+    const { jobId } = await triggerFunctionalGeneration(fetch, apiUrl, token);
+    console.log(`[generate-tests] job ${jobId} accepted; polling…`);
+    const { job, functionalArtifacts } = await pollFunctionalJob(fetch, apiUrl, token, jobId).then((r) => ({
+      job: r.job,
+      functionalArtifacts: r.artifacts,
+    }));
+    const functionalWritten = writeFunctionalArtifactTree(OUTPUT_DIR, functionalArtifacts);
+    console.log(
+      `[generate-tests] job ${jobId} succeeded (${job.planCount ?? 0} plan(s), ${job.skipCount ?? 0} skipped); wrote ${functionalWritten.length} file(s):`
+    );
+    for (const p of functionalWritten) console.log(`  generated-tests/${p}`);
+    written.push(...functionalWritten);
+  }
+
   console.log('[generate-tests] review `git diff` and commit — this tool does not commit for you.');
 }
 
