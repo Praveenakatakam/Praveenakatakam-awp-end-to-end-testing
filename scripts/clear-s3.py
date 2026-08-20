@@ -5,8 +5,18 @@ import json
 import subprocess
 import sys
 import os
+from pathlib import Path
 
-BUCKET = "dev-awp-end-to-end-testing-contractsbucket5c11ddfa-iaiuvxcv08we"
+def resolve_bucket():
+    outputs_path = Path(__file__).parent.parent / ".sst" / "outputs.json"
+    if outputs_path.exists():
+        outputs = json.loads(outputs_path.read_text())
+        for stack in outputs.values():
+            if "ContractsBucketName" in stack:
+                return stack["ContractsBucketName"]
+    raise SystemExit(f"Could not resolve bucket from {outputs_path} — run `sst deploy` first.")
+
+BUCKET = resolve_bucket()
 env = {**os.environ, "AWS_CA_BUNDLE": "", "AWS_DEFAULT_REGION": "us-east-1"}
 
 print(f"Listing objects in s3://{BUCKET}...")
