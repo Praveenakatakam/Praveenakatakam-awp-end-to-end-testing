@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { performCrawl, handleRefresh } from '../src/refresh.js';
+import { performCrawl, handleRefresh, assertJiraConfigured, type JiraSourceConfig, type JiraApi } from '../src/refresh.js';
 import type { GitHubApi, TreeEntry } from '@registry/core';
 import { LockHeldError } from '../src/repository.js';
+import { JiraApiError, JiraTimeoutError, type JiraStory, type AdfDocument } from '../src/jira.js';
 
 const coreFixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../../core/tests/__fixtures__');
 const validOrgYaml = readFileSync(resolve(coreFixtures, 'valid-org.odcs.yaml'), 'utf8');
@@ -40,8 +41,50 @@ function fakeRepo() {
     writeRun: vi.fn(async () => {}),
     putRequirements: vi.fn(async () => ({ discovered: 2, conforming: 2, nonConforming: 0, changed: 2, removed: 0 })),
     wipeRequirements: vi.fn(async () => ({ discovered: 0, conforming: 0, nonConforming: 0, changed: 0, removed: 3 })),
+    getEarsCache: vi.fn(async (): Promise<string | null> => null),
+    putEarsCache: vi.fn(async () => {}),
   };
 }
+
+// ---- Jira crawl fixtures (T-07 · JR-10..17, JR-20..23, JR-30..32, NFR-J1..J4) ----
+
+const jiraSrc: JiraSourceConfig = {
+  label: 'jira-awp',
+  baseUrl: 'https://collegeboard.atlassian.net',
+  jql: 'project = BAWP AND issuetype = Story AND status != Done',
+  acFieldId: 'customfield_11048',
+  serviceAccountEmail: 'nashah@collegeboard.org',
+};
+
+function adfText(text: string): AdfDocument {
+  return { type: 'doc', content: text ? [{ type: 'paragraph', content: [{ type: 'text', text }] }] : [] };
+}
+
+/** Fake Jira client: yields the given stories, then optionally throws (mid-search failure). */
+function fakeJiraApi(stories: JiraStory[], opts: { failWith?: Error } = {}): JiraApi {
+  return {
+    async *search() {
+      for (const s of stories) yield s;
+      if (opts.failWith) throw opts.failWith;
+    },
+  };
+}
+
+const earsStory: JiraStory = {
+  key: 'BAWP-1',
+  fields: {
+    customfield_11048: adfText('WHEN a user submits THE system SHALL save it'),
+    parent: { key: 'BAWP-EP-1', fields: { summary: 'Checkout Epic', issuetype: { name: 'Epic' } } },
+  },
+};
+const nonEarsStory: JiraStory = {
+  key: 'BAWP-2',
+  fields: { customfield_11048: adfText('the button must turn green when clicked') },
+};
+const blankAcStory: JiraStory = {
+  key: 'BAWP-3',
+  fields: { customfield_11048: adfText('   ') }, // whitespace-only — treated as absent (JR-11)
+};
 
 // A minimal docs/spec.md with two requirements under the EARS section.
 const SPEC_MD = `# App Spec
@@ -132,7 +175,7 @@ describe('requirements crawl integration (T-29 · R-100, R-101, R-105, R-108)', 
     const [src, parsed, opts] = repo.putRequirements.mock.calls[0] as unknown as [string, any[], any];
     expect(src).toBe('awp-app-plane');
     expect(parsed.map((r: any) => r.id)).toEqual(['R-01', 'R-10']);
-    expect(opts).toMatchObject({ specHash: 'spec-sha', specVersion: '0.1.0', rawSpec: SPEC_MD });
+    expect(opts).toMatchObject({ contentHash: 'spec-sha', sourceVersion: '0.1.0', rawSnapshot: SPEC_MD, snapshotKey: 'requirements/awp-app-plane/snapshot.md' });
     expect(s.sources[0].requirements).toEqual({ discovered: 2, conforming: 2, nonConforming: 0, changed: 2, removed: 0 });
   });
 
@@ -356,5 +399,293 @@ describe('handleRefresh (T-12 · R-15)', () => {
     expect(repo.acquireLock).toHaveBeenCalled();
     expect(repo.writeRun).toHaveBeenCalled();
     expect(repo.releaseLock).toHaveBeenCalled();
+  });
+});
+
+describe('assertJiraConfigured — fast-fail guard (design §2.5, edge case table)', () => {
+  it('throws when JIRA_API_TOKEN is blank', () => {
+    expect(() => assertJiraConfigured({ JIRA_API_TOKEN: '' })).toThrow('JIRA_API_TOKEN secret is absent or blank');
+  });
+
+  it('throws when JIRA_API_TOKEN is absent entirely', () => {
+    expect(() => assertJiraConfigured({})).toThrow('JIRA_API_TOKEN secret is absent or blank');
+  });
+
+  it('does not throw when JIRA_API_TOKEN is present', () => {
+    expect(() => assertJiraConfigured({ JIRA_API_TOKEN: 'shh-a-real-token' })).not.toThrow();
+  });
+});
+
+describe('Jira crawl integration (T-07 · JR-10..17, JR-20..23, JR-30..32, NFR-J1..J4)', () => {
+  it('stores an EARS-conforming story as-is, converts a non-EARS story, and skips a blank-AC story (JR-11,12,13,20,21,30,31)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const convert = vi.fn(async () => 'WHEN the button is clicked THE system SHALL turn it green');
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j1', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([earsStory, nonEarsStory, blankAcStory]),
+      convert,
+    });
+
+    expect(convert).toHaveBeenCalledTimes(1); // only the non-EARS story needs conversion
+    expect(convert).toHaveBeenCalledWith('the button must turn green when clicked', { timeoutMs: 10_000 });
+
+    expect(repo.putRequirements).toHaveBeenCalledTimes(1);
+    const [source, parsed, opts] = repo.putRequirements.mock.calls[0] as unknown as [string, any[], any];
+    expect(source).toBe('jira-awp');
+    expect(parsed.map((p: any) => p.id)).toEqual(['BAWP-1', 'BAWP-2']); // blank-AC story never appears
+
+    expect(parsed[0]).toMatchObject({
+      id: 'BAWP-1',
+      text: 'WHEN a user submits THE system SHALL save it',
+      section: 'Checkout Epic',
+      earsType: 'event',
+      modality: 'SHALL',
+      earsConforming: true,
+      jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-1',
+    });
+    expect(parsed[0].rawText).toBeUndefined(); // already-EARS — no rawText (edge case table)
+
+    expect(parsed[1]).toMatchObject({
+      id: 'BAWP-2',
+      text: 'WHEN the button is clicked THE system SHALL turn it green',
+      rawText: 'the button must turn green when clicked',
+      section: 'Uncategorised', // no parent epic
+      earsConforming: true,
+      jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-2',
+    });
+
+    expect(opts).toMatchObject({ snapshotKey: 'requirements/jira-awp/snapshot.json' });
+    expect(opts.rawSnapshot).toContain('BAWP-1'); // raw JQL snapshot stored for provenance (JR-17)
+
+    const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+    expect(jiraOutcome.outcome).toBe('success');
+  });
+
+  it('falls back to the epic key when the epic is linked but has no fetchable name (edge case table)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const storyWithNamelessEpic: JiraStory = {
+      key: 'BAWP-4',
+      fields: {
+        customfield_11048: adfText('WHEN x THE system SHALL y'),
+        parent: { key: 'BAWP-EP-4', fields: { issuetype: { name: 'Epic' } } } as any, // no summary
+      },
+    };
+
+    await performCrawl(api, [publisher], repo as any, 'run-j1c', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([storyWithNamelessEpic]),
+    });
+
+    const [, parsed] = repo.putRequirements.mock.calls[0] as unknown as [string, any[]];
+    expect(parsed[0]).toMatchObject({ id: 'BAWP-4', section: 'BAWP-EP-4' });
+  });
+
+  it('uses the EARS cache instead of calling convert on a cache hit, and does not re-cache it (JR-23)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    repo.getEarsCache.mockResolvedValueOnce('WHEN cached THE system SHALL apply');
+    const convert = vi.fn(async () => {
+      throw new Error('convert should not be called on a cache hit');
+    });
+
+    await performCrawl(api, [publisher], repo as any, 'run-j2', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([nonEarsStory]),
+      convert,
+    });
+
+    expect(convert).not.toHaveBeenCalled();
+    expect(repo.putEarsCache).not.toHaveBeenCalled();
+    const [, parsed] = repo.putRequirements.mock.calls[0] as unknown as [string, any[]];
+    expect(parsed[0]).toMatchObject({ text: 'WHEN cached THE system SHALL apply', rawText: 'the button must turn green when clicked' });
+  });
+
+  it('caches a fresh conversion after a miss (JR-23)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const convert = vi.fn(async () => 'WHEN converted THE system SHALL apply');
+
+    await performCrawl(api, [publisher], repo as any, 'run-j2b', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([nonEarsStory]),
+      convert,
+    });
+
+    expect(repo.putEarsCache).toHaveBeenCalledWith(expect.any(String), 'WHEN converted THE system SHALL apply');
+  });
+
+  it('falls back to raw text with earsConforming=false when EARS conversion fails (JR-22, NFR-J3)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const convert = vi.fn(async () => {
+      throw new Error('bedrock unavailable');
+    });
+
+    await performCrawl(api, [publisher], repo as any, 'run-j3', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([nonEarsStory]),
+      convert,
+    });
+
+    const [, parsed] = repo.putRequirements.mock.calls[0] as unknown as [string, any[]];
+    expect(parsed[0]).toMatchObject({
+      text: 'the button must turn green when clicked',
+      rawText: 'the button must turn green when clicked',
+      earsConforming: false,
+      modality: null,
+    });
+  });
+
+  it('marks the Jira source failed without touching prior data when the search itself fails; GitHub sources still complete (JR-15, NFR-J4)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j4', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([], { failWith: new JiraApiError('Jira search failed (401)', 401) }),
+    });
+
+    const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+    expect(jiraOutcome.outcome).toBe('failed');
+    expect(jiraOutcome.reason).toContain('401');
+    expect(repo.putRequirements).not.toHaveBeenCalled();
+
+    const ghOutcome = result.sources.find((s) => s.label === 'awp-app-plane')!;
+    expect(ghOutcome.outcome).toBe('success'); // GitHub source unaffected
+  });
+
+  it('marks the Jira source failed on a cumulative timeout, discarding partial results (design §6 failure mode 8)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j4b', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([earsStory], { failWith: new JiraTimeoutError() }),
+    });
+
+    const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+    expect(jiraOutcome.outcome).toBe('failed');
+    expect(repo.putRequirements).not.toHaveBeenCalled(); // partial results discarded, prior snapshot preserved
+  });
+
+  it('a failing GitHub source does not prevent the Jira source from completing (NFR-J4)', async () => {
+    const api = apiFor({ awp: { fail: true, tree: [], blobs: {} } });
+    const repo = fakeRepo();
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j5', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([earsStory]),
+    });
+
+    expect(result.sources.find((s) => s.label === 'awp-app-plane')!.outcome).toBe('failed');
+    expect(result.sources.find((s) => s.label === 'jira-awp')!.outcome).toBe('success');
+  });
+
+  it('treats 0 Jira search results as unchanged — success with zero counts, no wipe (edge case table)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j6', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([]),
+    });
+
+    const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+    expect(jiraOutcome.outcome).toBe('success');
+    expect(jiraOutcome.requirements).toEqual({ discovered: 0, conforming: 0, nonConforming: 0, changed: 0, removed: 0 });
+    expect(repo.putRequirements).not.toHaveBeenCalled();
+  });
+
+  it('no Jira crawling happens when the jira param is omitted (backward compatible with GitHub-only callers)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const result = await performCrawl(api, [publisher], repo as any, 'run-j7', 't');
+    expect(result.sources.map((s) => s.label)).toEqual(['awp-app-plane']);
+  });
+
+  it("reduces the Jira search budget by however much of the overall crawl the GitHub phase already used (NFR-J1)", async () => {
+    vi.useFakeTimers();
+    try {
+      const start = new Date('2026-01-01T00:00:00.000Z');
+      vi.setSystemTime(start);
+      const api: GitHubApi = {
+        branchHeadSha: vi.fn(async () => {
+          vi.setSystemTime(new Date(start.getTime() + 15_000)); // GitHub phase alone takes 15s
+          return 'commit-awp';
+        }),
+        tree: vi.fn(async () => []),
+        blob: vi.fn(async () => ''),
+      };
+      const repo = fakeRepo();
+      let capturedTimeoutMs: number | undefined;
+      const jiraApi: JiraApi = {
+        // eslint-disable-next-line require-yield -- test double; never yields
+        async *search(_jql, _acFieldId, opts) {
+          capturedTimeoutMs = opts.timeoutMs;
+        },
+      };
+
+      await performCrawl(api, [publisher], repo as any, 'run-budget', start.toISOString(), {
+        sources: [jiraSrc],
+        clientFor: () => jiraApi,
+      });
+
+      // 28s overall budget (NFR-1's 30s minus a safety margin) - 15s already spent ≈ 13s left.
+      expect(capturedTimeoutMs).toBeLessThan(20_000);
+      expect(capturedTimeoutMs).toBeCloseTo(13_000, -3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('marks the Jira source failed without ever calling search when no crawl budget remains (NFR-J1)', async () => {
+    vi.useFakeTimers();
+    try {
+      const start = new Date('2026-01-01T00:00:00.000Z');
+      vi.setSystemTime(start);
+      const api: GitHubApi = {
+        branchHeadSha: vi.fn(async () => {
+          vi.setSystemTime(new Date(start.getTime() + 29_000)); // GitHub phase alone blew the budget
+          return 'commit-awp';
+        }),
+        tree: vi.fn(async () => []),
+        blob: vi.fn(async () => ''),
+      };
+      const repo = fakeRepo();
+      const searchSpy = vi.fn();
+
+      const result = await performCrawl(api, [publisher], repo as any, 'run-budget2', start.toISOString(), {
+        sources: [jiraSrc],
+        clientFor: () => ({ search: searchSpy as any }),
+      });
+
+      expect(searchSpy).not.toHaveBeenCalled();
+      const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+      expect(jiraOutcome.outcome).toBe('failed');
+      expect(jiraOutcome.reason).toMatch(/budget|time/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('redacts the Jira token and service-account email from a search failure before it reaches the crawl summary (NFR-J2)', async () => {
+    const api = apiFor({ awp: { tree: [], blobs: {} } });
+    const repo = fakeRepo();
+    const SECRET_TOKEN = 'super-secret-jira-token-xyz';
+    const SECRET_EMAIL = jiraSrc.serviceAccountEmail;
+
+    const result = await performCrawl(api, [publisher], repo as any, 'run-secret', 't', {
+      sources: [jiraSrc],
+      clientFor: () => fakeJiraApi([], { failWith: new Error(`401 unauthorized for token ${SECRET_TOKEN} account ${SECRET_EMAIL}`) }),
+      secrets: [SECRET_TOKEN, SECRET_EMAIL],
+    });
+
+    const jiraOutcome = result.sources.find((s) => s.label === 'jira-awp')!;
+    expect(jiraOutcome.reason).not.toContain(SECRET_TOKEN);
+    expect(jiraOutcome.reason).not.toContain(SECRET_EMAIL);
+    expect(jiraOutcome.reason).toContain('[redacted]');
   });
 });

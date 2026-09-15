@@ -53,7 +53,7 @@ function requirement(source: string, id: string, text: string): RequirementRecor
     modality: 'SHALL',
     earsConforming: true,
     changedInLastCrawl: false,
-    specHash: 'h',
+    contentHash: 'h',
     lastCrawledAt: '2026-07-16T00:00:00Z',
   };
 }

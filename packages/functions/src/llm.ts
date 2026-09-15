@@ -39,6 +39,12 @@ const PROMPTS: Record<string, string> = {
     '- Assertions describe what a runner must verify after propagation; be specific and grounded.',
     '- Call the `emit_functional_test_plan` tool exactly once with the plan; do not reply with prose.',
   ].join('\n'),
+  'jira-ears-v1': [
+    'You are a requirements engineer. Convert the following acceptance criteria text into a single strict EARS-format requirement sentence.',
+    'Use WHEN/THE for event-driven, IF/THE for failure/error cases, WHILE/THE for ongoing conditions, WHERE/THE for conditional features.',
+    'Include one of SHALL, SHOULD, or MAY as the modality.',
+    'Return only the single converted requirement sentence. No explanation, no preamble.',
+  ].join('\n'),
 };
 
 function userPrompt(ctx: GroundedContext): string {
@@ -113,4 +119,57 @@ export function createBedrockClient(model: string = DEFAULT_BEDROCK_MODEL, regio
       return block.input;
     },
   };
+}
+
+export class ConversionTimeoutError extends Error {
+  constructor(message = 'EARS conversion exceeded the time budget') {
+    super(message);
+    this.name = 'ConversionTimeoutError';
+  }
+}
+
+export class ConversionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConversionError';
+  }
+}
+
+/**
+ * Convert a Jira acceptance-criteria string into a single strict-EARS sentence
+ * (JR-20, NFR-J3). Free-form text response — no forced tool-use.
+ */
+export async function convertToEars(rawText: string, opts: { timeoutMs: number; model?: string }): Promise<string> {
+  const client = new BedrockRuntimeClient();
+  const body = {
+    anthropic_version: 'bedrock-2023-05-31',
+    max_tokens: 512,
+    system: PROMPTS['jira-ears-v1'],
+    messages: [{ role: 'user', content: rawText }],
+  };
+
+  let res;
+  try {
+    res = await client.send(
+      new InvokeModelCommand({
+        modelId: opts.model ?? DEFAULT_BEDROCK_MODEL,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify(body),
+      }),
+      { abortSignal: AbortSignal.timeout(opts.timeoutMs) }
+    );
+  } catch (err) {
+    const name = (err as Error).name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new ConversionTimeoutError();
+    throw new ConversionError((err as Error).message);
+  }
+
+  const decoded = JSON.parse(new TextDecoder().decode(res.body)) as {
+    content?: { type: string; text?: string }[];
+    stop_reason?: string;
+  };
+  const block = (decoded.content ?? [])[0];
+  if (!block?.text) throw new ConversionError('no text content in Bedrock response');
+  return block.text;
 }

@@ -53,14 +53,14 @@ describe('requirements read handlers (T-30 · R-109…R-112)', () => {
   it('GET /requirements/{source} returns the set, 404 when unknown (AC-110, AC-112)', async () => {
     vi.spyOn(repository, 'getRequirementsForSource').mockResolvedValueOnce({
       source: 'publisher',
-      specVersion: '0.1.0',
-      specHash: 'h1',
+      sourceVersion: '0.1.0',
+      contentHash: 'h1',
       lastCrawledAt: 't',
       requirements: [{ id: 'R-01' } as any],
     });
     const ok = await read.requirementsForSource(ev({ source: 'publisher' }));
     expect(ok.statusCode).toBe(200);
-    expect(JSON.parse(ok.body!)).toMatchObject({ source: 'publisher', specVersion: '0.1.0' });
+    expect(JSON.parse(ok.body!)).toMatchObject({ source: 'publisher', sourceVersion: '0.1.0' });
 
     vi.spyOn(repository, 'getRequirementsForSource').mockResolvedValueOnce(undefined);
     expect((await read.requirementsForSource(ev({ source: 'nope' }))).statusCode).toBe(404);
@@ -74,6 +74,20 @@ describe('requirements read handlers (T-30 · R-109…R-112)', () => {
 
     vi.spyOn(repository, 'getRequirement').mockResolvedValueOnce(undefined);
     expect((await read.requirement(ev({ source: 'publisher', id: 'R-404' }))).statusCode).toBe(404);
+  });
+
+  it('GET /requirements/{source}/{id} passes through rawText + jiraUrl for Jira-sourced records', async () => {
+    vi.spyOn(repository, 'getRequirement').mockResolvedValueOnce({
+      source: 'jira-awp',
+      id: 'BAWP-1551',
+      rawText: 'raw AC text',
+      jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-1551',
+    } as any);
+    const ok = await read.requirement(ev({ source: 'jira-awp', id: 'BAWP-1551' }));
+    expect(JSON.parse(ok.body!)).toMatchObject({
+      rawText: 'raw AC text',
+      jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-1551',
+    });
   });
 });
 

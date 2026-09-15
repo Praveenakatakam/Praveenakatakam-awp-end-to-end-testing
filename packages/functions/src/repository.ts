@@ -21,6 +21,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import { Table } from 'sst/node/table';
 import { Bucket } from 'sst/node/bucket';
 import type { ValidationError, ParsedRequirement } from '@registry/core';
+import { log } from './log.js';
 
 const TABLE = Table.Registry.tableName;
 const BUCKET = Bucket.Contracts.bucketName;
@@ -37,7 +38,7 @@ const runPk = (runId: string) => `RUN#${runId}`;
 const genPk = (runId: string) => `GEN#${runId}`;
 const reqPk = (source: string) => `REQ#${source}`;
 const reqSk = (id: string) => `R#${id}`;
-const reqSpecKey = (source: string) => `requirements/${source}/spec.md`;
+const earsCacheKey = (hash: string) => `requirements/ears-cache/${hash}.json`;
 const s3Key = (source: string, id: string, version: number, hash: string) =>
   `contracts/${source}/${id}/${version}-${hash.slice(0, 12)}.odcs.yaml`;
 const artifactKey = (runId: string) => `test-artifacts/${runId}/artifacts.json`;
@@ -122,9 +123,11 @@ export interface RequirementRecord {
   modality: string | null;
   earsConforming: boolean;
   changedInLastCrawl: boolean;
-  specHash: string;
-  specVersion?: string;
+  contentHash: string;
+  sourceVersion?: string;
   lastCrawledAt: string;
+  rawText?: string;
+  jiraUrl?: string;
 }
 
 /** Per-source requirement crawl counts, folded into the run summary (R-108). */
@@ -507,6 +510,26 @@ class Repository {
     );
   }
 
+  /** Read a cached EARS conversion by raw-text hash, or null on a miss (JR-23). */
+  async getEarsCache(rawTextHash: string): Promise<string | null> {
+    try {
+      const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: earsCacheKey(rawTextHash) }));
+      return obj.Body ? await (obj.Body as any).transformToString() : null;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'NoSuchKey') return null;
+      throw err;
+    }
+  }
+
+  /** Persist an EARS conversion under its raw-text hash (JR-23). Never throws — a cache-write failure must not fail the crawl. */
+  async putEarsCache(rawTextHash: string, earsText: string): Promise<void> {
+    try {
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: earsCacheKey(rawTextHash), Body: earsText, ContentType: 'application/json' }));
+    } catch (err) {
+      log.warn('ears-cache.put-failed', { rawTextHash, error: String(err) });
+    }
+  }
+
   // ---- Requirements catalog (T-28 · §3.10, R-106…R-108, R-114) ------------
   // Latest-snapshot per source (no history — D-45): each crawl replaces the
   // source's requirement set wholesale, flagging text that changed since last
@@ -521,7 +544,7 @@ class Repository {
   async putRequirements(
     source: string,
     parsed: ParsedRequirement[],
-    opts: { specHash: string; specVersion?: string; rawSpec: string }
+    opts: { contentHash: string; sourceVersion?: string; rawSnapshot?: string; snapshotKey?: string }
   ): Promise<RequirementCounts> {
     // Prior snapshot: id → text, to compute changedInLastCrawl (R-107).
     const prior = await ddb.send(
@@ -569,9 +592,11 @@ class Repository {
         modality: r.modality,
         earsConforming: r.earsConforming,
         changedInLastCrawl,
-        specHash: opts.specHash,
+        contentHash: opts.contentHash,
         lastCrawledAt,
-        ...(opts.specVersion ? { specVersion: opts.specVersion } : {}),
+        ...(opts.sourceVersion ? { sourceVersion: opts.sourceVersion } : {}),
+        ...(r.rawText ? { rawText: r.rawText } : {}),
+        ...(r.jiraUrl ? { jiraUrl: r.jiraUrl } : {}),
       };
       return { PutRequest: { Item: item } };
     });
@@ -586,15 +611,22 @@ class Repository {
     // retried until DynamoDB accepts every item (R-107, NFR-4).
     await batchWriteAll([...putItems, ...deleteItems]);
 
-    // Raw docs/spec.md snapshot in S3 (R-114, latest only — overwrite).
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: reqSpecKey(source),
-        Body: opts.rawSpec,
-        ContentType: 'text/markdown',
-      })
-    );
+    // Raw snapshot in S3 (R-114, latest only — overwrite). Key and format are
+    // caller-supplied so this function stays source-agnostic.
+    if (opts.snapshotKey && opts.rawSnapshot !== undefined) {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET,
+          Key: opts.snapshotKey,
+          Body: opts.rawSnapshot,
+          ContentType: opts.snapshotKey.endsWith('.json')
+            ? 'application/json'
+            : opts.snapshotKey.endsWith('.md')
+              ? 'text/markdown'
+              : 'text/plain',
+        })
+      );
+    }
 
     return {
       discovered: deduped.length,
@@ -611,7 +643,7 @@ class Repository {
    * absent (source reachable): the source now declares zero requirements, so
    * its prior requirements are removed wholesale (latest-snapshot, R-105/D-45).
    */
-  async wipeRequirements(source: string): Promise<RequirementCounts> {
+  async wipeRequirements(source: string, snapshotKey?: string): Promise<RequirementCounts> {
     const prior = await ddb.send(
       new QueryCommand({
         TableName: TABLE,
@@ -622,8 +654,9 @@ class Repository {
     );
     const ids = ((prior.Items ?? []) as { id: string }[]).map((i) => i.id);
     await batchWriteAll(ids.map((id) => ({ DeleteRequest: { Key: { PK: reqPk(source), SK: reqSk(id) } } })));
-    // Drop the stored raw spec snapshot too (DeleteObject is idempotent).
-    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: reqSpecKey(source) }));
+    if (snapshotKey) {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: snapshotKey }));
+    }
     return { discovered: 0, conforming: 0, nonConforming: 0, changed: 0, removed: ids.length };
   }
 
@@ -650,7 +683,7 @@ class Repository {
   async getRequirementsForSource(
     source: string
   ): Promise<
-    { source: string; specVersion?: string; specHash?: string; lastCrawledAt?: string; requirements: RequirementRecord[] } | undefined
+    { source: string; sourceVersion?: string; contentHash?: string; lastCrawledAt?: string; requirements: RequirementRecord[] } | undefined
   > {
     const res = await ddb.send(
       new QueryCommand({
@@ -662,7 +695,7 @@ class Repository {
     const requirements = [...((res.Items ?? []) as RequirementRecord[])].sort(byRequirementId);
     if (requirements.length === 0) return undefined;
     const first = requirements[0];
-    return { source, specVersion: first.specVersion, specHash: first.specHash, lastCrawledAt: first.lastCrawledAt, requirements };
+    return { source, sourceVersion: first.sourceVersion, contentHash: first.contentHash, lastCrawledAt: first.lastCrawledAt, requirements };
   }
 
   /** One requirement, or undefined → 404 (R-111, R-112). */

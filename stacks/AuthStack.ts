@@ -58,6 +58,11 @@ export function AuthStack({ stack }: StackContext) {
   const githubToken = new Config.Secret(stack, 'GITHUB_TOKEN');
   const demoPassword = new Config.Secret(stack, 'REGISTRY_DEMO_PASSWORD');
 
+  // Jira source (design §2.5). Set with `npx sst secrets set JIRA_API_TOKEN …`.
+  // JIRA_SERVICE_ACCOUNT_EMAIL is nashah@collegeboard.org for now (spec OQ-J3,
+  // D-J7) — swap to a dedicated service account before any production deploy.
+  const jiraApiToken = new Config.Secret(stack, 'JIRA_API_TOKEN');
+
   // Source-crawl configuration as SST Parameters so they can be changed per
   // stage without a code redeploy (change value → sst deploy to update SSM).
   const sourceBranchParam = new Config.Parameter(stack, 'SOURCE_BRANCH', {
@@ -65,6 +70,24 @@ export function AuthStack({ stack }: StackContext) {
   });
   const contractPathPrefixParam = new Config.Parameter(stack, 'CONTRACT_PATH_PREFIX', {
     value: 'docs/contracts/',
+  });
+
+  // Jira source configuration (spec §3.1, design §2.5) — same runtime-override
+  // model as SOURCE_BRANCH / CONTRACT_PATH_PREFIX.
+  const jiraBaseUrlParam = new Config.Parameter(stack, 'JIRA_BASE_URL', {
+    value: 'https://collegeboard.atlassian.net',
+  });
+  const jiraJqlParam = new Config.Parameter(stack, 'JIRA_JQL', {
+    value: 'project = BAWP AND issuetype = Story AND status != Done',
+  });
+  const jiraAcFieldIdParam = new Config.Parameter(stack, 'JIRA_AC_FIELD_ID', {
+    value: 'customfield_11048',
+  });
+  const jiraServiceAccountEmailParam = new Config.Parameter(stack, 'JIRA_SERVICE_ACCOUNT_EMAIL', {
+    value: 'nashah@collegeboard.org', // TEMP — swap for a dedicated service account before production (D-J7)
+  });
+  const jiraSourceLabelParam = new Config.Parameter(stack, 'JIRA_SOURCE_LABEL', {
+    value: 'jira-awp',
   });
 
   // Deploy-time seed of the reader + writer demo users (R-72, D-17).
@@ -89,5 +112,18 @@ export function AuthStack({ stack }: StackContext) {
     UserPoolClientId: auth.userPoolClientId,
   });
 
-  return { auth, githubToken, userPoolIdParam, userPoolClientIdParam, sourceBranchParam, contractPathPrefixParam };
+  return {
+    auth,
+    githubToken,
+    userPoolIdParam,
+    userPoolClientIdParam,
+    sourceBranchParam,
+    contractPathPrefixParam,
+    jiraApiToken,
+    jiraBaseUrlParam,
+    jiraJqlParam,
+    jiraAcFieldIdParam,
+    jiraServiceAccountEmailParam,
+    jiraSourceLabelParam,
+  };
 }

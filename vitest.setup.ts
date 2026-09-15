@@ -24,7 +24,13 @@ process.env.SST_Parameter_value_USER_POOL_ID ??= 'us-east-1_test000';
 process.env.SST_Parameter_value_USER_POOL_CLIENT_ID ??= 'testclientid';
 process.env.SST_Parameter_value_SOURCE_BRANCH ??= 'feat/end-to-end-testing-registry';
 process.env.SST_Parameter_value_CONTRACT_PATH_PREFIX ??= 'docs/contracts/';
+process.env.SST_Parameter_value_JIRA_BASE_URL ??= 'https://collegeboard.atlassian.net';
+process.env.SST_Parameter_value_JIRA_JQL ??= 'project = BAWP AND issuetype = Story AND status != Done';
+process.env.SST_Parameter_value_JIRA_AC_FIELD_ID ??= 'customfield_11048';
+process.env.SST_Parameter_value_JIRA_SERVICE_ACCOUNT_EMAIL ??= 'nashah@collegeboard.org';
+process.env.SST_Parameter_value_JIRA_SOURCE_LABEL ??= 'jira-awp';
 
 // Config.Secrets (sst/node/config) — inline value skips the SSM fetch.
 process.env.SST_Secret_value_REGISTRY_DEMO_PASSWORD ??= 'test-password';
 process.env.SST_Secret_value_GITHUB_TOKEN ??= 'test-github-token';
+process.env.SST_Secret_value_JIRA_API_TOKEN ??= 'test-jira-token';

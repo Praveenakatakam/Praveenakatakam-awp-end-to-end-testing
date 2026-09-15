@@ -133,6 +133,7 @@ function RequirementsView({ api }: { api: Api }) {
                     </button>
                     {!r.earsConforming && <span data-testid="non-conforming">non-conforming</span>}
                     {r.changedInLastCrawl && <span data-testid="changed">changed</span>}
+                    {r.rawText && r.rawText !== r.text && <span data-testid="auto-converted">auto-converted</span>}
                   </li>
                 ))}
               </ul>

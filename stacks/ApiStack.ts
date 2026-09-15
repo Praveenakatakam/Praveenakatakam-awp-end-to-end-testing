@@ -15,7 +15,19 @@ import { StorageStack } from './StorageStack';
  *   R-50..R-55 — the read endpoints.
  */
 export function ApiStack({ stack }: StackContext) {
-  const { githubToken, userPoolIdParam, userPoolClientIdParam, sourceBranchParam, contractPathPrefixParam } = use(AuthStack);
+  const {
+    githubToken,
+    userPoolIdParam,
+    userPoolClientIdParam,
+    sourceBranchParam,
+    contractPathPrefixParam,
+    jiraApiToken,
+    jiraBaseUrlParam,
+    jiraJqlParam,
+    jiraAcFieldIdParam,
+    jiraServiceAccountEmailParam,
+    jiraSourceLabelParam,
+  } = use(AuthStack);
   const { registry, contracts } = use(StorageStack);
 
   // The authorizer verifies Cognito access tokens itself (aws-jwt-verify); it
@@ -71,11 +83,21 @@ export function ApiStack({ stack }: StackContext) {
       },
     },
     routes: {
-      // Writer-only; also bound to the GitHub PAT for the crawl.
+      // Writer-only; also bound to the GitHub PAT + Jira token/config for the crawl.
       'POST /refresh': {
         function: {
           handler: 'packages/functions/src/refresh.handler',
-          bind: [githubToken, sourceBranchParam, contractPathPrefixParam],
+          bind: [
+            githubToken,
+            sourceBranchParam,
+            contractPathPrefixParam,
+            jiraApiToken,
+            jiraBaseUrlParam,
+            jiraJqlParam,
+            jiraAcFieldIdParam,
+            jiraServiceAccountEmailParam,
+            jiraSourceLabelParam,
+          ],
           timeout: '30 seconds',
         },
       },

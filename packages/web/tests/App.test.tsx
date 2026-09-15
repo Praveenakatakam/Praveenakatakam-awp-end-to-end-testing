@@ -67,6 +67,29 @@ const requirements = [
     earsConforming: false,
     changedInLastCrawl: false,
   },
+  {
+    source: 'jira-awp',
+    id: 'BAWP-1',
+    text: 'WHEN the button is clicked THE system SHALL turn it green.',
+    rawText: 'the button must turn green when clicked',
+    jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-1',
+    section: 'Checkout Epic',
+    earsType: 'event',
+    modality: 'SHALL',
+    earsConforming: true,
+    changedInLastCrawl: false,
+  },
+  {
+    source: 'jira-awp',
+    id: 'BAWP-2',
+    text: 'WHEN a user submits THE system SHALL save it.',
+    jiraUrl: 'https://collegeboard.atlassian.net/browse/BAWP-2',
+    section: 'Checkout Epic',
+    earsType: 'event',
+    modality: 'SHALL',
+    earsConforming: true,
+    changedInLastCrawl: false,
+  },
 ];
 
 beforeEach(() => {
@@ -240,5 +263,23 @@ describe('App Requirements view (T-31 · R-113)', () => {
     await userEvent.click(within(view).getByRole('button', { name: /R-10/i }));
     const detail = await screen.findByLabelText('requirement-detail');
     expect(within(detail).getByRole('heading', { name: /publisher \/ R-10/i })).toBeInTheDocument();
+  });
+
+  it('badges a Jira requirement whose text was auto-converted from rawText (JR-42, OQ-J6)', async () => {
+    render(<App />);
+    await screen.findByText('org');
+    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    const view = await screen.findByLabelText('requirements');
+
+    const bawp1 = within(view).getByRole('button', { name: /BAWP-1/i }).closest('li')!;
+    expect(within(bawp1).getByTestId('auto-converted')).toBeInTheDocument();
+
+    // Already-EARS Jira story (no rawText) — not converted, no badge.
+    const bawp2 = within(view).getByRole('button', { name: /BAWP-2/i }).closest('li')!;
+    expect(within(bawp2).queryByTestId('auto-converted')).not.toBeInTheDocument();
+
+    // GitHub-sourced requirements never carry rawText — no badge either.
+    const r01 = within(view).getByRole('button', { name: /R-01/i }).closest('li')!;
+    expect(within(r01).queryByTestId('auto-converted')).not.toBeInTheDocument();
   });
 });

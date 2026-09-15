@@ -29,6 +29,10 @@ export interface ParsedRequirement {
   modality: Modality | null;
   /** True IFF a modality keyword is present (R-104). */
   earsConforming: boolean;
+  /** Original acceptance-criteria text before EARS conversion (Jira-sourced only). */
+  rawText?: string;
+  /** Browser URL of the originating issue (Jira-sourced only). */
+  jiraUrl?: string;
 }
 
 // Level-2 heading that opens the requirements section (e.g. "## 3. Functional Requirements (EARS)").
@@ -43,7 +47,7 @@ const SUB_HEADING = /^#{3,6}\s+(.+)$/;
 // A requirement line: "**{DOMAIN}-R-nn** text" (bold id, optional domain prefix, space-separated text).
 const REQ_BULLET = /^\*\*((?:[A-Z]+-)?R-\d+[a-z]?)\*\*\s+(.+)$/;
 
-function deriveEarsType(text: string): EarsType {
+export function deriveEarsType(text: string): EarsType {
   const m = /^(WHEN|IF|WHILE|WHERE)\b/.exec(text);
   if (!m) return 'ubiquitous';
   switch (m[1]) {
@@ -58,7 +62,7 @@ function deriveEarsType(text: string): EarsType {
   }
 }
 
-function deriveModality(text: string): Modality | null {
+export function deriveModality(text: string): Modality | null {
   const m = /\b(SHALL|SHOULD|MAY)\b/.exec(text);
   return m ? (m[1] as Modality) : null;
 }

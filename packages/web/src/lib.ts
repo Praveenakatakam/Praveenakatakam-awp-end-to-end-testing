@@ -36,6 +36,10 @@ export interface RequirementEntry {
   modality: string | null;
   earsConforming: boolean;
   changedInLastCrawl: boolean;
+  /** Original acceptance-criteria text before EARS conversion (Jira-sourced only — JR-30). */
+  rawText?: string;
+  /** Browser URL of the originating Jira issue (Jira-sourced only — JR-30). */
+  jiraUrl?: string;
 }
 
 export interface RequirementSourceGroup {
