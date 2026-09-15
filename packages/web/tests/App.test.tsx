@@ -74,6 +74,11 @@ beforeEach(() => {
   authState.token = undefined;
   fakeApi.listContracts.mockResolvedValue(entries);
   fakeApi.listRequirements.mockResolvedValue(requirements);
+  // Default: nothing diverges. `load()` calls getEntity for every multi-variant
+  // entity (org and user both qualify in the shared fixture), so every test
+  // needs a resolved value here — divergence itself is only ever set later via
+  // applyEntityDivergence, not from the initial grouping (fix(web) 44c9078).
+  fakeApi.getEntity.mockImplementation(async (entity: string) => ({ entity, divergent: false }));
 });
 
 describe('App auth gate + Refresh visibility (T-14 · R-60, R-64)', () => {
@@ -102,11 +107,13 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
   });
 
   it('groups by entity and flags divergence (AC-61)', async () => {
+    // The badge reflects the semantic diff endpoint's verdict, not the file hash.
+    fakeApi.getEntity.mockImplementation(async (entity: string) => ({ entity, divergent: entity === 'user' }));
     render(<App />);
     await screen.findByText('org');
     expect(screen.getByText('user')).toBeInTheDocument();
     // exactly one divergent badge (user diverges, org does not)
-    expect(screen.getAllByTestId('divergent')).toHaveLength(1);
+    expect(await screen.findAllByTestId('divergent')).toHaveLength(1);
   });
 
   it('opens a contract detail, shows its metadata, and views its YAML (AC-62)', async () => {
@@ -139,7 +146,7 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
     await screen.findByText('org');
     await userEvent.click(screen.getAllByRole('button', { name: /publisher v/i })[0]);
     // The bumped version entry shows the warning label; the first version does not.
-    const history = await screen.findByLabelText('metadata');
+    const history = await screen.findByLabelText('version-history');
     expect(history).toHaveTextContent('version not bumped');
   });
 

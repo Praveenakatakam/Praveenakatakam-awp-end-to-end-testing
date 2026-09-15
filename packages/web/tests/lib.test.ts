@@ -3,6 +3,7 @@ import {
   decodeGroups,
   isWriter,
   groupByEntity,
+  applyEntityDivergence,
   groupBySource,
   groupRequirementsBySection,
   type Entry,
@@ -35,13 +36,21 @@ describe('groupByEntity (T-15 · R-61)', () => {
     { source: 'publisher', id: 'user', entity: 'user', currentVersion: 1, currentHash: 'hA', validation: 'valid' },
     { source: 'consumer', id: 'user', entity: 'user', currentVersion: 2, currentHash: 'hB', validation: 'valid' },
   ];
-  it('groups variants by entity and flags divergence by hash', () => {
+  it('groups variants by entity; divergence starts false regardless of hash (derived later from the semantic diff, not the file hash — fix(web) 44c9078)', () => {
     const groups = groupByEntity(entries);
     const org = groups.find((g) => g.entity === 'org')!;
     const user = groups.find((g) => g.entity === 'user')!;
     expect(org.variants).toHaveLength(2);
-    expect(org.divergent).toBe(false); // identical hashes
-    expect(user.divergent).toBe(true); // hA vs hB
+    expect(user.variants).toHaveLength(2);
+    expect(org.divergent).toBe(false);
+    expect(user.divergent).toBe(false); // not yet true even though hA !== hB — hash no longer drives this
+  });
+
+  it('applyEntityDivergence updates only the matching group, leaving the others untouched', () => {
+    const groups = groupByEntity(entries);
+    const updated = applyEntityDivergence(groups, { entity: 'user', divergent: true });
+    expect(updated.find((g) => g.entity === 'user')!.divergent).toBe(true);
+    expect(updated.find((g) => g.entity === 'org')!.divergent).toBe(false);
   });
 });
 

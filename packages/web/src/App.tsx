@@ -74,7 +74,7 @@ function Detail({ api, source, id }: { api: Api; source: string; id: string }) {
             </div>
           ))}
       </dl>
-      <ul>
+      <ul aria-label="version-history">
         {data.versions?.map((v: any) => (
           <li key={v.versionNumber}>
             v{v.versionNumber} — {v.hash?.slice(0, 8)} {v.versionNotBumped && <em>(version not bumped)</em>}
