@@ -523,6 +523,7 @@ describe('Jira crawl integration (T-07 · JR-10..17, JR-20..23, JR-30..32, NFR-J
     const convert = vi.fn(async () => {
       throw new Error('bedrock unavailable');
     });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await performCrawl(api, [publisher], repo as any, 'run-j3', 't', {
       sources: [jiraSrc],
@@ -537,6 +538,15 @@ describe('Jira crawl integration (T-07 · JR-10..17, JR-20..23, JR-30..32, NFR-J
       earsConforming: false,
       modality: null,
     });
+
+    // The conversion failure itself is logged, not swallowed silently — found
+    // missing during live verification against real Jira (2026-09-16), where
+    // a Bedrock IAM permission gap on this Lambda was undiagnosable from logs.
+    const logged = logSpy.mock.calls.map((c) => JSON.parse(c[0] as string));
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: 'crawl.jira.convert.failed', key: 'BAWP-2', reason: 'bedrock unavailable' })
+    );
+    logSpy.mockRestore();
   });
 
   it('marks the Jira source failed without touching prior data when the search itself fails; GitHub sources still complete (JR-15, NFR-J4)', async () => {

@@ -23,7 +23,7 @@ export default {
   },
   stacks(app) {
     app.setDefaultFunctionProps({
-      runtime: 'nodejs20.x',
+      runtime: 'nodejs22.x',
       architecture: 'arm_64',
     });
     app.stack(StorageStack).stack(AuthStack).stack(ApiStack).stack(WebStack);

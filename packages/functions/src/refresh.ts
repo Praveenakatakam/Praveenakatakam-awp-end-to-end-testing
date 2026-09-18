@@ -166,8 +166,13 @@ async function crawlJiraSource(
           try {
             text = await convert(rawAc, { timeoutMs: EARS_CONVERSION_TIMEOUT_MS });
             await repo.putEarsCache(hash, text);
-          } catch {
+          } catch (convertErr) {
             text = rawAc; // JR-22 fallback — store raw text, non-conforming
+            log.warn('crawl.jira.convert.failed', {
+              runId,
+              key: story.key,
+              reason: redact((convertErr as Error).message, secrets),
+            });
           }
         }
       }

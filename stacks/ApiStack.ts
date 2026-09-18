@@ -84,6 +84,10 @@ export function ApiStack({ stack }: StackContext) {
     },
     routes: {
       // Writer-only; also bound to the GitHub PAT + Jira token/config for the crawl.
+      // Bedrock grant mirrors FunctionalWorker's (JR-20): crawlJiraSource's EARS
+      // conversion calls Bedrock via this Lambda's own execution role (SigV4,
+      // no API key) — found missing via live verification against real Jira on
+      // 2026-09-16 (every conversion silently fell back to raw text).
       'POST /refresh': {
         function: {
           handler: 'packages/functions/src/refresh.handler',
@@ -99,6 +103,13 @@ export function ApiStack({ stack }: StackContext) {
             jiraSourceLabelParam,
           ],
           timeout: '30 seconds',
+          permissions: [
+            new PolicyStatement({
+              effect: Effect.ALLOW,
+              actions: ['bedrock:InvokeModel'],
+              resources: ['arn:aws:bedrock:*::foundation-model/anthropic.*', 'arn:aws:bedrock:*:*:inference-profile/*'],
+            }),
+          ],
         },
       },
       // Writer-only; reads the catalog + writes artifacts (bound via defaults). T-23 · R-80.
