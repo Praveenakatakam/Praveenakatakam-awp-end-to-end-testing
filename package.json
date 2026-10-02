@@ -21,7 +21,8 @@
     "generate-tests": "sst bind tsx scripts/generate-tests.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-cognito-identity-provider": "^3.600.0"
+    "@aws-sdk/client-cognito-identity-provider": "^3.600.0",
+    "@collegeboard-software/nimbus-sst": "^1.13.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

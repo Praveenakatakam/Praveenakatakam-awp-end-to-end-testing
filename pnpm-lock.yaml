@@ -52,6 +52,9 @@ importers:
       '@aws-sdk/client-cognito-identity-provider':
         specifier: ^3.600.0
         version: 3.1095.0
+      '@collegeboard-software/nimbus-sst':
+        specifier: ^1.13.4
+        version: 1.13.4(aws-cdk-lib@2.238.0(constructs@10.3.0))(constructs@10.3.0)(graphql@17.0.2)(sst@2.49.8(patch_hash=44acfae784fd1cc1be5d9de86698b1d9ed60d9943d4fc76d3a72c17ba7c67ece)(@aws-cdk/cli-plugin-contract@2.182.2)(@aws-sdk/client-sso-oidc@3.699.0(@aws-sdk/client-sts@3.699.0(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(@types/react@18.3.31)(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0))(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0))
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -501,6 +504,9 @@ packages:
   '@aws-sdk/core@3.977.1':
     resolution: {integrity: sha512-KVtQRtc00ES/y+Sc3vYXeP6pCIcNlBJCZOwvqSy8ZpVGmbM5+IG+AfhuTKQ2oXmIVqZJewaGMMpzPkywC6xg0w==}
     engines: {node: '>=20.0.0'}
+    deprecated: |-
+      Deprecated due to Document number parsing bug in JSON, see
+        https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
 
   '@aws-sdk/credential-provider-cognito-identity@3.699.0':
     resolution: {integrity: sha512-iuaTnudaBfEET+o444sDwf71Awe6UiZfH+ipUPmswAi2jZDwdFF1nxMKDEKL8/LV5WpXsdKSfwgS0RQeupURew==}
@@ -858,6 +864,16 @@ packages:
 
   '@cdklabs/tskb@0.0.4':
     resolution: {integrity: sha512-NFx1X0l7p5DyHtLLEyNeh1hPN4UN9hTkZkzFs/Mp+kFk7dpdINGmGVpCfRDjJ2DrcNSNENUmT+w8g73TvmBbTw==}
+
+  '@collegeboard-software/nimbus-sst@1.13.4':
+    resolution: {integrity: sha512-xB5x1wfTevxJtCMfeSTb5v3e2KgRbEv+NbVVbylmjdDlT9TdEtXQZeBz1mzKsfs+A5tGMSbzkd3s6Kjje7FXfg==, tarball: https://npm.pkg.github.com/download/@collegeboard-software/nimbus-sst/1.13.4/0bb82cfd74f89d019233bc1de9dbc69771c3c427}
+    engines: {node: '>=22.14.0', pnpm: '>=11.7.0'}
+    hasBin: true
+    peerDependencies:
+      aws-cdk-lib: 2.238.0
+      constructs: 10.3.0
+      graphql: ^17
+      sst: ^2
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -2437,6 +2453,7 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   css-tree@3.2.1:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==}
@@ -2892,6 +2909,9 @@ packages:
 
   hash-it@6.0.1:
     resolution: {integrity: sha512-qhl8+l4Zwi1eLlL3lja5ywmDQnBzLEJxd0QJoAVIgZpgQbdtVZrN5ypB0y3VHwBlvAalpcbM2/A6x7oUks5zNg==}
+
+  hash-it@7.1.1:
+    resolution: {integrity: sha512-YnOSQIqlxGbaLHUljdlj8o+xWe8USTidhFsmXxeWNYYwZudM1/t9WC9oDxDTVMX6BxM23ORUBH3MIjNRoEdElw==}
 
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
@@ -5926,6 +5946,14 @@ snapshots:
 
   '@cdklabs/tskb@0.0.4': {}
 
+  '@collegeboard-software/nimbus-sst@1.13.4(aws-cdk-lib@2.238.0(constructs@10.3.0))(constructs@10.3.0)(graphql@17.0.2)(sst@2.49.8(patch_hash=44acfae784fd1cc1be5d9de86698b1d9ed60d9943d4fc76d3a72c17ba7c67ece)(@aws-cdk/cli-plugin-contract@2.182.2)(@aws-sdk/client-sso-oidc@3.699.0(@aws-sdk/client-sts@3.699.0(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(@types/react@18.3.31)(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0))(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0))':
+    dependencies:
+      aws-cdk-lib: 2.238.0(constructs@10.3.0)
+      constructs: 10.3.0
+      graphql: 17.0.2
+      hash-it: 7.1.1
+      sst: 2.49.8(patch_hash=44acfae784fd1cc1be5d9de86698b1d9ed60d9943d4fc76d3a72c17ba7c67ece)(@aws-cdk/cli-plugin-contract@2.182.2)(@aws-sdk/client-sso-oidc@3.699.0(@aws-sdk/client-sts@3.699.0(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)))(@types/react@18.3.31)(aws-crt@1.32.3(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0))(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
+
   '@csstools/color-helpers@6.1.0': {}
 
   '@csstools/css-calc@3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
@@ -8211,6 +8239,8 @@ snapshots:
       has-symbols: 1.1.0
 
   hash-it@6.0.1: {}
+
+  hash-it@7.1.1: {}
 
   hasown@2.0.4:
     dependencies:

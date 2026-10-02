@@ -2,7 +2,7 @@
 
 A reference AWS application that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling two sibling repositories on demand — [`awp-odcs-publishing`](https://github.com/collegeboard-personal/awp-odcs-publishing) (publisher) and [`awp-odcs-consuming`](https://github.com/collegeboard-personal/awp-odcs-consuming) (consumer) — via the GitHub API.
 
-Each repo carries its own copy of four OneRoster v1.2 contracts (`org`, `user`, `class`, `enrollment`); the copies have **diverged**. The registry catalogs **both variants as-is** and makes that divergence visible and queryable. Built with **Spec-Driven Development** — see `docs/spec.md` (the oracle), `docs/design.md`, `docs/acceptance-criteria.md`, `docs/tasks.md`, `docs/compliance.md`.
+Each repo carries its own copy of four OneRoster v1.2 contracts (`org`, `user`, `class`, `enrollment`); the copies have **diverged**. The registry catalogs **both variants as-is** and makes that divergence visible and queryable. Built with **Spec-Driven Development** — see [`specs/`](specs/README.md) for the full SDD structure. Core spec: [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) (the oracle).
 
 ## Architecture
 
@@ -26,7 +26,7 @@ Metadata lands in DynamoDB, raw bytes in S3. Reads (`GET /contracts`, `/entities
 ![ODCS Contract Registry architecture](docs/diagrams/registry-architecture.png)
 ![Test Generator architecture](docs/diagrams/testgen-architecture.png)
 
-> Editable sources: [`docs/diagrams/*.drawio`](docs/diagrams) (draw.io / AWS symbols). Regenerate the PNGs with `node docs/diagrams/build-diagrams.mjs` then `drawio --export`. The authoritative, always-current description is `docs/design.md`.
+> Editable sources: [`docs/diagrams/*.drawio`](docs/diagrams) (draw.io / AWS symbols). Regenerate the PNGs with `node docs/diagrams/build-diagrams.mjs` then `drawio --export`. The authoritative, always-current description is [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md).
 
 ## Design highlights
 
@@ -121,7 +121,7 @@ npm run deploy         # sst deploy → provisions Storage/Auth/Api/Web + seeds 
 
 ## Requirements Catalog
 
-Beside the ODCS contracts, the registry crawls each source repo's own **EARS requirements** (`docs/spec.md`) in the **same `POST /refresh`** pass, parses each `- **R-nn** — …` bullet into `{ id, text, section, earsType (event/unwanted/state/optional/ubiquitous), modality (SHALL/SHOULD/MAY), earsConforming }`, and catalogs them **per source** — **latest snapshot** with a `changedInLastCrawl` flag (no version history, deliberately unlike contracts). Requirements without a modality keyword are flagged non-conforming but still cataloged. Served via `GET /requirements*` and a **Requirements** view in the SPA (a third toggle beside By entity / By source), grouped by section with non-conforming and changed requirements badged. Requirements are cataloged **independently per source** — the registry does not diff requirements across apps (unlike contracts). See `docs/spec.md` §3.10 (R-100…R-114) and `docs/design.md` §10.
+Beside the ODCS contracts, the registry crawls each source repo's own **EARS requirements** (`docs/spec.md`) in the **same `POST /refresh`** pass, parses each `- **R-nn** — …` bullet into `{ id, text, section, earsType (event/unwanted/state/optional/ubiquitous), modality (SHALL/SHOULD/MAY), earsConforming }`, and catalogs them **per source** — **latest snapshot** with a `changedInLastCrawl` flag (no version history, deliberately unlike contracts). Requirements without a modality keyword are flagged non-conforming but still cataloged. Served via `GET /requirements*` and a **Requirements** view in the SPA (a third toggle beside By entity / By source), grouped by section with non-conforming and changed requirements badged. Requirements are cataloged **independently per source** — the registry does not diff requirements across apps (unlike contracts). See [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) §3.10 (R-100…R-114) and [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md) §10.
 
 ## Test Generator (contract-driven E2E tests)
 
@@ -141,12 +141,12 @@ npm run generate-tests -- --local   # generate offline from GET /contracts
 
 You supply **nothing but AWS credentials** (`AWS_PROFILE`/`--stage`). `sst bind` injects the stage's SSM-backed bindings, so the CLI reads the API URL from the Api resource binding (`sst/node/api`), the client id from `Config.Parameter USER_POOL_CLIENT_ID`, and the writer password from the existing `Config.Secret REGISTRY_DEMO_PASSWORD` (the seeded writer@demo password), authenticating as `writer@demo` automatically — no config file, no `.env`, no prompt (D-35). Environment variables override any value for CI or ad-hoc use: `REGISTRY_TOKEN` (skip login), `REGISTRY_USERNAME`/`REGISTRY_PASSWORD`, `AWS_REGION`. A missing API URL or credential fails fast with a directive error rather than hanging.
 
-The CLI writes files only — review `git diff` and commit. `generated-tests/**` is excluded from the registry's own test suites. See `docs/spec.md` §3.9 (R-80…R-93, R-91a) and `docs/design.md` §9.
+The CLI writes files only — review `git diff` and commit. `generated-tests/**` is excluded from the registry's own test suites. See [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) §3.9 (R-80…R-93, R-91a) and [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md) §9.
 
 **Running the generated tests is out of scope** (spec §2, D-29). The generator *generates and stores* the tests; executing them — on demand, on a schedule, or in CI — is a separate future feature. The per-entity env-var names each conformance test reads live in `packages/core/src/api-map.ts` (echoed in `generated-tests/manifest.json`); today only `publisher/org` (`GET /orgs`) and `consumer/class` (`GET /me/classes`) are mapped, so those are the only conformance tests emitted.
 
 ## LLM Functional Test Generator (spec v0.6.0 §3.11)
 
-> **✅ Implemented (offline-green); deploy pending.** Code in `packages/functest` + `packages/functions/{llm,functional-gen}.ts`; specified in `docs/spec.md` §3.11 (R-115…R-126, D-50…D-56) and `docs/design.md` §11. Deploy needs Bedrock model access enabled in-region; running the emitted tests stays out of scope (D-56).
+> **✅ Implemented (offline-green); deploy pending.** Code in `packages/functest` + `packages/functions/{llm,functional-gen}.ts`; specified in [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) §3.11 (R-115…R-126, D-50…D-56) and [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md) §11. Deploy needs Bedrock model access enabled in-region; running the emitted tests stays out of scope (D-56).
 
 A planned component that turns the cataloged **ODCS contracts** *and* **EARS requirements** into **end-to-end cross-service functional tests** (publisher → CDC → consumer). Because a functional scenario lives in each service's natural-language EARS prose (which the registry doesn't control — D-3), an **LLM** (Claude on **Amazon Bedrock** via `@aws-sdk/client-bedrock-runtime` `InvokeModel`; IAM-role auth, no stored key — D-55; default **Sonnet 4.6**) synthesises a **structured test-plan** — grounded in the contract `schema[]` + the requirement + the api-map, constrained by forced tool use — which the deterministic emit layer renders to Vitest. The plan is **cached by input-hash** and committed, so re-runs are stable despite LLM nondeterminism (R-88 is scoped out of the synthesis step). It runs **asynchronously** (`POST /generate-functional-tests` → job; `GET /functional-test-jobs/*`; CLI `--functional` delivers artifacts for human review) and is **generate-and-store only** (D-56 — running stays future work).
