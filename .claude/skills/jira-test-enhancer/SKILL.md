@@ -285,7 +285,7 @@ cycle: {1 | 2}
 ```
 
 - **Cycle 1:** the main conversation starts `enhancer-review-blind` with this block minus `suite`, then `enhancer-review-reconcile` with the blind agent's RECONCILE HANDOFF plus `suite`.
-- **Cycle 2 (fix-cycle mode):** the main conversation skips the blind agent and starts `enhancer-review-reconcile` directly with `run_dir`, `expected_coverage: {run_dir}\expected-coverage.md`, `tickets`, `suite` and `cycle: 2`.
+- **Cycle 2 (fix-cycle mode):** the main conversation skips the blind agent and starts `enhancer-review-reconcile` directly with `run_dir`, `expected_coverage: {run_dir}\expected-coverage.ears.md` (or `{run_dir}\expected-coverage.md` if the run folder has no EARS file), `tickets`, `suite` and `cycle: 2`.
 
 **Don't start the review yourself, and don't describe what the reviewer should find.** Keeping your view out of the review is what makes it independent.
 
@@ -408,6 +408,7 @@ Agent steps:
 
 ## Changelog
 
+- **2026-10-05 (v2.1.1):** Cycle 2 hand-off names `expected-coverage.ears.md` when the run folder has it (blind v1.2 writes both coverage files), else `expected-coverage.md`.
 - **2026-10-02 (v2.1):** Independent review integration. Added run modes (Normal / No review / Fix cycle) and fix-cycle mode; Step 3a records the Jira `updated` timestamp; new Step 5.5 saves a snapshot to the run folder (keeps 20); Step 6 append-only rule for xlsx (a mid-sheet insert or delete corrupts merged section titles, confirmed in testing); Step 7 writes `change-summary.md` in the reviewer-parsed format; new Step 9 emits the REVIEW HANDOFF block. Review covers `.xlsx` and `.md` targets (md writing rules added to Step 6; snapshot check uses SHA-256). Design: `skills\enhancer-review-plan.md`.
 
 - **2026-06-25 (v2.0)** - Audit fixes: cache demoted to performance hint (actuals always authoritative), Step 8 cache refresh added, suite_info.py helper script bundled and tested, shared column contract pointer (QA-AGENTS.md), cache verified against actual file via suite_info.py.

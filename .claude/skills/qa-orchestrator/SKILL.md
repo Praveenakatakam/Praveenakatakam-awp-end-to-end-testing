@@ -42,8 +42,10 @@ User sends a QA request
 │   ├─ YES → enhancer review chain. Run folder = the one named, else "newest folder in ENHANCER_RUNS_DIR"
 │   │         (the main context resolves it — this agent has no file listing).
 │   │         The main context then picks the entry point:
-│   │           - run folder has no expected-coverage.md → enhancer-review-blind, then enhancer-review-reconcile
-│   │           - expected-coverage.md exists           → enhancer-review-reconcile only
+│   │           - run folder has neither expected-coverage.md nor expected-coverage.ears.md
+│   │                                                    → enhancer-review-blind, then enhancer-review-reconcile
+│   │           - either file exists                     → enhancer-review-reconcile only
+│   │                                                      (expected_coverage = the .ears.md file if present, else the .md)
 │   └─ NO → continue
 │
 ├─ Contains Jira ticket ID?
@@ -207,7 +209,7 @@ Always end the conversation with this block:
 - Mode: cycle 1 re-review
 
 **Suggested invocation:**
-"review the last enhancement — run folder: {newest run folder}; if it has no expected-coverage.md, run enhancer-review-blind first, then enhancer-review-reconcile"
+"review the last enhancement — run folder: {newest run folder}; if it has neither expected-coverage.md nor expected-coverage.ears.md, run enhancer-review-blind first, then enhancer-review-reconcile"
 ```
 
 ## Agent Ecosystem Reference
@@ -218,8 +220,8 @@ Always end the conversation with this block:
 | `jira-test-enhancer` | Ticket ID and/or E2E file path + regression suite path | Create TCs from scratch, browse live pages |
 | `functional-test-agent` | Live URL + element names | Fetch Jira tickets, update regression suite, replay saved TCs (that's `functional-test-runner`'s job — but this agent auto-invokes it as its last step) |
 | `functional-test-runner` | Live URL + saved `TestCases_*.md` path (engine: Playwright over CDP) | Observe pages or generate new TCs, fetch Jira tickets, update regression suite |
-| `enhancer-review-blind` | REVIEW HANDOFF block minus `suite` (run folder, tickets, E2E files) | See the enhancer's output, edit any file other than `expected-coverage.md`, write or fix TCs |
-| `enhancer-review-reconcile` | RECONCILE HANDOFF + `suite` (or the run folder + cycle 2) | Edit or restore the suite, change `expected-coverage.md`, write or fix TCs |
+| `enhancer-review-blind` | REVIEW HANDOFF block minus `suite` (run folder, tickets, E2E files) | See the enhancer's output, edit any file other than `expected-coverage.md` / `expected-coverage.ears.md`, write or fix TCs |
+| `enhancer-review-reconcile` | RECONCILE HANDOFF + `suite` (or the run folder + cycle 2) | Edit or restore the suite, change either expected-coverage file, write or fix TCs |
 | `qa-orchestrator` (this) | Natural language QA request | Any of the above — routing only |
 
 ## Chaining (when user wants multiple agents)
@@ -248,6 +250,8 @@ Defined once in the agent definition file (`C:\Users\pkatakam\.claude\.claude\ag
 ---
 
 ## Changelog
+
+- **2026-10-05 (v1.4)** - Review-chain entry point now checks for either `expected-coverage.md` or `expected-coverage.ears.md`, and names the EARS file in `expected_coverage` when present. Ecosystem rows updated for the second coverage file.
 
 - **2026-10-02 (v1.3)** - Added the enhancer review chain (`enhancer-review-blind`, `enhancer-review-reconcile`): a new top branch in the routing tree for "review / re-review a past enhancement", goal option E, Example 5, ecosystem rows, and a chaining note (enhancer → review is internal, like generator → runner). Agent .md synced to v1.3; it also gained the `functional-test-runner` row it had been missing since v1.2.
 

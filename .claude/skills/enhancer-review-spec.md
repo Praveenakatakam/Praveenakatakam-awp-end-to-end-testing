@@ -2,7 +2,7 @@
 
 Shared reference for **`enhancer-review-blind`** (Pass 1) and **`enhancer-review-reconcile`** (Pass 2). Each agent's own `SKILL.md` holds its workflow; this file holds the definitions and formats both agents depend on.
 
-- **Version:** 1.1 (2026-10-02; adds `.md` target support)
+- **Version:** 1.2 (2026-10-05; adds the EARS coverage file `expected-coverage.ears.md`)
 - **Design record:** `C:\Users\pkatakam\.claude\skills\enhancer-review-plan.md`
 
 > This file contains **definitions and formats only**. It must never describe what a particular enhancer run produced. The blind agent loads it, so anything about the enhancer's output here would break the blind pass.
@@ -45,7 +45,8 @@ The reviewers **report only**. They never edit the suite.
                                                (.xlsx, e.g. snapshot_BST CRA Regression Suite.xlsx,
                                                 or .md, e.g. snapshot_TestCases_IMI-9963_regression.md)
     change-summary.md                        ← written by the enhancer after it writes
-    expected-coverage.md                     ← written by enhancer-review-blind
+    expected-coverage.md                     ← written by enhancer-review-blind (§9.2; holds the verbatim quotes)
+    expected-coverage.ears.md                ← written by enhancer-review-blind (§9.2b; same items as EARS requirements)
     diff.txt                                 ← written by enhancer-review-reconcile (suite_diff.py output)
     review.md                                ← written by enhancer-review-reconcile (cycle 1)
     diff_cycle2.txt, review_cycle2.md        ← only if a fix cycle runs
@@ -57,7 +58,12 @@ The reviewers **report only**. They never edit the suite.
 |---|---|---|
 | `snapshot_*` (.xlsx or .md) | enhancer | **yes**, only through `suite_rows.py` |
 | `change-summary.md` | enhancer | **no** |
-| `expected-coverage.md` | blind | yes (its own output) |
+| `expected-coverage.md`, `expected-coverage.ears.md` | blind | yes (its own output) |
+
+**The expected-coverage files.** Run folders created from 2026-10-05 have both files. Older run folders have only `expected-coverage.md`, and a run folder may hold only `expected-coverage.ears.md` if it was converted by hand. A run folder **has a blind pass** if it contains either file. When this spec says "the coverage file", it means:
+1. the file named in the hand-off's `expected_coverage`, if given;
+2. otherwise, the only one of the two files present;
+3. otherwise (both present), `expected-coverage.ears.md` for the items and `expected-coverage.md` for the verbatim quotes.
 | `diff*.txt`, `review*.md`, `RunHistory.md` | reconcile | **no** |
 | live REGRESSION_SUITE | enhancer | **no** |
 
@@ -85,14 +91,14 @@ cycle: {1 | 2}
 ```
 ## RECONCILE HANDOFF
 run_dir: {absolute path}
-expected_coverage: {run_dir}\expected-coverage.md
+expected_coverage: {run_dir}\expected-coverage.ears.md
 tickets: {ID, ID | none}
 cycle: 1
 ```
 
 The main conversation passes this block **plus `suite` from block A** to the reconcile agent.
 
-**Cycle 2.** The blind agent is **not** re-run, because the sources haven't changed. The reconcile agent runs again, using the same `expected-coverage.md`, with `cycle: 2`.
+**Cycle 2.** The blind agent is **not** re-run, because the sources haven't changed. The reconcile agent runs again with `cycle: 2`, using the same coverage file(s). Its `expected_coverage` is `{run_dir}\expected-coverage.ears.md` if that file exists in `run_dir`, else `{run_dir}\expected-coverage.md`.
 
 **C. Reconcile → enhancer** (only for "FAIL — fix recommended", when the user chooses to fix):
 
@@ -108,7 +114,7 @@ cycle: 2
 
 ## 5. Source tags (Pass 1)
 
-Every item in `expected-coverage.md` gets exactly one tag:
+Every item in the expected-coverage files gets exactly one tag (the EARS file carries the same tag as the `.md` item it comes from):
 
 | Tag | Meaning | Required evidence |
 |---|---|---|
@@ -240,6 +246,61 @@ The `- ADDED:` and `- UPDATED:` lines must start exactly like that; `suite_diff.
 
 `Kind` is one of `AC`, `Boundary`, `Negative`, `Edge`, `E2E-include`.
 
+### 9.2b `expected-coverage.ears.md` (written by blind, from its own `expected-coverage.md`)
+
+The same items as §9.2, each rewritten as an EARS requirement. It adds no items and drops none. The verbatim quotes stay in `expected-coverage.md`; this file gives only their location.
+
+**EARS patterns:**
+
+| Pattern | Template |
+|---|---|
+| Ubiquitous | The `<system>` shall `<response>`. |
+| Event-driven | **When** `<trigger>`, the `<system>` shall `<response>`. |
+| State-driven | **While** `<state>`, the `<system>` shall `<response>`. |
+| Unwanted behaviour | **If** `<unwanted condition>`, **then** the `<system>` shall `<response>`. |
+| Optional feature | **Where** `<feature is included>`, the `<system>` shall `<response>`. |
+| Complex (extension) | The keywords combined in the order **Where → While → When / If … then**, e.g. **While** `<state>`, **when** `<trigger>`, the `<system>` shall `<response>`. |
+
+**Conversion rules:**
+- **One behaviour per row.** An item that holds two behaviours is split into X-nn.1, X-nn.2, …, keeping the item's tag, kind and evidence.
+- **Ambiguous items:** one row per reading, X-nn (A), X-nn (B), …, each with its own evidence location.
+- **Nothing new.** Every value, code, name and condition in a requirement must appear in the item's quote. Don't add details for the sake of a complete EARS sentence.
+- **Exclusions:** each excluded E2E TC gets an EARS statement of the behaviour it exercises. If the source gives only test steps, take the response from the TC title and mark the requirement *(inferred)*. Inferred requirements are never R1 evidence.
+
+```markdown
+# Expected coverage — {run folder name} (EARS)
+
+- **Source:** expected-coverage.md (same run folder), converted {ISO timestamp}
+- **Blind pass:** enhancer-review-blind v{version}, model {model}, written {ISO timestamp}
+- **Inputs used:** snapshot={file} | tickets={IDs} | e2e_files={paths | none}
+- **Jira fetched:** {TICKET} updated={ISO timestamp}  (one line per ticket)
+- **Not used (by design):** live suite, change-summary.md
+
+## EARS patterns used
+(the pattern table above)
+
+## System names
+| Name in requirements | Meaning |
+|---|---|
+
+## Boundaries
+B1 {System A} → {System B}; B2 …
+
+## Requirements
+| ID | Tag | Kind | EARS pattern | Requirement | Boundaries | Evidence location | Already covered by |
+|---|---|---|---|---|---|---|---|
+| X-01 | Explicit | AC | Unwanted behaviour | **If** …, **then** the … shall … | B3 | DAP-1654 description, AC 3 | — |
+| X-02.1 | Implied | Boundary | Event-driven | **When** …, the … shall … | B4 | comment 2025-… | CRA_TempcredsMR_Regr_129 |
+| X-03 (A) | Ambiguous | AC | State-driven | **While** …, the … shall … | — | … | — |
+
+## Expected exclusions (E2E TCs that should stay out of regression)
+| E2E TC | EARS pattern | Requirement | Reason for exclusion (per regression rules) |
+|---|---|---|---|
+
+## Information gaps seen by the blind pass
+- {copied from expected-coverage.md}
+```
+
 ### 9.3 `review.md` / `review_cycle2.md` (written by reconcile)
 
 ```markdown
@@ -249,7 +310,7 @@ The `- ADDED:` and `- UPDATED:` lines must start exactly like that; `suite_diff.
 **Recommended action:** {one line}
 
 - **Reviewer:** enhancer-review-reconcile v{version}, model {model}, {ISO timestamp}
-- **Blind pass:** verified (expected-coverage.md written {timestamp}, before this review) | NOT VERIFIED — {reason}
+- **Blind pass:** verified ({coverage file} written {timestamp}, before this review) | NOT VERIFIED — {reason}
 - **Jira timestamps:** match | differ — {details}
 
 ## Needs your decision

@@ -36,7 +36,7 @@ Every `jira-test-enhancer` write to an `.xlsx` or `.md` target is reviewed by tw
 jira-test-enhancer      snapshot → write (append-only) → change-summary.md → REVIEW HANDOFF
         │  main conversation: pass the block WITHOUT the `suite` line
         ▼
-enhancer-review-blind   fetches Jira itself + E2E file + snapshot only → expected-coverage.md → RECONCILE HANDOFF
+enhancer-review-blind   fetches Jira itself + E2E file + snapshot only → expected-coverage.md + expected-coverage.ears.md → RECONCILE HANDOFF
         │  main conversation: pass the block + `suite`
         ▼
 enhancer-review-reconcile  suite_diff.py + checks R1–R10 → review.md + RunHistory line → verdict
@@ -62,8 +62,8 @@ user: accept | fix (FIX HANDOFF → enhancer → reconcile, cycle 2 only) | roll
 3. **Never restore a snapshot** without the user's explicit confirmation in chat.
 4. **Never run two `enhancer-review-reconcile` agents in parallel.** They both append to `RunHistory.md`, and parallel writes have lost a line before (2026-10-02). Run reviews one after another.
 5. **For a "review the last enhancement" request**, use the newest run folder in `ENHANCER_RUNS_DIR`, skipping `_calibration`:
-   - **No `expected-coverage.md` yet** (e.g. the run was "no review"): run blind, then reconcile.
-   - **`expected-coverage.md` exists:** run reconcile only.
+   - **Neither `expected-coverage.md` nor `expected-coverage.ears.md` exists** (e.g. the run was "no review"): run blind, then reconcile.
+   - **Either file exists:** run reconcile only, with `expected_coverage` set to `expected-coverage.ears.md` if it exists, else `expected-coverage.md`.
 
 ## TC ID conventions
 
