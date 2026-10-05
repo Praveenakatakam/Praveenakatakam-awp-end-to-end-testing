@@ -1,0 +1,29 @@
+# Spec registry
+# Each entry: slug, location, description, depends_on (slugs), needed_by (slugs)
+
+active:
+  - slug: odcs-contract-registry
+    location: active/odcs-contract-registry/
+    description: >
+      Crawls awp-app-plane for ODCS v3.1.0 contracts and EARS requirements,
+      catalogs them in DynamoDB with append-only version history, exposes a REST
+      API + React SPA, and generates contract-driven and LLM-synthesised
+      cross-service end-to-end tests via Amazon Bedrock.
+    spec_version: "0.6.2"
+    status: implemented-and-deployed
+    depends_on: []
+    needed_by:
+      - prompt-versioning-experiments
+
+pending:
+  - slug: prompt-versioning-experiments
+    location: pending/prompt-versioning-experiments/
+    description: >
+      Version the LLM prompts used for functional test synthesis; track
+      generation runs per prompt version; catalog test outputs per experiment
+      so results across prompt iterations can be compared side by side.
+    depends_on:
+      - odcs-contract-registry
+    needed_by: []
+
+archive: []
