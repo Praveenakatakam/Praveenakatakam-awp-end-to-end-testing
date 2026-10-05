@@ -1,0 +1,160 @@
+# suite_diff report
+format: xlsx
+before: C:\Users\pkatakam\.claude\skills\jira-test-enhancer\runs\_calibration\replay_jira\snapshot_BST CRA Regression Suite.xlsx
+after:  C:\Users\pkatakam\.claude\skills\jira-test-enhancer\runs\_calibration\live\control.xlsx
+summary: C:\Users\pkatakam\.claude\skills\jira-test-enhancer\runs\_calibration\replay_jira\change-summary.md
+
+## Totals
+before: max_row=146, TCs=129
+after:  max_row=163, TCs=143
+added=14 changed=0 removed=0 new sections=1
+
+## R8 file integrity: PASS
+- no integrity problems found
+
+## R10 change-summary accuracy: PASS
+
+## R4 duplicate candidates (reviewer must confirm)
+- none
+
+## New sections
+- Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+
+## Added TCs (full text)
+  [CRA_TempcredsMR_Regr_124] row 150 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Happy Path - Valid x-api-key + valid temp creds returns SUCCESS with RAOTT (new temp-creds-auth Lambda). Boundary: API Gateway -> temp-creds-auth Lambda -> TempCredentials Global Table -> RAOTT Global Table -> Catapult
+    Stay in Regression: Yes
+    Test Steps: _Execute SSOR_Validations test case to create a Reg with a valid temp credential (active=true, actionCode not CANCELED/CANCEL, expDt in future, lockFactor=0) present in the TempCredentials Global table
+_Ensure a valid x-api-key is provisioned in Secrets Manager (dap-mc-auth/temp-creds/api-keys) and Catapult/RAOTT table are reachable
+_POST /auth/temp-creds with header x-api-key:<valid>, Content-Type:application/json, body {username,password,fingerprint}
+_Execute DAP_Validations test case to confirm temp cred and RAOTT flow
+_Inspect CloudWatch structured log (eventType LOGIN_TEMP_CREDS)
+    Expected Result: _HTTP 200; body code=SUCCESS, status=authenticated; firstName/lastName/preferredName/personId populated; non-empty rmt (RAOTT token)
+_Username lookup served via gsiUsrnameIx
+_RAOTT generated via Catapult on cache miss
+_CloudWatch log records SUCCESS; password and api-key masked
+  [CRA_TempcredsMR_Regr_125] row 151 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Integration handoff - Akamai routes to NEW API Gateway when feature flag/weight enabled. Boundary: Bluebook client -> Akamai -> new API Gateway -> temp-creds-auth Lambda
+    Stay in Regression: Yes
+    Test Steps: _Feature flag temp-creds-new-auth ON for the test user (or Akamai/Route53 weight directs to new GW)
+_From the Bluebook client, initiate temp-creds login for a flagged user
+_Capture the resolved endpoint and trace the request through Akamai to the new API Gateway
+    Expected Result: _Request lands on /auth/temp-creds (new dap-mc-auth GW), NOT the legacy endpoint
+_End-to-end auth returns SUCCESS; trace confirms new Lambda invocation
+_This boundary (client -> Akamai -> new GW) is the rollout cutover seam
+  [CRA_TempcredsMR_Regr_126] row 152 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Integration handoff - Feature flag OFF routes to LEGACY endpoint (parallel-run safety). Boundary: Bluebook client -> Akamai -> legacy authTmpCreds (da-msagwtc)
+    Stay in Regression: Yes
+    Test Steps: _Feature flag temp-creds-new-auth OFF for the test user
+_Initiate temp-creds login for a non-flagged user
+_Trace the request path
+    Expected Result: _Request routed to legacy API Gateway / authTmpCreds; auth succeeds with equivalent response shape
+_No invocation of the new Lambda
+_Legacy path remains fully functional during migration
+  [CRA_TempcredsMR_Regr_127] row 153 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Integration handoff - Dual-write propagates new credential to global table. Boundary: legacy processTmpCreds (da-msagwtc) -> legacy TempCredentials table + TempCredentials Global Table (dap-mc-auth)
+    Stay in Regression: Yes
+    Test Steps: _Dual-write enabled in legacy processTmpCreds
+_Inject a CTO message creating a new temp credential into the legacy SQS queue
+_After processing, query BOTH the legacy table and the new global table by regNo (gsiRegNoIx)
+_Authenticate against the new endpoint using the new credential
+_Execute DAP_Validations to confirm temp cred parity
+    Expected Result: _Record present in BOTH tables with identical field values; hk/sk formatted asmtEventRegNo#<regNo>; all GSI attributes populated; ttl set (expDt + grace)
+_New-endpoint authentication of the new credential returns SUCCESS
+_Validates schema mapping parity (legacy -> new identical structure + added ttl)
+  [CRA_TempcredsMR_Regr_128] row 154 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Multi-Region - Credential written in us-east-1 is readable/authenticatable in us-west-2 (Global Table replication). Boundary: TempCredentials Global Table us-east-1 -> us-west-2 replica
+    Stay in Regression: Yes
+    Test Steps: _Global table replication active to both regions
+_Write/create a temp credential in us-east-1
+_Within the replication window, read the same item from the us-west-2 replica
+_Authenticate via the us-west-2 regional endpoint
+    Expected Result: _Item replicated to us-west-2; replication lag < 1 second (target)
+_Authentication via us-west-2 returns SUCCESS using the replicated record
+_Eventual consistency: allow brief settle time before assertion
+  [CRA_TempcredsMR_Regr_129] row 155 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Regional Failover - us-east-1 outage fails over to us-west-2 with no user-visible interruption. Boundary: Route 53 -> API Gateway (both regions) -> temp-creds-auth Lambda -> Global Tables
+    Stay in Regression: Yes
+    Test Steps: _Both regions deployed and healthy; Route 53 health checks configured
+_Begin a sustained stream of valid temp-creds logins
+_Simulate us-east-1 outage (mark health check unhealthy / block region)
+_Continue login attempts during and after failover; measure failover time
+    Expected Result: _Traffic automatically routes to us-west-2; logins continue to succeed
+_Failover time near real-time (target < 1 minute); auth success rate stays ~99.9%+; error rate near zero during failover
+_Maps to success metrics: Auth Success Rate during regional failures, Failover RTO
+  [CRA_TempcredsMR_Regr_130] row 156 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Failback - Traffic returns to us-east-1 after recovery with consistent data (bidirectional replication). Boundary: Route 53 -> API Gateway (both regions) -> TempCredentials Global Table
+    Stay in Regression: Yes
+    Test Steps: _A prior failover to us-west-2 occurred; writes happened in us-west-2 during the outage
+_Restore us-east-1 health
+_Verify traffic returns to us-east-1
+_Authenticate credentials that were created/updated in us-west-2 during the outage
+    Expected Result: _Traffic resumes in us-east-1; credentials written during failover are present and authenticate successfully (replicated back)
+_No data loss; last-writer-wins applied for any conflicting writes
+  [CRA_TempcredsMR_Regr_131] row 157 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Negative - Missing or invalid x-api-key returns 403 ERROR_BAD_API_KEY (Secrets Manager rejects key). Boundary: API Gateway -> temp-creds-auth Lambda -> Secrets Manager
+    Stay in Regression: Yes
+    Test Steps: _Valid credentials available (should fail before lookup)
+_POST /auth/temp-creds with NO x-api-key header, valid body
+_POST /auth/temp-creds with x-api-key:<bogus> (value not in Secrets Manager), valid body
+    Expected Result: _Both variants return HTTP 403, code=ERROR_BAD_API_KEY, message 'Your app is not authorized to make this call'
+_No credential lookup performed; Secrets Manager validation rejects the key
+  [CRA_TempcredsMR_Regr_132] row 158 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Negative - Missing credentials (400) and invalid credentials/wrong password (401), failed-attempt counter increments. Boundary: API Gateway -> temp-creds-auth Lambda -> TempCredentials Global Table
+    Stay in Regression: Yes
+    Test Steps: _Valid x-api-key provisioned
+_POST with body missing password, then missing username, then empty {}
+_POST with an existing username but wrong password
+_Inspect the credential record's failed-attempt counter
+    Expected Result: _Missing field / empty body -> HTTP 400, code=ERROR_BAD_CREDENTIALS, 'Missing credentials'
+_Wrong password -> HTTP 401, code=ERROR_BAD_CREDENTIALS, 'Bad credentials'
+_Failed-attempt counter incremented for that username
+  [CRA_TempcredsMR_Regr_133] row 159 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Negative - Expired credentials return 403 EXPIRED_CREDENTIALS; canceled/inactive credentials return 403 INACTIVE_CREDENTIALS. Boundary: temp-creds-auth Lambda -> TempCredentials Global Table
+    Stay in Regression: Yes
+    Test Steps: _Prepare a credential with expDt <= now (not yet TTL-deleted), one with actionCode=CANCELED (and a CANCEL variant), and one with active=false
+_POST with correct username/password for the expired credential
+_POST with correct password for the CANCELED credential
+_POST with correct password for the active=false credential
+    Expected Result: _Expired -> HTTP 403, code=EXPIRED_CREDENTIALS, 'Your temporary credentials have expired'
+_CANCELED/CANCEL and active=false -> HTTP 403, code=INACTIVE_CREDENTIALS, 'Your temporary credentials are not active'
+  [CRA_TempcredsMR_Regr_134] row 160 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Security - Passwords and API keys masked in logs/responses; structured logs carry traceability fields. Boundary: temp-creds-auth Lambda -> CloudWatch
+    Stay in Regression: Yes
+    Test Steps: _CloudWatch log access available
+_Perform successful and failed logins
+_Inspect CloudWatch logs and all HTTP responses
+    Expected Result: _No plaintext password, hashed pw, or x-api-key value appears in logs or responses
+_Structured logs include personId, catapultId, regNo for traceability
+  [CRA_TempcredsMR_Regr_135] row 161 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Parity - Identical request yields equivalent response on legacy and new endpoints across the error matrix (cutover confidence). Boundary: legacy authTmpCreds (da-msagwtc) vs new temp-creds-auth Lambda
+    Stay in Regression: Yes
+    Test Steps: _Same credential exists in both legacy and new tables (dual-write)
+_Send identical request to the legacy endpoint and to /auth/temp-creds
+_Compare response codes, bodies (minus token value), and error codes across the matrix: success, bad api key, bad creds, lockout, expired, inactive
+    Expected Result: _Both endpoints return equivalent status codes and code values for each scenario; response schema matches the API spec
+_Any difference is a migration blocker
+  [CRA_TempcredsMR_Regr_136] row 162 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Recovery - Rollback to legacy (0% to new) keeps auth working with no data rollback (dual-write keeps tables consistent). Boundary: Akamai/Route 53 -> legacy authTmpCreds + new Lambda + both tables
+    Stay in Regression: Yes
+    Test Steps: _New system live with some traffic; dual-write operational
+_Trigger a rollback condition (simulate error rate > 1%)
+_Shift routing back to legacy (0% to new) via Akamai/feature flag
+_Continue authenticating; verify data consistency between tables
+    Expected Result: _Auth continues via legacy with no interruption; no data rollback required because dual-write kept tables consistent
+_Credentials created during the new-system window still resolve on legacy
+  [CRA_TempcredsMR_Regr_137] row 163 | section: Temp Creds Multi-Region Auth Scenarios (DAP-1654)
+    Scenario: DAP-1654 Health - Shallow and deep health checks respond correctly per region; Route 53 consumes deep health for failover. Boundary: API Gateway -> temp-creds-auth Lambda -> Route 53
+    Stay in Regression: Yes
+    Test Steps: _Lambda deployed in both regions
+_GET /auth/temp-creds/health in us-east-1 and us-west-2
+_GET /auth/temp-creds/health/deep in both regions
+    Expected Result: _Shallow health returns healthy 200 in both regions
+_Deep health validates downstream dependencies (table, RAOTT, Catapult) and returns accordingly; Route 53 consumes these for failover decisions
+_Deep health failure drives failover (links to TC 129)
+
+## Changed TCs (before → after)
+  none
+
+## Other sheets
+  no changes
