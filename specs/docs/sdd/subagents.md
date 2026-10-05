@@ -4,6 +4,16 @@ The SDD workflow maps to a pipeline of specialized subagents. Each is scoped to 
 
 ---
 
+## Stage 0 — Gap Discovery (pre-stub)
+
+**Not a subagent — a human step.**
+
+Before opening a stub file, run the gap discovery prompt from [fit-check.md](fit-check.md) in a Claude chat. Answer Claude's questions, then write the stub incorporating everything you learned. Every unanswered question becomes an open question in the stub.
+
+**Output:** a stub with pre-surfaced open questions rather than a blank slate.
+
+---
+
 ## Stage 1 — Requirements
 
 **Agent: `requirements`**
@@ -16,9 +26,10 @@ Responsibilities:
 - Write NFRs, edge cases table, and open questions
 - Record each non-obvious decision in the decisions log (`D-n`)
 - Version the spec header
+- After drafting: audit each requirement for EARS compliance — flag ambiguous ones, rewrite in strict EARS format, and generate GIVEN/WHEN/THEN test skeletons for each (flag any requirement that can't be expressed as GIVEN/WHEN/THEN; those need rewriting before design begins)
 
 Inputs: `stub.md`, relevant system-design docs from `specs/docs/`
-Output: `requirements.md`
+Output: `requirements.md` with EARS-validated requirements and test skeletons
 
 ---
 
@@ -29,12 +40,12 @@ Output: `requirements.md`
 Takes `requirements.md` and produces `active/<slug>/design.md`.
 
 Responsibilities:
-- For each significant technical decision: enumerate **build options** (different implementation approaches) and **buy/reuse options** (existing packages, services, patterns already in the codebase)
+- For each significant technical decision: enumerate build options and buy/reuse options (existing packages, services, patterns in the codebase)
 - Weigh trade-offs explicitly — don't just pick one; show the reasoning
 - Derive the architecture, data models, API surface, and integration boundaries
 - Map every requirement to at least one component
 - Surface spec conflicts or design risks (flagged, not silent)
-- Reference existing patterns from `specs/docs/system-design/` and `specs/docs/integrations/` to stay consistent with what's already built
+- Reference existing patterns from `specs/docs/system-design/` and `specs/docs/integrations/`
 
 Inputs: `requirements.md`, `specs/docs/system-design/`, `specs/docs/integrations/`, `specs/docs/data-model/`
 Output: `design.md`
@@ -45,7 +56,7 @@ Output: `design.md`
 
 **Agent: `planner`**
 
-Takes `requirements.md` + `design.md` and produces `active/<slug>/tasks.md` (and optionally updates `acceptance-criteria.md`).
+Takes `requirements.md` + `design.md` and produces `active/<slug>/tasks.md`.
 
 Responsibilities:
 - Write ordered implementation tasks (`T-nn`) with explicit `Deps:`, `Satisfies:` (requirement ids), and `Done when (AC)` fields
@@ -63,7 +74,7 @@ Output: `tasks.md`
 
 **Agent: `reviewer`**
 
-Reviews design + tasks against requirements. **Only surfaces real gaps or major risks** — not nitpicks, not style, not hypothetical edge cases already covered. The bar is: "would this actually break something or miss a stated requirement?"
+Reviews design + tasks against requirements. **Only surfaces real gaps or major risks** — not nitpicks, not style, not hypothetical edge cases already covered.
 
 Responsibilities:
 - Verify every requirement is addressed by at least one task
@@ -74,8 +85,6 @@ Responsibilities:
 
 Inputs: `requirements.md`, `design.md`, `tasks.md`
 Output: a short list of confirmed gaps/risks — or "no blockers found"
-
-Not the reviewer's job: style suggestions, alternative architectures, speculative concerns, anything the design already acknowledges.
 
 ---
 
@@ -90,9 +99,10 @@ Responsibilities:
 - One task ≈ one Claude session — don't combine multiple unrelated tasks
 - Keep changes minimal: implement what the task says, no extras
 - Run `typecheck` and `test:offline` before reporting done
+- After each task: check for spec drift — did the implementation require deviations? Were any edge cases discovered that aren't in the spec? Report these before starting the next task so requirements.md stays current.
 
 Inputs: specific `T-nn`/`T-nna` task pair, `requirements.md` (relevant section), `design.md` (relevant section)
-Output: passing tests + implementation
+Output: passing tests + implementation + drift report (empty if no drift)
 
 ---
 
@@ -103,7 +113,7 @@ Output: passing tests + implementation
 Adversarial review of the implementation after a phase is complete.
 
 Responsibilities:
-- Run `/code-review` or equivalent on the diff
+- Run code review on the diff
 - Verify each AC claimed in the tasks actually passes
 - Check for security issues: injection, missing auth checks, secrets in logs
 - Flag correctness bugs only — not style issues
@@ -118,14 +128,13 @@ Output: a short verified-pass list or list of bugs requiring a fix
 
 **Agent: `tech-writer`**
 
-Updates documentation after a feature ships. Keeps both agent docs and human docs current.
+Updates documentation after a feature ships.
 
 Responsibilities:
 - Update `specs/docs/` files affected by the new feature (system-design, data-model, integrations)
 - Update `docs/` human-facing documentation (README, system map, etc.)
 - Update `specs/registry.yaml` — move completed specs to `archive`, add `needed_by`/`depends_on` links
-- Create or update `active/<slug>/stub.md` completion notes
-- Files should stay under ~300 lines — split if needed, update the README/index
+- Files should stay under ~200 lines — split if needed, update the README/index
 
 Inputs: merged diff, `specs/active/<slug>/` full set of docs
 Output: updated `specs/docs/` and `docs/` files
@@ -135,14 +144,15 @@ Output: updated `specs/docs/` and `docs/` files
 ## Parallelization
 
 ```
-stub.md
-  └── [requirements] → requirements.md
+[gap discovery] → stub.md
+  └── [requirements] → requirements.md (EARS-validated + test skeletons)
         └── [design] → design.md
               └── [planner] → tasks.md
                     ├── [reviewer] → gaps report          ← can run while planner writes tasks
                     └── [implementer × N phases]          ← phases run sequentially, tasks within a phase in parallel
                           └── [impl-reviewer] → pass/bug report
                                 └── [tech-writer] → updated docs
+                                      └── [health-check] → drift report (periodic)
 ```
 
-Stages 1–4 (spec work) are sequential. Stages 5–6 repeat per parallelization phase. Stage 7 runs once after all phases are done (or can run incrementally per phase for long features).
+Stages 0–4 (spec work) are sequential. Stages 5–6 repeat per parallelization phase. Stage 7 runs once after all phases are done (or incrementally per phase for long features). Health checks run out-of-band, not as a blocking stage.
