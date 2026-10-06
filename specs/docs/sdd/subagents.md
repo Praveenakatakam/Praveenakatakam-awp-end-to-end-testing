@@ -16,7 +16,7 @@ Before opening a stub file, run the gap discovery prompt from [fit-check.md](fit
 
 ## Stage 1 — Requirements
 
-**Agent: `requirements`**
+**Agent: `requirements`** → invoke as `.claude/agents/planner.md` (requirements mode)
 
 Takes a stub (`pending/<slug>/stub.md`) and produces `active/<slug>/requirements.md`.
 
@@ -35,7 +35,7 @@ Output: `requirements.md` with EARS-validated requirements and test skeletons
 
 ## Stage 2 — Design
 
-**Agent: `design`**
+**Agent: `design`** → invoke as `.claude/agents/planner.md` (design mode)
 
 Takes `requirements.md` and produces `active/<slug>/design.md`.
 
@@ -54,7 +54,7 @@ Output: `design.md`
 
 ## Stage 3 — Planning
 
-**Agent: `planner`**
+**Agent: `planner`** → invoke as `.claude/agents/technical-planner.md`
 
 Takes `requirements.md` + `design.md` and produces `active/<slug>/tasks.md`.
 
@@ -72,7 +72,7 @@ Output: `tasks.md`
 
 ## Stage 4 — Adversarial Review
 
-**Agent: `reviewer`**
+**Agent: `reviewer`** → invoke as `.claude/agents/reviewer.md` (pre-implementation mode)
 
 Reviews design + tasks against requirements. **Only surfaces real gaps or major risks** — not nitpicks, not style, not hypothetical edge cases already covered.
 
@@ -90,7 +90,7 @@ Output: a short list of confirmed gaps/risks — or "no blockers found"
 
 ## Stage 5 — Implementation
 
-**Agent: `implementer`**
+**Agent: `implementer`** → invoke as `.claude/agents/implementer.md`
 
 Takes a task (or parallelization phase) from `tasks.md` and implements it.
 
@@ -108,7 +108,7 @@ Output: passing tests + implementation + drift report (empty if no drift)
 
 ## Stage 6 — Implementation Review
 
-**Agent: `impl-reviewer`**
+**Agent: `impl-reviewer`** → invoke as `.claude/agents/reviewer.md` (post-implementation mode)
 
 Adversarial review of the implementation after a phase is complete.
 
@@ -126,7 +126,7 @@ Output: a short verified-pass list or list of bugs requiring a fix
 
 ## Stage 7 — Technical Writer
 
-**Agent: `tech-writer`**
+**Agent: `tech-writer`** → no dedicated agent file; handled in main conversation or a general agent session
 
 Updates documentation after a feature ships.
 
