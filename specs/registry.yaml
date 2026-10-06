@@ -24,6 +24,65 @@ pending:
       so results across prompt iterations can be compared side by side.
     depends_on:
       - odcs-contract-registry
+    needed_by:
+      - configurable-llm-pipeline
+
+  - slug: configurable-llm-pipeline
+    location: pending/configurable-llm-pipeline/
+    description: >
+      Replace the single hardcoded LLM step with a runtime-configurable pipeline
+      of chained steps (generate, adversarial, refine, review) stored in DynamoDB;
+      each step has its own model, prompt, and cache key; supports linear chain now,
+      DAG (parallel independent steps) as follow-on.
+    depends_on:
+      - odcs-contract-registry
+      - prompt-versioning-experiments
+    needed_by:
+      - generation-run-audit
+      - parallel-llm-generation
+
+  - slug: generation-run-audit
+    location: pending/generation-run-audit/
+    description: >
+      Per-step audit trail for generation runs; input snapshots pinned to a crawl
+      run ID for stable QA test data; baseline run designation and diff API for
+      apples-to-apples prompt/pipeline iteration; storage cost tiering for production.
+    depends_on:
+      - odcs-contract-registry
+      - configurable-llm-pipeline
+    needed_by: []
+
+  - slug: parallel-llm-generation
+    location: pending/parallel-llm-generation/
+    description: >
+      Fan-out requirement processing across concurrent Bedrock calls with a
+      configurable concurrency limit; failure-isolated so one bad requirement
+      does not cancel others; per-step DAG parallelism as follow-on.
+    depends_on:
+      - odcs-contract-registry
+      - configurable-llm-pipeline
+    needed_by: []
+
+  - slug: ci-generation-workflow
+    location: pending/ci-generation-workflow/
+    description: >
+      Automate the generate-tests CLI in CI: trigger on crawl completion or
+      schedule, open a PR with the updated generated-tests/ tree, and optionally
+      gate CI on stale generated tests.
+    depends_on:
+      - odcs-contract-registry
+      - configurable-llm-pipeline
+    needed_by: []
+
+  - slug: spa-test-artifacts
+    location: pending/spa-test-artifacts/
+    description: >
+      Expose generation runs and generated test artifacts in the SPA: run history,
+      per-run manifest + plan detail, step audit trail, writer trigger button,
+      and baseline comparison diff once the audit spec lands.
+    depends_on:
+      - odcs-contract-registry
+      - generation-run-audit
     needed_by: []
 
 archive: []
