@@ -15,18 +15,6 @@ active:
     needed_by:
       - prompt-versioning-experiments
 
-  - slug: prompt-versioning-experiments
-    location: active/prompt-versioning-experiments/
-    description: >
-      Version the LLM prompts used for functional test synthesis; track
-      generation runs per prompt version; catalog test outputs per experiment
-      so results across prompt iterations can be compared side by side.
-    spec_version: "0.2.0"
-    status: design
-    depends_on:
-      - odcs-contract-registry
-    needed_by:
-      - configurable-llm-pipeline
 
 pending:
 
@@ -88,4 +76,28 @@ pending:
       - generation-run-audit
     needed_by: []
 
-archive: []
+  - slug: spa-ux-redesign
+    location: pending/spa-ux-redesign/
+    description: >
+      Replace the flat four-tab SPA navigation with a two-area layout (Source
+      Pipeline and Experiments) that makes the app's conceptual structure explicit
+      and scales to future LLM-assisted requirement enrichment.
+    depends_on:
+      - odcs-contract-registry
+      - prompt-versioning-experiments
+    needed_by:
+      - spa-test-artifacts
+
+archive:
+  - slug: prompt-versioning-experiments
+    location: archive/prompt-versioning-experiments/
+    description: >
+      Version the LLM prompts used for functional test synthesis; track
+      generation runs per prompt version; catalog test outputs per experiment
+      so results across prompt iterations can be compared side by side.
+    spec_version: "0.2.0"
+    status: implemented-and-deployed
+    depends_on:
+      - odcs-contract-registry
+    needed_by:
+      - configurable-llm-pipeline
