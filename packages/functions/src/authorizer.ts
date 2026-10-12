@@ -21,7 +21,7 @@ export type AuthContext = { sub: string; username: string; groups: string };
 type SimpleResult = APIGatewaySimpleAuthorizerWithContextResult<AuthContext>;
 
 /** Routes that require the `writer` group (crawl + test generation). */
-export const WRITER_ROUTES = new Set(['POST /refresh', 'POST /generate-tests', 'POST /generate-functional-tests']);
+export const WRITER_ROUTES = new Set(['POST /refresh', 'POST /generate-tests', 'POST /generate-functional-tests', 'POST /prompt-versions', 'POST /experiments']);
 
 /** The group a route requires. */
 export function requiredGroup(routeKey: string): 'writer' | 'reader' {

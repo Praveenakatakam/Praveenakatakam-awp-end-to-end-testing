@@ -141,3 +141,147 @@ describe('read API handlers (T-13 · R-50..R-55)', () => {
     expect(body.sources[0].requirements).toMatchObject({ discovered: 5, conforming: 4, nonConforming: 1 });
   });
 });
+
+// ---- Prompt versions + experiments (T-10a · prompt-versioning-experiments) ----
+
+describe('prompt-version and experiment read handlers (T-10a)', () => {
+  it('GET /prompt-versions delegates to handleListPromptVersions and omits text (R-08)', async () => {
+    // GIVEN
+    vi.spyOn(repository, 'listPromptVersions').mockResolvedValueOnce([
+      { promptVersion: 'v1.0.0', text: 'secret prompt', modelId: 'claude-sonnet-4-6', createdAt: '2026-10-01T00:00:00Z', startedAt: '2026-10-01T00:00:00Z', createdBy: 'user' },
+      { promptVersion: 'v1.1.0', text: 'another secret', modelId: 'claude-sonnet-4-6', createdAt: '2026-10-02T00:00:00Z', startedAt: '2026-10-02T00:00:00Z', createdBy: 'user' },
+    ]);
+
+    // WHEN
+    const res = await read.promptVersions(ev());
+
+    // THEN
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.promptVersions).toHaveLength(2);
+    for (const item of body.promptVersions) {
+      expect(item).not.toHaveProperty('text');
+      expect(item.promptVersion).toBeTruthy();
+    }
+  });
+
+  it('GET /prompt-versions/{pv} returns 200 with full record including text', async () => {
+    // GIVEN
+    const record = {
+      promptVersion: 'v1.0.0',
+      text: 'You are a contract test generator.',
+      modelId: 'claude-sonnet-4-6',
+      createdAt: '2026-10-01T00:00:00Z',
+      startedAt: '2026-10-01T00:00:00Z',
+      createdBy: 'test-user',
+    };
+    vi.spyOn(repository, 'getPromptVersion').mockResolvedValueOnce(record);
+
+    // WHEN
+    const res = await read.promptVersion(ev({ promptVersion: 'v1.0.0' }));
+
+    // THEN
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.promptVersion).toBe('v1.0.0');
+    expect(body.text).toBe(record.text);
+  });
+
+  it('GET /prompt-versions/{pv} returns 404 for an unknown version', async () => {
+    // GIVEN
+    vi.spyOn(repository, 'getPromptVersion').mockResolvedValueOnce(undefined);
+
+    // WHEN
+    const res = await read.promptVersion(ev({ promptVersion: 'does-not-exist' }));
+
+    // THEN
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('GET /experiments returns 200 with experiments array', async () => {
+    // GIVEN
+    vi.spyOn(repository, 'listExperiments').mockResolvedValueOnce([
+      { experimentId: 'exp-1', promptVersion: 'v1.0.0', status: 'succeeded' } as any,
+      { experimentId: 'exp-2', promptVersion: 'v1.1.0', status: 'pending' } as any,
+    ]);
+
+    // WHEN
+    const res = await read.experiments(ev());
+
+    // THEN
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.experiments).toHaveLength(2);
+    expect(body.experiments[0].experimentId).toBe('exp-1');
+  });
+
+  it('GET /experiments/{experimentId} returns 200 with the experiment record', async () => {
+    // GIVEN
+    const record = { experimentId: 'exp-1', promptVersion: 'v1.0.0', status: 'succeeded', planCount: 3, skipCount: 0 };
+    vi.spyOn(repository, 'getExperiment').mockResolvedValueOnce(record as any);
+
+    // WHEN
+    const res = await read.experiment(ev({ experimentId: 'exp-1' }));
+
+    // THEN
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.experimentId).toBe('exp-1');
+    expect(body.promptVersion).toBe('v1.0.0');
+  });
+
+  it('GET /experiments/{experimentId} returns 404 for an unknown experiment id', async () => {
+    // GIVEN
+    vi.spyOn(repository, 'getExperiment').mockResolvedValueOnce(undefined);
+
+    // WHEN
+    const res = await read.experiment(ev({ experimentId: 'ghost' }));
+
+    // THEN
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('GET /experiments/{experimentId}/artifact returns 200 with artifact when experiment is succeeded', async () => {
+    // GIVEN
+    const record = { experimentId: 'exp-1', promptVersion: 'v1.0.0', status: 'succeeded', planCount: 5, skipCount: 1 };
+    const artifact = { tests: [{ name: 'test-1' }] };
+    vi.spyOn(repository, 'getExperiment').mockResolvedValueOnce(record as any);
+    vi.spyOn(repository, 'getExperimentArtifact').mockResolvedValueOnce(artifact as any);
+
+    // WHEN
+    const res = await read.experimentArtifact(ev({ experimentId: 'exp-1' }));
+
+    // THEN
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body!);
+    expect(body.experimentId).toBe('exp-1');
+    expect(body.promptVersion).toBe('v1.0.0');
+    expect(body.status).toBe('succeeded');
+    expect(body.planCount).toBe(5);
+    expect(body.skipCount).toBe(1);
+    expect(body.artifact).toEqual(artifact);
+  });
+
+  it('GET /experiments/{experimentId}/artifact returns 404 when experiment not found', async () => {
+    // GIVEN
+    vi.spyOn(repository, 'getExperiment').mockResolvedValueOnce(undefined);
+
+    // WHEN
+    const res = await read.experimentArtifact(ev({ experimentId: 'missing' }));
+
+    // THEN
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('GET /experiments/{experimentId}/artifact returns 404 when experiment status is pending (not succeeded)', async () => {
+    // GIVEN — experiment exists but has not finished running yet
+    const record = { experimentId: 'exp-pending', promptVersion: 'v1.0.0', status: 'pending', planCount: 0, skipCount: 0 };
+    vi.spyOn(repository, 'getExperiment').mockResolvedValueOnce(record as any);
+
+    // WHEN
+    const res = await read.experimentArtifact(ev({ experimentId: 'exp-pending' }));
+
+    // THEN — artifact endpoint must only serve succeeded experiments
+    expect(res.statusCode).toBe(404);
+  });
+});

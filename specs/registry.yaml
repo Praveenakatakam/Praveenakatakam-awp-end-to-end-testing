@@ -15,17 +15,20 @@ active:
     needed_by:
       - prompt-versioning-experiments
 
-pending:
   - slug: prompt-versioning-experiments
-    location: pending/prompt-versioning-experiments/
+    location: active/prompt-versioning-experiments/
     description: >
       Version the LLM prompts used for functional test synthesis; track
       generation runs per prompt version; catalog test outputs per experiment
       so results across prompt iterations can be compared side by side.
+    spec_version: "0.2.0"
+    status: design
     depends_on:
       - odcs-contract-registry
     needed_by:
       - configurable-llm-pipeline
+
+pending:
 
   - slug: configurable-llm-pipeline
     location: pending/configurable-llm-pipeline/

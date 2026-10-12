@@ -50,4 +50,20 @@ describe('StorageStack', () => {
       CorsConfiguration: Match.absent(),
     });
   });
+
+  // T-02a — lifecycle rule expires objects under experiments/ after 90 days (R-130).
+  it('has a lifecycle rule that expires experiments/ objects after 90 days', () => {
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            Id: 'expire-experiments-90d',
+            Prefix: 'experiments/',
+            ExpirationInDays: 90,
+            Status: 'Enabled',
+          }),
+        ]),
+      },
+    });
+  });
 });

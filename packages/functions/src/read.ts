@@ -7,6 +7,7 @@ import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from '
 import { parseAndValidate, diffContracts } from '@registry/core';
 import { repository } from './repository.js';
 import { json, notFound } from './http.js';
+import { handleListPromptVersions, handleGetPromptVersion } from './prompt-versions.js';
 
 /** GET /contracts?source=&entity=&validation= (R-50). */
 export async function contracts(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
@@ -162,4 +163,48 @@ export async function requirement(event: APIGatewayProxyEventV2): Promise<APIGat
   const found = await repository.getRequirement(source, id);
   if (!found) return notFound(`no requirement ${source}/${id}`);
   return json(200, found);
+}
+
+// ---- Prompt versions (T-08 · prompt-versioning-experiments) ----------------
+
+/** GET /prompt-versions — list all prompt versions, omitting the `text` field. */
+export const promptVersions = handleListPromptVersions;
+
+/** GET /prompt-versions/{promptVersion} — fetch one prompt version with full text. */
+export const promptVersion = handleGetPromptVersion;
+
+// ---- Experiments (T-10 · prompt-versioning-experiments) --------------------
+
+/** GET /experiments — list all experiments newest-first. */
+export async function experiments(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const items = await repository.listExperiments();
+  return json(200, { experiments: items });
+}
+
+/** GET /experiments/{experimentId} — one experiment record. */
+export async function experiment(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { experimentId } = event.pathParameters ?? {};
+  if (!experimentId) return notFound();
+  const record = await repository.getExperiment(experimentId);
+  if (!record) return notFound();
+  return json(200, record);
+}
+
+/** GET /experiments/{experimentId}/artifact — artifact payload, only when succeeded. */
+export async function experimentArtifact(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { experimentId } = event.pathParameters ?? {};
+  if (!experimentId) return notFound();
+  const record = await repository.getExperiment(experimentId);
+  if (!record) return notFound();
+  if (record.status !== 'succeeded') return notFound();
+  const artifact = await repository.getExperimentArtifact(experimentId);
+  if (!artifact) return notFound();
+  return json(200, {
+    experimentId: record.experimentId,
+    promptVersion: record.promptVersion,
+    status: record.status,
+    planCount: record.planCount,
+    skipCount: record.skipCount,
+    artifact,
+  });
 }

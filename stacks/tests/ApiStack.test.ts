@@ -74,6 +74,37 @@ describe('ApiStack', () => {
     expect(refreshFn.Properties.Environment.Variables.SST_Parameter_value_CONTRACT_PATH_PREFIX).toBe(expectedPrefix);
   });
 
+  it('registers the prompt-version and experiment routes, all authorizer-protected (T-03 · R-02, R-05, R-06, R-20, R-21, R-22)', () => {
+    for (const RouteKey of [
+      'POST /prompt-versions',
+      'GET /prompt-versions',
+      'GET /prompt-versions/{promptVersion}',
+      'POST /experiments',
+      'GET /experiments',
+      'GET /experiments/{experimentId}',
+      'GET /experiments/{experimentId}/artifact',
+    ]) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey, AuthorizationType: 'CUSTOM' });
+    }
+  });
+
+  it('provisions an ExperimentWorker Lambda with a 900-second timeout (T-03 · R-20)', () => {
+    // Both FunctionalWorker and ExperimentWorker have 15-minute (900 s) timeouts.
+    // Before T-03 only one such function exists; after T-03 there are two.
+    const fns = template.findResources('AWS::Lambda::Function');
+    const longTimeoutFns = Object.values(fns).filter((f: any) => (f as any).Properties?.Timeout === 900);
+    expect(longTimeoutFns.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('includes the PromptV1Seeder Script as a CloudFormation Custom Resource (T-03 · R-62, R-63)', () => {
+    // SST Script constructs synthesise to a Custom::SSTScript CloudFormation
+    // Custom Resource backed by a provider Lambda. The logical resource ID uses
+    // the construct name as a prefix — PromptV1SeederScriptResource*.
+    const sstScripts = template.findResources('Custom::SSTScript');
+    const seederKeys = Object.keys(sstScripts).filter((k) => k.startsWith('PromptV1Seeder'));
+    expect(seederKeys.length).toBeGreaterThanOrEqual(1);
+  });
+
   it('grants the functional worker bedrock:InvokeModel via its IAM role, with no stored key (R-118, D-55, NFR-2)', () => {
     // The Bedrock call authenticates with the Lambda execution role (SigV4) — an
     // IAM policy must grant bedrock:InvokeModel (Action renders as a string or array).
