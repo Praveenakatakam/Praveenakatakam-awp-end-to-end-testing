@@ -25,8 +25,6 @@ function statusBadge(status: string) {
 
 const KNOWN_MODELS = [
   'us.anthropic.claude-sonnet-4-6',
-  'us.anthropic.claude-opus-4-5',
-  'us.anthropic.claude-haiku-3-5',
 ];
 
 function SignIn({ onToken }: { onToken: (t: string) => void }) {
@@ -533,6 +531,14 @@ function ExperimentsView({ api, token }: { api: Api; token: string }) {
   async function refreshVersions()    { const r = await api.listPromptVersions(); setVersions(r.promptVersions); }
 
   useEffect(() => { refreshExperiments(); refreshVersions(); }, [api]);
+
+  // Poll the list while any experiment is pending/running so status badges update automatically.
+  useEffect(() => {
+    const hasActive = experiments.some(e => e.status === 'pending' || e.status === 'running');
+    if (!hasActive) return;
+    const id = setInterval(() => refreshExperiments(), 5000);
+    return () => clearInterval(id);
+  }, [experiments]);
 
   function toggleSelect(id: string) {
     setSelectedIds(prev =>
