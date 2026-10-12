@@ -1,4 +1,4 @@
-import { StackContext, Api, Function, use } from 'sst/constructs';
+import { StackContext, Api, Function, Script, use } from 'sst/constructs';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { AuthStack } from './AuthStack';
 import { StorageStack } from './StorageStack';
@@ -42,6 +42,25 @@ export function ApiStack({ stack }: StackContext) {
     // account to have Bedrock model access for this model (Anthropic use-case
     // form + model-access grant); switch to any granted model without a code
     // change, e.g. `us.anthropic.claude-haiku-4-5-20251001-v1:0` (D-55).
+    environment: { BEDROCK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6' },
+    permissions: [
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['bedrock:InvokeModel'],
+        resources: ['arn:aws:bedrock:*::foundation-model/anthropic.*', 'arn:aws:bedrock:*:*:inference-profile/*'],
+      }),
+    ],
+  });
+
+  // The experiment worker (T-03 · §3.12, R-20, R-21). Mirrors the FunctionalWorker
+  // pattern: async-invoked by the POST /experiments handler, long timeout, same
+  // catalog + bucket bindings, same Bedrock grant. BEDROCK_MODEL_ID can be
+  // overridden per stage without a code change (D-55).
+  const experimentWorker = new Function(stack, 'ExperimentWorker', {
+    handler: 'packages/functions/src/experiments.worker',
+    bind: [registry, contracts],
+    timeout: '15 minutes',
+    memorySize: '1024 MB',
     environment: { BEDROCK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6' },
     permissions: [
       new PolicyStatement({
@@ -113,8 +132,52 @@ export function ApiStack({ stack }: StackContext) {
       'GET /requirements': 'packages/functions/src/read.requirements',
       'GET /requirements/{source}': 'packages/functions/src/read.requirementsForSource',
       'GET /requirements/{source}/{id}': 'packages/functions/src/read.requirement',
+      // Prompt versions (writer: POST; reader: GET). T-03 · R-02, R-05, R-06.
+      'POST /prompt-versions': {
+        function: {
+          handler: 'packages/functions/src/prompt-versions.handleCreatePromptVersion',
+          timeout: '30 seconds',
+        },
+      },
+      'GET /prompt-versions': 'packages/functions/src/read.promptVersions',
+      'GET /prompt-versions/{promptVersion}': 'packages/functions/src/read.promptVersion',
+      // Experiments (writer: POST; reader: GET). T-03 · R-20, R-21, R-22.
+      // POST async-invokes ExperimentWorker (exceeds 29s gateway limit). The env
+      // var + permission grant mirror the FunctionalGen handler pattern (D-53).
+      'POST /experiments': {
+        function: {
+          handler: 'packages/functions/src/experiments.handler',
+          timeout: '30 seconds',
+          environment: { EXPERIMENT_WORKER_FUNCTION_NAME: experimentWorker.functionName },
+          permissions: [experimentWorker],
+        },
+      },
+      'GET /experiments': 'packages/functions/src/read.experiments',
+      'GET /experiments/{experimentId}': 'packages/functions/src/read.experiment',
+      'GET /experiments/{experimentId}/artifact': 'packages/functions/src/read.experimentArtifact',
     },
   });
+
+  // Deploy-time seed of the canonical PROMPT#v1 record (T-03 · R-62, R-63).
+  // Uses a conditional put (`attribute_not_exists(PK)`) so re-deploys are
+  // idempotent. Both FunctionalWorker and ExperimentWorker depend on this
+  // record existing before their code is live (D-7, T-07): the addDependency
+  // calls below force CloudFormation to complete the seeder Custom Resource
+  // before updating either worker Lambda, closing the deploy-window race where
+  // PROMPT#v1 is missing from DDB but the handler already tries to look it up.
+  const seeder = new Script(stack, 'PromptV1Seeder', {
+    defaults: {
+      function: {
+        bind: [registry],
+      },
+    },
+    onCreate: 'packages/functions/src/prompt-seed.handler',
+    onUpdate: 'packages/functions/src/prompt-seed.handler',
+  });
+
+  // Ensure seeder runs before either worker Lambda is deployed/updated.
+  functionalWorker.node.addDependency(seeder);
+  experimentWorker.node.addDependency(seeder);
 
   stack.addOutputs({ ApiUrl: api.url });
 

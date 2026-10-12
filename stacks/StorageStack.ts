@@ -1,4 +1,5 @@
 import { StackContext, Table, Bucket } from 'sst/constructs';
+import { Duration } from 'aws-cdk-lib';
 import { TableEncryption } from 'aws-cdk-lib/aws-dynamodb';
 import { BlockPublicAccess, BucketEncryption, ObjectOwnership } from 'aws-cdk-lib/aws-s3';
 
@@ -45,6 +46,7 @@ export function StorageStack({ stack }: StackContext) {
 
   // Raw ODCS documents, one object per cataloged version (R-41). Block ALL
   // public access and encrypt at rest (R-42).
+  // T-02 — lifecycleRules expires objects under experiments/ after 90 days (R-130).
   const contracts = new Bucket(stack, 'Contracts', {
     cors: false,
     cdk: {
@@ -53,6 +55,13 @@ export function StorageStack({ stack }: StackContext) {
         encryption: BucketEncryption.S3_MANAGED,
         enforceSSL: true,
         objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
+        lifecycleRules: [
+          {
+            id: 'expire-experiments-90d',
+            prefix: 'experiments/',
+            expiration: Duration.days(90),
+          },
+        ],
       },
     },
   });

@@ -20,7 +20,7 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Table } from 'sst/node/table';
 import { Bucket } from 'sst/node/bucket';
-import type { ValidationError, ParsedRequirement } from '@registry/core';
+import type { ValidationError, ParsedRequirement, PromptVersionRecord, ExperimentRecord } from '@registry/core';
 
 const TABLE = Table.Registry.tableName;
 const BUCKET = Bucket.Contracts.bucketName;
@@ -44,6 +44,9 @@ const artifactKey = (runId: string) => `test-artifacts/${runId}/artifacts.json`;
 const fjobPk = (jobId: string) => `FJOB#${jobId}`;
 const fjobArtifactKey = (jobId: string) => `functional-tests/${jobId}/artifacts.json`;
 const planCacheKey = (inputHash: string) => `functional-tests/plan-cache/${inputHash}.json`;
+const promptVersionPk = (promptVersion: string) => `PROMPT#${promptVersion}`;
+const experimentPk = (experimentId: string) => `EXP#${experimentId}`;
+const experimentArtifactKey = (experimentId: string) => `experiments/${experimentId}/artifacts.json`;
 
 export class LockHeldError extends Error {
   override readonly name = 'LockHeldError';
@@ -505,6 +508,138 @@ class Repository {
         ContentType: 'application/json',
       })
     );
+  }
+
+  // ---- Prompt versions (T-04 · prompt-versioning-experiments) ---------------
+  // PROMPT items use kind='PROMPT' in the byKind GSI. The PK condition expression
+  // enforces immutability — once registered a prompt version is write-once (caller
+  // catches ConditionalCheckFailedException and returns 409).
+
+  /** Register a new prompt version (write-once). Throws ConditionalCheckFailedException on duplicate. */
+  async putPromptVersion(record: PromptVersionRecord): Promise<void> {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: {
+          PK: promptVersionPk(record.promptVersion),
+          SK: 'PROMPT',
+          kind: 'PROMPT',
+          ...record,
+        },
+        ConditionExpression: 'attribute_not_exists(PK)',
+      })
+    );
+  }
+
+  /** Fetch a prompt version record, or undefined when not found. */
+  async getPromptVersion(promptVersion: string): Promise<PromptVersionRecord | undefined> {
+    const res = await ddb.send(
+      new GetCommand({ TableName: TABLE, Key: { PK: promptVersionPk(promptVersion), SK: 'PROMPT' } })
+    );
+    return res.Item as PromptVersionRecord | undefined;
+  }
+
+  /** List all prompt versions newest-first (sorted by startedAt via byKind GSI). */
+  async listPromptVersions(): Promise<PromptVersionRecord[]> {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        ExpressionAttributeValues: { ':k': 'PROMPT' },
+        ScanIndexForward: false,
+      })
+    );
+    return (res.Items ?? []) as PromptVersionRecord[];
+  }
+
+  // ---- Experiments (T-04 · prompt-versioning-experiments) ------------------
+  // EXPERIMENT items use kind='EXPERIMENT' in the byKind GSI.
+
+  /** Create an experiment record. */
+  async putExperiment(record: ExperimentRecord): Promise<void> {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: {
+          PK: experimentPk(record.experimentId),
+          SK: 'EXP',
+          ...(record as unknown as Record<string, unknown>),
+        },
+      })
+    );
+  }
+
+  /** Patch an experiment record's fields in place. */
+  async updateExperiment(experimentId: string, patch: Partial<ExperimentRecord>): Promise<void> {
+    const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+    if (entries.length === 0) return;
+    const setExprParts = entries.map(([k], i) => `#f${i} = :v${i}`);
+    const expressionNames: Record<string, string> = {};
+    const expressionValues: Record<string, unknown> = {};
+    for (let i = 0; i < entries.length; i++) {
+      expressionNames[`#f${i}`] = entries[i][0];
+      expressionValues[`:v${i}`] = entries[i][1];
+    }
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { PK: experimentPk(experimentId), SK: 'EXP' },
+        UpdateExpression: `SET ${setExprParts.join(', ')}`,
+        ExpressionAttributeNames: expressionNames,
+        ExpressionAttributeValues: expressionValues,
+      })
+    );
+  }
+
+  /** Fetch an experiment record, or undefined when not found. */
+  async getExperiment(experimentId: string): Promise<ExperimentRecord | undefined> {
+    const res = await ddb.send(
+      new GetCommand({ TableName: TABLE, Key: { PK: experimentPk(experimentId), SK: 'EXP' } })
+    );
+    return res.Item as ExperimentRecord | undefined;
+  }
+
+  /** List all experiments newest-first (sorted by startedAt via byKind GSI). */
+  async listExperiments(): Promise<ExperimentRecord[]> {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        ExpressionAttributeValues: { ':k': 'EXPERIMENT' },
+        ScanIndexForward: false,
+      })
+    );
+    return (res.Items ?? []) as ExperimentRecord[];
+  }
+
+  // ---- Experiment S3 artifact helpers (T-04) --------------------------------
+
+  /** Store an experiment's artifact payload as JSON in S3; returns the key. */
+  async putExperimentArtifact(experimentId: string, artifact: unknown): Promise<string> {
+    const key = experimentArtifactKey(experimentId);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        Body: JSON.stringify(artifact),
+        ContentType: 'application/json',
+      })
+    );
+    return key;
+  }
+
+  /** Fetch an experiment's artifact payload, or undefined when absent. */
+  async getExperimentArtifact(experimentId: string): Promise<unknown | undefined> {
+    try {
+      const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: experimentArtifactKey(experimentId) }));
+      const body = obj.Body ? await (obj.Body as any).transformToString() : undefined;
+      return body ? JSON.parse(body) : undefined;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'NoSuchKey') return undefined;
+      throw err;
+    }
   }
 
   // ---- Requirements catalog (T-28 · §3.10, R-106…R-108, R-114) ------------

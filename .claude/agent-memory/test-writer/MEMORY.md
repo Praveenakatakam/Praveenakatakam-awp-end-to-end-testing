@@ -1,0 +1,3 @@
+- [vi.mock pattern for repository/llm/functest](feedback_vi_mock_pattern.md) — use `vi.mock` + import-after + `vi.mocked()` + `vi.clearAllMocks()` in beforeEach
+- [Injectable vs module-mock strategy](feedback_injectable_vs_module_mock.md) — injectable functions get fake repo objects; module-bound entrypoints need vi.mock
+- [jsdom broken in web package](project_jsdom_broken.md) — jsdom@29 needs undici@7+ but only 6.27.0 is installed; only api.test.ts (node env) runs
