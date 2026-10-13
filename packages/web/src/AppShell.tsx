@@ -39,7 +39,7 @@ export default function AppShell() {
     <HashRouter>
       <CrawlProvider api={api!}>
         <div className="app-shell">
-          <header className="sidebar-header">
+          <header className="app-header">
             <h1>E2E Testing Registry</h1>
             <button
               className="btn btn-ghost btn-sm"
