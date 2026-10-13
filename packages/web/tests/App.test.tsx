@@ -71,6 +71,9 @@ const requirements = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset the hash so each test starts at '/' → redirect to /source/contracts-by-entity.
+  // HashRouter persists window.location.hash across testing-library cleanup().
+  window.location.hash = '';
   authState.token = undefined;
   fakeApi.listContracts.mockResolvedValue(entries);
   fakeApi.listRequirements.mockResolvedValue(requirements);
@@ -176,7 +179,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
   it('toggles to a by-source view listing each source and its contracts (AC-65)', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^by source$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
 
     const sourceView = await screen.findByLabelText('by-source');
     // every crawled source is listed as its own group
@@ -193,7 +196,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
     fakeApi.getContract.mockResolvedValue({ entry: { id: 'user' }, versions: [{ versionNumber: 2, hash: 'abcdef12' }] });
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^by source$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
     const sourceView = await screen.findByLabelText('by-source');
     // consumer/user is currentVersion 2 in the fixture
     await userEvent.click(within(sourceView).getByRole('button', { name: /user v2 \(valid\)/i }));
@@ -216,7 +219,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
     }]);
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
     await userEvent.click(within(view).getByRole('button', { name: /R-30/i }));
     const detail = await screen.findByLabelText('requirement-detail');
@@ -239,7 +242,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
     }]);
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
     await userEvent.click(within(view).getByRole('button', { name: /R-31/i }));
     const detail = await screen.findByLabelText('requirement-detail');
@@ -253,7 +256,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
   it('displays plain text in a pre block with no hard overflow', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
     await userEvent.click(within(view).getByRole('button', { name: /R-10/i }));
     const detail = await screen.findByLabelText('requirement-detail');
@@ -267,7 +270,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
     await screen.findByText('org');
     expect(screen.queryByLabelText('requirements')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
 
     // grouped by source + section
@@ -284,7 +287,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
   it('opens a requirement detail panel when a requirement is selected (AC-113)', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
     await userEvent.click(within(view).getByRole('button', { name: /R-10/i }));
     const detail = await screen.findByLabelText('requirement-detail');
