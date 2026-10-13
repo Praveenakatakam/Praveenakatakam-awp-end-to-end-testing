@@ -15,6 +15,20 @@ active:
     needed_by:
       - prompt-versioning-experiments
 
+  - slug: spa-ux-redesign
+    location: active/spa-ux-redesign/
+    description: >
+      Replace the flat four-tab SPA navigation with a two-area layout (Source
+      Pipeline and Experiments) that makes the app's conceptual structure explicit
+      and scales to future LLM-assisted requirement enrichment.
+    spec_version: "0.1.0"
+    status: in-progress
+    depends_on:
+      - odcs-contract-registry
+      - prompt-versioning-experiments
+    needed_by:
+      - spa-test-artifacts
+
 
 pending:
 
@@ -75,18 +89,6 @@ pending:
       - odcs-contract-registry
       - generation-run-audit
     needed_by: []
-
-  - slug: spa-ux-redesign
-    location: pending/spa-ux-redesign/
-    description: >
-      Replace the flat four-tab SPA navigation with a two-area layout (Source
-      Pipeline and Experiments) that makes the app's conceptual structure explicit
-      and scales to future LLM-assisted requirement enrichment.
-    depends_on:
-      - odcs-contract-registry
-      - prompt-versioning-experiments
-    needed_by:
-      - spa-test-artifacts
 
 archive:
   - slug: prompt-versioning-experiments

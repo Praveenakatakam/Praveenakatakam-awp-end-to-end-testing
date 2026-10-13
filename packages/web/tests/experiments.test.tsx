@@ -74,6 +74,9 @@ const experimentList = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset hash so each test starts at '/' — HashRouter persists window.location.hash
+  // across testing-library cleanup().
+  window.location.hash = '';
   authState.token = undefined;
   fakeApi.listContracts.mockResolvedValue([]);
   fakeApi.listRequirements.mockResolvedValue([]);
@@ -94,8 +97,10 @@ beforeEach(() => {
 async function openExperimentsView(token: string) {
   authState.token = token;
   render(<App />);
-  await screen.findByRole('button', { name: /^experiments$/i });
-  await userEvent.click(screen.getByRole('button', { name: /^experiments$/i }));
+  // The Sidebar has a "Run experiments" link under the Experiments area.
+  // Clicking it navigates to /experiments/run, which renders ExperimentsPage.
+  await screen.findByRole('link', { name: /run experiments/i });
+  await userEvent.click(screen.getByRole('link', { name: /run experiments/i }));
   return screen.findByLabelText('experiments');
 }
 

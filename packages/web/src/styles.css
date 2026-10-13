@@ -26,8 +26,7 @@
   --shadow-lg:      0 4px 16px rgba(0,0,0,.5);
   --font:           'Inter', system-ui, -apple-system, sans-serif;
   --font-mono:      'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-  --header-h:       56px;
-  --nav-h:          44px;
+  --sidebar-w:      220px;
 }
 
 /* ── Reset + base ──────────────────────────────────────────────── */
@@ -77,60 +76,140 @@ input, select, textarea { font-family: var(--font); }
 /* ── Layout shell ──────────────────────────────────────────────── */
 .app-shell {
   display: flex;
-  flex-direction: column;
-  height: 100%;
+  flex-direction: row;
+  min-height: 100vh;
 }
 
-.app-header {
-  height: var(--header-h);
-  min-height: var(--header-h);
+.sidebar {
+  width: var(--sidebar-w);
+  min-height: 100vh;
+  flex-shrink: 0;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 1rem;
+  font-weight: 600;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-main-area {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+}
+
+.sidebar-area[data-area="source"]      { --area-accent: #6c8ef8; --area-accent-dim: rgba(108,142,248,.12); }
+.sidebar-area[data-area="experiments"] { --area-accent: #4ade80; --area-accent-dim: rgba(74,222,128,.12); }
+
+.sidebar-area-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.75rem 1rem 0.25rem;
+}
+
+.sidebar-area-header {
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  gap: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  justify-content: space-between;
+  padding: 0.5rem 1rem 0.25rem;
 }
 
-.app-header h1 {
-  font-size: 15px;
+.sidebar-area-title {
+  font-size: 0.7rem;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--area-accent, var(--text-muted));
+}
+
+.sidebar-nav-link {
+  display: block;
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius);
   color: var(--text);
-  letter-spacing: -.01em;
-  flex: 1;
+  text-decoration: none;
+  font-size: 0.9rem;
 }
 
-.app-nav {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  padding: 0 20px;
-  gap: 2px;
+.sidebar-nav-link:hover {
+  background: var(--area-accent-dim);
+  color: var(--area-accent);
 }
 
-.app-nav-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 13px;
+[data-radix-navigation-menu-link][data-active] .sidebar-nav-link,
+.sidebar-nav-link[aria-current="page"] {
+  color: var(--area-accent);
+  background: var(--area-accent-dim);
   font-weight: 500;
-  padding: 10px 14px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color .15s, border-color .15s;
-  white-space: nowrap;
 }
 
-.app-nav-btn:hover { color: var(--text); }
+.sidebar-refresh-btn {
+  margin: 0.5rem 1rem;
+}
 
-.app-nav-btn[aria-pressed="true"],
-.app-nav-btn:disabled {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-  cursor: default;
+/* Desktop: hamburger hidden, backdrop hidden */
+.hamburger-btn {
+  display: none;
+}
+
+.sidebar-overlay-backdrop {
+  display: none;
+}
+
+/* Mobile: hamburger visible, sidebar becomes fixed overlay */
+@media (max-width: 768px) {
+  .hamburger-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 110;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 99;
+  }
 }
 
 .app-body {
