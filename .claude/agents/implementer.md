@@ -56,7 +56,7 @@ This repo is a pnpm monorepo. Work only in the packages the task specifies:
 
 1. Summarize what changed (files modified/created, why)
 2. Note any deviations from the task spec and why
-3. **Spec drift check:** Did the implementation require any deviations from `requirements.md`? Were any edge cases discovered that aren't documented in the spec? List them — even if minor. These go back into `requirements.md` before the next task starts.
+3. **Spec drift check:** Did the implementation require any deviations from `requirements.md` or `design.md`? Were any edge cases discovered that aren't documented in the spec? Did you assume anything the spec didn't say (file names, behaviour in unspecified cases)? List them — even if minor. These go back into the spec (with a D-n entry for deviations) before the next task starts.
 4. Flag anything that might affect subsequent tasks
-5. Do NOT run tests (that's `test-writer`'s job)
+5. Run the task's tests (written first by `test-writer`) and report pass/fail. Do not edit tests to make them pass — if a test looks wrong against the spec, report it
 6. Do NOT commit anything

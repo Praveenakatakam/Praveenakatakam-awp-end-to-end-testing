@@ -8,9 +8,9 @@ I review all code myself. Never commit anything.
 
 ## Before intake — fit check
 
-If the feature seems trivial (typo fix, config tweak, single-line change), say so and ask whether to skip SDD. For anything non-trivial, proceed.
+If the feature seems trivial (typo fix, config tweak, single-line change), say so and ask whether to skip SDD.
 
-Reference `specs/docs/sdd/fit-check.md` if the user is unsure.
+For anything non-trivial, run the five-item checklist in `specs/docs/sdd/fit-check.md`. If fewer than four apply, recommend a throwaway prototype first and ask the user before continuing.
 
 ---
 
@@ -27,7 +27,15 @@ If no stub was referenced, ask for:
 - Any initial constraints or requirements already known
 - Whether this has security or breaking-change implications
 
-Keep it efficient. Don't ask questions the codebase can answer.
+### Gap discovery (required)
+
+Before Phase 2, ask the user clarifying questions — most important first — to surface what hasn't been thought through:
+- Edge cases they might have missed
+- Requirements that are ambiguous and could go multiple ways (state the readings)
+- Implicit assumptions about the tech stack, users, data, or environment
+- Anything that would make the output wrong in production
+
+Don't ask what the codebase can answer — look it up, then state what you found as an explicit assumption the user can correct. Every question the user can't answer yet goes into the spec's Open Questions. Do not launch `planner` until this round is done.
 
 ---
 
@@ -41,8 +49,11 @@ Provide planner with:
 - The spec slug (derive from feature name, kebab-case)
 - Instruction to write `specs/active/<slug>/requirements.md` using EARS format
 - If a pending stub was used: the stub content as a starting point, and instruction to delete `specs/pending/<slug>/` after writing `specs/active/<slug>/requirements.md`
+- The gap-discovery answers and every assumption you stated
 
-**Stop and show requirements.md. Wait for approval before proceeding.**
+`planner` cannot talk to the user. It returns an **Assumptions & Ambiguities** section and Open Questions tagged `[BLOCKING]`/`[NON-BLOCKING]` — you put them to the user.
+
+**Stop and show requirements.md, leading with its assumptions, ambiguities, and blocking questions. Ask the user to resolve them. Do not treat requirements as approved while any `[BLOCKING]` question is unanswered — write the answers back into requirements.md first.**
 
 ---
 
@@ -59,7 +70,7 @@ After both return findings, launch `planner` again in design mode with:
 - Both sets of findings
 - Instruction to write `specs/active/<slug>/design.md`
 
-**Stop and show design.md. Wait for approval before proceeding.**
+**Stop and show design.md. Alongside it, list every open question from requirements.md and how design resolved it (D-n), plus any new assumption design made about the codebase or environment. Ask the user to confirm resolutions that were assumptions rather than facts. Wait for approval before proceeding.**
 
 ---
 
@@ -88,7 +99,7 @@ Before writing any code, launch `reviewer` in pre-implementation mode with:
 - `requirements.md`
 - `design.md`
 - `tasks.md`
-- Instruction to check coverage (every requirement → at least one task), failure modes, missing test tasks, and scope creep
+- Instruction to check coverage (every requirement → at least one task), failure modes, missing test tasks, scope creep, and ambiguity (requirements two implementers could read differently, unverified assumptions, unresolved open questions)
 
 **Show reviewer findings. If there are BLOCKING issues, fix them in the relevant spec file before proceeding.**
 
@@ -102,17 +113,31 @@ For each task in `tasks.md`:
 
 2. **Check size:** If the task seems larger than one reviewable step, stop and propose splitting it.
 
-3. **Implement:** Launch the declared subagent (or `implementer`). Provide the full task spec + relevant context from requirements and design.
+3. **Tests first:** Launch `test-writer` in test-first mode with the `T-nna` task and the requirements it satisfies. Tests come from the spec, not from code. Confirm they fail for the right reason. If trivial, write them directly and note "Subagent: none — trivial".
 
-4. **Stop. Summarize what changed. Wait for approval.**
+4. **Implement:** Launch the declared subagent (or `implementer`) with the full task spec, relevant requirements/design context, and the failing tests. Done when those tests pass.
 
-5. **Tests:** Launch `test-writer` with the implementation summary and task context. If trivial, write tests directly and note "Subagent: none — trivial".
+5. **Stop. Summarize what changed. Wait for approval.**
 
-6. **Post-task sync:** Ask `implementer` (or check yourself): did the implementation require any deviations from the spec? Were any undocumented edge cases discovered? Update `requirements.md` if yes before moving on.
+6. **Post-task sync:** Ask `implementer` (or check yourself): did the implementation require any deviations from the spec? Were any undocumented edge cases or assumptions discovered? Update `requirements.md` / `design.md` (with a D-n entry) before moving on — never leave a deviation only in code.
 
 7. **Review:** Launch `reviewer` in post-implementation mode with the changed files, task spec, and spec paths. Instruction to append findings to `specs/active/<slug>/review.md`.
 
 8. **Stop. Show review findings. Wait for approval before next task.**
+
+**End of each parallelization phase — drift check:** launch `reviewer` in health-check mode running HC-1 and HC-2 (`specs/docs/sdd/health-check.md`) scoped to the requirements that phase satisfied. Reconcile every item before starting the next phase (see Rules).
+
+---
+
+## Phase 7 — Health check and close-out
+
+After the last task, before the feature is called done or a PR is opened:
+
+1. Run `/health-check <slug>` (HC-1 through HC-5). Show the report.
+2. Reconcile every drift item — no exceptions, no "later".
+3. For UI work: run the app and check the rendered result against the requirements (screenshot or browser). Passing DOM tests do not prove the layout works.
+4. Update docs: affected `specs/docs/` files (system-design, data-model, integrations) and `specs/registry.yaml`.
+5. **Stop. Show the health report and doc changes. Wait for approval before archiving the spec.**
 
 ---
 
@@ -120,6 +145,8 @@ For each task in `tasks.md`:
 
 - Keep spec artifacts updated as work evolves
 - If a finding changes the design: update `design.md` before continuing
+- **Reconcile, don't tolerate drift.** Requirements, design, tests, and code will drift. Whenever they disagree, either fix the code to match the spec, or update the spec and record a D-n entry explaining why. Never leave a disagreement unresolved.
+- **Surface, don't assume.** When you or a subagent makes an assumption or picks one reading of an ambiguous requirement, say so explicitly at the next approval gate.
 - Never commit
 - If asked to "skip review" or "skip tests" for a task, honor it once and note it in the task
 - If resuming mid-feature, read all existing spec artifacts first and determine the current state

@@ -72,6 +72,7 @@ Before implementing any non-trivial feature, a spec must exist in `specs/active/
 - `/stub-requirement <idea>` — fast capture to `specs/pending/` without starting SDD
 - `/start-feature` — full SDD flow from intake through implementation
 - `/resume-feature <slug>` — continue an in-progress spec from its last approval gate
+- `/health-check <slug> [HC-n ...]` — drift audit (HC-1–HC-5) and reconcile spec ↔ design ↔ tests ↔ code
 
 **Reference docs** (look these up when relevant):
 | Doc | Contents |

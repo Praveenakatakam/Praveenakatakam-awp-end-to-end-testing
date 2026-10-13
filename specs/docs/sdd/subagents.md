@@ -126,7 +126,7 @@ Output: a short verified-pass list or list of bugs requiring a fix
 
 ## Stage 7 — Technical Writer
 
-**Agent: `tech-writer`** → no dedicated agent file; handled in main conversation or a general agent session
+**Agent: `tech-writer`** → no dedicated agent file; run by the main conversation in `/start-feature` Phase 7 (close-out)
 
 Updates documentation after a feature ships.
 
@@ -155,4 +155,4 @@ Output: updated `specs/docs/` and `docs/` files
                                       └── [health-check] → drift report (periodic)
 ```
 
-Stages 0–4 (spec work) are sequential. Stages 5–6 repeat per parallelization phase. Stage 7 runs once after all phases are done (or incrementally per phase for long features). Health checks run out-of-band, not as a blocking stage.
+Stages 0–4 (spec work) are sequential. Stages 5–6 repeat per parallelization phase. Stage 7 runs once after all phases are done (or incrementally per phase for long features). Health checks are gates, not optional: scoped HC-1 + HC-2 at the end of each phase, the full HC-1–HC-5 at close-out (`/health-check`), plus periodic out-of-band runs.

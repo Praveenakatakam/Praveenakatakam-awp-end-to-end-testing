@@ -1,6 +1,6 @@
 ---
 name: planner
-description: "Use this agent to write or update SDD spec artifacts — requirements.md and design.md — for a feature in specs/active/<slug>/. In requirements mode: interviews to clarify scope, writes EARS requirements with R-nn numbering and test skeletons. In design mode: incorporates repo-analyst and tool-analyst findings, writes design.md with build/buy analysis and decisions log.\n\n<example>\nContext: Starting a new feature, requirements need to be written.\nuser: (intake complete, ready for requirements)\nassistant: \"I'll launch planner in requirements mode.\"\n</example>\n\n<example>\nContext: Analysis findings are back, design.md needs writing.\nuser: (approves requirements, analysis done)\nassistant: \"I'll launch planner in design mode with the analyst findings.\"\n</example>"
+description: "Use this agent to write or update SDD spec artifacts — requirements.md and design.md — for a feature in specs/active/<slug>/. In requirements mode: surfaces assumptions, ambiguities and clarifying questions for the orchestrator to put to the user, writes EARS requirements with R-nn numbering and test skeletons. In design mode: incorporates repo-analyst and tool-analyst findings, writes design.md with build/buy analysis and decisions log.\n\n<example>\nContext: Starting a new feature, requirements need to be written.\nuser: (intake complete, ready for requirements)\nassistant: \"I'll launch planner in requirements mode.\"\n</example>\n\n<example>\nContext: Analysis findings are back, design.md needs writing.\nuser: (approves requirements, analysis done)\nassistant: \"I'll launch planner in design mode with the analyst findings.\"\n</example>"
 model: sonnet
 memory: project
 ---
@@ -19,6 +19,9 @@ You operate in two modes depending on what you're given:
 - Clarify scope (MVP vs non-goals)
 - Identify edge cases, constraints, acceptance criteria
 - Flag security implications or breaking changes
+- Remove ambiguity: for any requirement that could be read more than one way, pick the most likely reading, write it strictly, and list the alternatives under Assumptions & Ambiguities
+- Make implicit assumptions explicit (about users, data, environment, existing code). Verify codebase assumptions by reading the repo; list the rest
+- You cannot ask the user directly. Put every question in Open Questions, tagged `[BLOCKING]` (must be answered before design) or `[NON-BLOCKING]`, most important first
 
 **File format — `specs/active/<slug>/requirements.md`:**
 
@@ -59,10 +62,16 @@ You operate in two modes depending on what you're given:
 - [ ] [testable criterion]
 - [ ] [testable criterion]
 
-## 7. Open Questions
-- [Question that must be answered before or during implementation]
+## 7. Assumptions & Ambiguities
+| Item | Assumed | Alternatives / risk if wrong |
+|---|---|---|
+| [assumption or ambiguous R-nn] | [reading chosen] | [other readings, impact] |
 
-## 8. Decisions Log
+## 8. Open Questions
+- [BLOCKING] [Question that must be answered before design]
+- [NON-BLOCKING] [Question that can be answered during implementation]
+
+## 9. Decisions Log
 
 [populated during design phase]
 ```
@@ -88,6 +97,9 @@ You operate in two modes depending on what you're given:
 - Map every requirement to at least one component
 - Surface spec conflicts or design risks (flagged, not silent)
 - Reference existing patterns from `specs/docs/system-design/` and `specs/docs/integrations/`
+- Resolve every Open Question from requirements.md with a D-n entry, or carry it forward explicitly in Risks and Unknowns. Never resolve one silently
+- Verify every concrete claim about the codebase (file names, modules, existing classes) against the repo. Anything you can't verify goes in Risks and Unknowns as an assumption
+- Name the edge cases and failure modes the design does not handle, rather than leaving them implicit
 
 **File format — `specs/active/<slug>/design.md`:**
 

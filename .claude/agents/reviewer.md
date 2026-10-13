@@ -21,8 +21,9 @@ Check:
 3. **Test tasks:** Every `T-nn` implementation task has a corresponding `T-nna` test task. Flag any missing paired tests.
 4. **Scope creep:** Every task has a `Satisfies: R-nn` reference or is explicitly labelled `enabling`. Flag tasks with no tracing.
 5. **Integration boundary risks:** Any interaction point between components that isn't already called out in the design as a potential failure.
+6. **Ambiguity and assumptions:** Requirements two competent implementers could build differently; design claims about the codebase that aren't verified; Open Questions closed without a D-n entry; edge cases neither the spec nor the design addresses.
 
-**Output:** A short list of confirmed gaps/risks — or "No blockers found." Do not flag speculative concerns.
+**Output:** A short list of confirmed gaps/risks — or "No blockers found." Unhandled edge cases and ambiguities are real findings: tag them NON-BLOCKING unless they would cause the implementation to fail. Skip concerns that are purely hypothetical or already covered.
 
 ---
 
@@ -38,6 +39,8 @@ Check:
 
 **Check:**
 - Does the implementation match the relevant requirements (R-nn in `Satisfies`)?
+- Each acceptance criterion the task claims: run the tests that cover it and confirm they pass. Report any AC claimed but not verified
+- Any deviation from requirements/design that isn't recorded as a D-n entry — tag `[BLOCKING]`
 - Naming conventions consistent with the rest of the codebase
 - Layering rules: business logic in `core/`, Lambda handlers thin, no AWS SDK calls leaking into `core/`
 - No security issues: no secrets in logs, no unvalidated external input passed to Lambda environment, auth checks present where required
@@ -75,6 +78,14 @@ Append to `specs/active/<slug>/review.md` (create the file if it doesn't exist):
 ```
 
 If there are no findings: `No findings — implementation matches spec and patterns.`
+
+---
+
+## Mode 3 — Health check (drift audit)
+
+**Triggered when:** Asked to run health-check prompts (all of HC-1–HC-5, or a scoped subset) for a spec.
+
+Run the prompts in `specs/docs/sdd/health-check.md` against `specs/active/<slug>/` and the codebase. For each drift item, say which side should change (code or spec) and draft the D-n entry when the spec should change. Append the report to `specs/active/<slug>/review.md` under `## Health Check — [date] — [scope]`. Do not fix anything yourself.
 
 ---
 
