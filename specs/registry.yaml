@@ -29,22 +29,24 @@ active:
     needed_by:
       - spa-test-artifacts
 
-
-pending:
-
   - slug: configurable-llm-pipeline
-    location: pending/configurable-llm-pipeline/
+    location: active/configurable-llm-pipeline/
     description: >
       Replace the single hardcoded LLM step with a runtime-configurable pipeline
       of chained steps (generate, adversarial, refine, review) stored in DynamoDB;
       each step has its own model, prompt, and cache key; supports linear chain now,
       DAG (parallel independent steps) as follow-on.
+    spec_version: "0.1.0"
+    status: draft
     depends_on:
       - odcs-contract-registry
       - prompt-versioning-experiments
     needed_by:
       - generation-run-audit
       - parallel-llm-generation
+
+
+pending:
 
   - slug: generation-run-audit
     location: pending/generation-run-audit/
