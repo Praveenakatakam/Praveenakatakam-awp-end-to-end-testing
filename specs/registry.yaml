@@ -15,31 +15,38 @@ active:
     needed_by:
       - prompt-versioning-experiments
 
-pending:
-  - slug: prompt-versioning-experiments
-    location: pending/prompt-versioning-experiments/
+  - slug: spa-ux-redesign
+    location: active/spa-ux-redesign/
     description: >
-      Version the LLM prompts used for functional test synthesis; track
-      generation runs per prompt version; catalog test outputs per experiment
-      so results across prompt iterations can be compared side by side.
+      Replace the flat four-tab SPA navigation with a two-area layout (Source
+      Pipeline and Experiments) that makes the app's conceptual structure explicit
+      and scales to future LLM-assisted requirement enrichment.
+    spec_version: "0.1.0"
+    status: in-progress
     depends_on:
       - odcs-contract-registry
+      - prompt-versioning-experiments
     needed_by:
-      - configurable-llm-pipeline
+      - spa-test-artifacts
 
   - slug: configurable-llm-pipeline
-    location: pending/configurable-llm-pipeline/
+    location: active/configurable-llm-pipeline/
     description: >
       Replace the single hardcoded LLM step with a runtime-configurable pipeline
       of chained steps (generate, adversarial, refine, review) stored in DynamoDB;
       each step has its own model, prompt, and cache key; supports linear chain now,
       DAG (parallel independent steps) as follow-on.
+    spec_version: "0.1.0"
+    status: draft
     depends_on:
       - odcs-contract-registry
       - prompt-versioning-experiments
     needed_by:
       - generation-run-audit
       - parallel-llm-generation
+
+
+pending:
 
   - slug: generation-run-audit
     location: pending/generation-run-audit/
@@ -85,4 +92,16 @@ pending:
       - generation-run-audit
     needed_by: []
 
-archive: []
+archive:
+  - slug: prompt-versioning-experiments
+    location: archive/prompt-versioning-experiments/
+    description: >
+      Version the LLM prompts used for functional test synthesis; track
+      generation runs per prompt version; catalog test outputs per experiment
+      so results across prompt iterations can be compared side by side.
+    spec_version: "0.2.0"
+    status: implemented-and-deployed
+    depends_on:
+      - odcs-contract-registry
+    needed_by:
+      - configurable-llm-pipeline
