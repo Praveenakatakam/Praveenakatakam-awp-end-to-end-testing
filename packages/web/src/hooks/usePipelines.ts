@@ -102,6 +102,28 @@ export function useDeletePipeline(api: Api) {
   });
 }
 
+/**
+ * Mutation: restore (un-archive) a soft-deleted pipeline by setting active: true.
+ */
+export function useRestorePipeline(api: Api) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.updatePipeline(id, { active: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+    },
+  });
+}
+
+/**
+ * Mutation: start a pipeline run (POST /generate-functional-tests with pipelineId).
+ */
+export function useRunPipeline(api: Api) {
+  return useMutation({
+    mutationFn: (pipelineId: string) => api.runPipeline(pipelineId),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Prompt hooks
 // ---------------------------------------------------------------------------
