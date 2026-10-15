@@ -103,8 +103,11 @@ export function createApi(token: string) {
      * GET /pipelines[?nextToken=...]
      * Returns the active-pipeline list with optional pagination token.
      */
-    listPipelines: async (nextToken?: string): Promise<{ pipelines: PipelineConfig[]; nextToken?: string }> =>
-      (await req(`/pipelines${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json(),
+    listPipelines: async (nextToken?: string): Promise<{ pipelines: PipelineConfig[]; nextToken?: string }> => {
+      const res = await (await req(`/pipelines${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
+      // Backend returns { items, nextToken? } — remap to { pipelines, nextToken? }
+      return { pipelines: res.items ?? res.pipelines ?? [], nextToken: res.nextToken };
+    },
 
     /**
      * GET /pipelines/{id}
@@ -149,8 +152,11 @@ export function createApi(token: string) {
      * GET /prompts[?nextToken=...]
      * Returns active prompts (soft-deleted excluded) with optional pagination.
      */
-    listPrompts: async (nextToken?: string): Promise<{ prompts: PromptItem[]; nextToken?: string }> =>
-      (await req(`/prompts${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json(),
+    listPrompts: async (nextToken?: string): Promise<{ prompts: PromptItem[]; nextToken?: string }> => {
+      const res = await (await req(`/prompts${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
+      // Backend returns { items, nextToken? } — remap to { prompts, nextToken? }
+      return { prompts: res.items ?? res.prompts ?? [], nextToken: res.nextToken };
+    },
 
     /**
      * GET /prompts/{key}
