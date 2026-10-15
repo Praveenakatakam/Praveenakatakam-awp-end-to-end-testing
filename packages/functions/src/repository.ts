@@ -973,13 +973,13 @@ export async function listPipelines(
   ddb: DynamoDBDocumentClient,
   nextToken?: string
 ): Promise<{ items: PipelineConfig[]; nextToken?: string }> {
+  // Pipeline items have kind="PIPELINE" but no `startedAt`, so the byKind GSI
+  // (composite key: kind + startedAt) does not index them. Scan by PK prefix instead.
   const res = await ddb.send(
-    new QueryCommand({
+    new ScanCommand({
       TableName: TABLE,
-      IndexName: 'byKind',
-      KeyConditionExpression: 'kind = :k',
-      ExpressionAttributeValues: { ':k': 'PIPELINE' },
-      ScanIndexForward: false,
+      FilterExpression: 'begins_with(PK, :prefix)',
+      ExpressionAttributeValues: { ':prefix': 'PIPELINE#' },
       ...(nextToken
         ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
         : {}),
