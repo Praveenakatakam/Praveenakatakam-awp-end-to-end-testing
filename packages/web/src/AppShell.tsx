@@ -8,7 +8,7 @@
  *   - <HashRouter> wrapping <AppRoutes>
  *   - <CrawlProvider> so the Sidebar's Refresh button has context
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HashRouter } from 'react-router-dom';
 import { signOut, currentToken } from './auth.js';
 import { createApi } from './api.js';
@@ -30,7 +30,16 @@ export default function AppShell() {
 
   useEffect(() => { currentToken().then((t) => { setToken(t); setReady(true); }); }, []);
 
-  const api = useMemo(() => token ? createApi(token) : undefined, [token]);
+  // Called before every API request — getSession() refreshes the access token
+  // automatically using the Cognito refresh token when it has expired.
+  const getToken = useCallback(async (): Promise<string> => {
+    const t = await currentToken();
+    if (!t) { setToken(undefined); throw new Error('session expired'); }
+    setToken(t);
+    return t;
+  }, []);
+
+  const api = useMemo(() => token ? createApi(getToken) : undefined, [token, getToken]);
 
   if (!ready) return <p className="loading" style={{ padding: 40 }}>Loading…</p>;
   if (!token) return <SignIn onToken={setToken} />;
