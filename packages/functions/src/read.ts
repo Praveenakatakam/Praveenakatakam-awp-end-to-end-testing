@@ -2,11 +2,30 @@
  * Read API handlers (T-13 · R-50…R-55). All are reader-authorised by the Lambda
  * authorizer (T-09) before they run. Responses are served from the pre-crawled
  * catalog (trigger-then-cache — D-7), never a live crawl.
+ *
+ * T-05 additions: GET handlers for pipeline/prompt list + detail routes, and
+ * `GET /runs/{runId}` with lazy lease-expiry detection (R-25, R-26-loop, R-35–R-37).
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { parseAndValidate, diffContracts } from '@registry/core';
-import { repository } from './repository.js';
+import {
+  repository,
+  getPipeline,
+  listPipelines,
+  getPrmpt,
+  listPrmpts,
+  listPrmptVers,
+  getPrun,
+  listPrunSteps,
+  updatePrun,
+} from './repository.js';
 import { json, notFound } from './http.js';
+import { handleListPromptVersions, handleGetPromptVersion } from './prompt-versions.js';
+
+/** Module-scoped DDB client for the standalone pipeline/prompt CRUD helpers (T-05). */
+const _ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 /** GET /contracts?source=&entity=&validation= (R-50). */
 export async function contracts(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
@@ -162,4 +181,146 @@ export async function requirement(event: APIGatewayProxyEventV2): Promise<APIGat
   const found = await repository.getRequirement(source, id);
   if (!found) return notFound(`no requirement ${source}/${id}`);
   return json(200, found);
+}
+
+// ---- Prompt versions (T-08 · prompt-versioning-experiments) ----------------
+
+/** GET /prompt-versions — list all prompt versions, omitting the `text` field. */
+export const promptVersions = handleListPromptVersions;
+
+/** GET /prompt-versions/{promptVersion} — fetch one prompt version with full text. */
+export const promptVersion = handleGetPromptVersion;
+
+// ---- Experiments (T-10 · prompt-versioning-experiments) --------------------
+
+/** GET /experiments — list all experiments newest-first. */
+export async function experiments(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const items = await repository.listExperiments();
+  return json(200, { experiments: items });
+}
+
+/** GET /experiments/{experimentId} — one experiment record. */
+export async function experiment(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { experimentId } = event.pathParameters ?? {};
+  if (!experimentId) return notFound();
+  const record = await repository.getExperiment(experimentId);
+  if (!record) return notFound();
+  return json(200, record);
+}
+
+/** GET /experiments/{experimentId}/artifact — artifact payload, only when succeeded. */
+export async function experimentArtifact(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { experimentId } = event.pathParameters ?? {};
+  if (!experimentId) return notFound();
+  const record = await repository.getExperiment(experimentId);
+  if (!record) return notFound();
+  if (record.status !== 'succeeded') return notFound();
+  const artifact = await repository.getExperimentArtifact(experimentId);
+  if (!artifact) return notFound();
+  return json(200, {
+    experimentId: record.experimentId,
+    promptVersion: record.promptVersion,
+    status: record.status,
+    planCount: record.planCount,
+    skipCount: record.skipCount,
+    artifact,
+  });
+}
+
+// ---- Pipeline GET handlers (T-05 · R-35, R-36, R-37) -----------------------
+
+/** GET /pipelines — list active pipelines, paginated (R-37). */
+export async function getPipelinesHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const nextToken = event.queryStringParameters?.nextToken;
+  const result = await listPipelines(_ddb, nextToken);
+  return json(200, result);
+}
+
+/** GET /pipelines/{id} — one pipeline config (R-35). */
+export async function getPipelineHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const id = event.pathParameters?.id;
+  if (!id) return notFound();
+  const pipeline = await getPipeline(_ddb, id);
+  if (!pipeline) return notFound(`no pipeline ${id}`);
+  return json(200, pipeline);
+}
+
+// ---- Prompt GET handlers (T-05 · R-35, R-36, R-37) -------------------------
+
+/** GET /prompts — list active prompts, paginated (R-37). */
+export async function getPromptsHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const nextToken = event.queryStringParameters?.nextToken;
+  const result = await listPrmpts(_ddb, nextToken);
+  return json(200, result);
+}
+
+/** GET /prompts/{key} — one prompt header (R-35). */
+export async function getPromptHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const key = event.pathParameters?.key;
+  if (!key) return notFound();
+  const prompt = await getPrmpt(_ddb, key);
+  if (!prompt) return notFound(`no prompt ${key}`);
+  return json(200, prompt);
+}
+
+/** GET /prompts/{key}/versions — version history for one prompt (R-36, R-42). */
+export async function getPromptVersionsHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const key = event.pathParameters?.key;
+  if (!key) return notFound();
+  const versions = await listPrmptVers(_ddb, key);
+  return json(200, { versions });
+}
+
+// ---- Pipeline run GET handler with lazy lease-expiry (T-05 · R-25, R-26-loop) ---
+
+/** Terminal run statuses — no expiry check needed for these. */
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'completed_with_warnings', 'failed', 'timed_out']);
+
+/**
+ * GET /runs/{runId} — fetch a pipeline run plus its step records.
+ *
+ * Lazy lease-expiry detection (R-25, R-26-loop, design §Lazy expiry detection):
+ * when the run is still `running`, all STEP#* records are queried. If any step
+ * has a `leaseExpiresAt` in the past, a conditional UpdateItem transitions the
+ * run to `timed_out` (condition: `status = 'running'`, so it is idempotent and
+ * a second fetch of an already-timed-out run does not re-transition — TS-17b).
+ * At most one conditional UpdateItem is issued per response path.
+ */
+export async function getPipelineRunHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const runId = event.pathParameters?.runId;
+  if (!runId) return notFound();
+
+  let run = await getPrun(_ddb, runId);
+  if (!run) return notFound(`no pipeline run ${runId}`);
+
+  // Lazy lease-expiry check — only when run is non-terminal (R-26-loop).
+  if (!TERMINAL_RUN_STATUSES.has(run.status)) {
+    const steps = await listPrunSteps(_ddb, runId);
+    const now = new Date().toISOString();
+    const hasExpiredLease = steps.some((s) => s.leaseExpiresAt !== undefined && s.leaseExpiresAt < now);
+
+    if (hasExpiredLease) {
+      try {
+        // Conditional update: only transitions when status is still 'running'.
+        // ConditionalCheckFailedException means another path already transitioned
+        // the run — silently ignored (idempotent, TS-17b).
+        await updatePrun(_ddb, runId, {
+          status: 'timed_out',
+          completedAt: now,
+        });
+      } catch (err) {
+        if ((err as { name?: string }).name !== 'ConditionalCheckFailedException') throw err;
+        // Already transitioned by another path — safe to ignore.
+      }
+      // Re-fetch to return the authoritative post-transition state.
+      run = (await getPrun(_ddb, runId)) ?? run;
+    }
+
+    // Return the run (possibly updated) with the steps already queried above.
+    return json(200, { run, steps });
+  }
+
+  // Terminal run: return run + steps without any expiry check.
+  const steps = await listPrunSteps(_ddb, runId);
+  return json(200, { run, steps });
 }

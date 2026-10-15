@@ -25,3 +25,5 @@ export * from './diff.js';
 export * from './schema-model.js';
 export * from './api-map.js';
 export * from './requirements.js';
+export * from './prompt-versioning.js';
+export * from './pipeline.js';
