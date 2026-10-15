@@ -29,9 +29,10 @@ function buildHeaders(token: string, extra?: HeadersInit): HeadersInit {
   return { ...(extra ?? {}), authorization: `Bearer ${token}` };
 }
 
-export function createApi(token: string) {
+export function createApi(getToken: () => Promise<string>) {
   /** Read-only request — throws ApiError for any non-2xx. */
   const req = async (path: string, init: RequestInit = {}) => {
+    const token = await getToken();
     const res = await fetch(`${config.apiUrl}${path}`, {
       ...init,
       headers: buildHeaders(token, init.headers),
@@ -45,6 +46,7 @@ export function createApi(token: string) {
    * populate ApiError.serverMessage (e.g. for 422 validation errors).
    */
   const reqMut = async (path: string, init: RequestInit = {}) => {
+    const token = await getToken();
     const res = await fetch(`${config.apiUrl}${path}`, {
       ...init,
       headers: buildHeaders(token, init.headers),
