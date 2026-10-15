@@ -132,6 +132,7 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
             <NavigationMenu.List>
               <SidebarNavItem to="/pipelines" label="Pipelines" onNavigate={onNavigate} />
               <SidebarNavItem to="/prompts" label="Prompts" onNavigate={onNavigate} />
+              <SidebarNavItem to="/runs" label="Runs" onNavigate={onNavigate} />
             </NavigationMenu.List>
           </NavigationMenu.Root>
         </nav>

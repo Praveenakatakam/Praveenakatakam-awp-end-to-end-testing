@@ -19,6 +19,7 @@ import {
   listPrmptVers,
   getPrun,
   listPrunSteps,
+  listPruns,
   updatePrun,
 } from './repository.js';
 import { json, notFound } from './http.js';
@@ -323,4 +324,11 @@ export async function getPipelineRunHandler(event: APIGatewayProxyEventV2): Prom
   // Terminal run: return run + steps without any expiry check.
   const steps = await listPrunSteps(_ddb, runId);
   return json(200, { run, steps });
+}
+
+/** GET /runs — list pipeline runs newest-first, paginated. */
+export async function getPipelineRunsHandler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const nextToken = event.queryStringParameters?.nextToken;
+  const result = await listPruns(_ddb, nextToken);
+  return json(200, result);
 }

@@ -254,3 +254,14 @@ export function usePipelineRun(
     },
   } satisfies UseQueryOptions);
 }
+
+/**
+ * Fetches all pipeline runs newest-first.
+ * Query key: ['runs', nextToken]
+ */
+export function useRunsList(api: Api, nextToken?: string) {
+  return useQuery({
+    queryKey: ['runs', nextToken],
+    queryFn: () => api.listRuns(nextToken),
+  });
+}

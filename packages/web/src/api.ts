@@ -218,6 +218,11 @@ export function createApi(getToken: () => Promise<string>) {
      */
     getPipelineRun: async (runId: string): Promise<{ run: PipelineRun; steps: StepRecord[] }> =>
       (await req(`/runs/${encodeURIComponent(runId)}`)).json(),
+
+    listRuns: async (nextToken?: string): Promise<{ items: PipelineRun[]; nextToken?: string }> => {
+      const res = await (await req(`/runs${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
+      return { items: res.items ?? [], nextToken: res.nextToken };
+    },
   };
 }
 

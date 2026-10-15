@@ -36,6 +36,7 @@ import PipelinePage from './pages/PipelinePage.js';
 import RunDetailPage from './pages/RunDetailPage.js';
 import PromptsPage from './pages/PromptsPage.js';
 import PromptPage from './pages/PromptPage.js';
+import RunsPage from './pages/RunsPage.js';
 
 function AuthenticatedShell({ token }: { token: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -107,6 +108,9 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
         {/* Prompt management (T-15, R-41, R-43, R-53) */}
         <Route path="prompts" element={<PromptsPage api={api} token={token} />} />
         <Route path="prompts/:key" element={<PromptPage api={api} token={token} />} />
+
+        {/* Run history (T-14, R-54) */}
+        <Route path="runs" element={<RunsPage api={api} />} />
 
         <Route path="*" element={<Navigate to="/source/contracts-by-entity" replace />} />
       </Route>
