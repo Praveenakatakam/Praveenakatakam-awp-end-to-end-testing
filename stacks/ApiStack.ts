@@ -241,6 +241,7 @@ export function ApiStack({ stack }: StackContext) {
       },
       // Pipeline run status (configurable-llm-pipeline · T-09, T-05, R-35).
       // Lazy lease-expiry check included in handler (T-05, R-25, R-26-loop).
+      'GET /runs': 'packages/functions/src/read.getPipelineRunsHandler',
       'GET /runs/{runId}': 'packages/functions/src/read.getPipelineRunHandler',
     },
   });

@@ -1070,6 +1070,34 @@ export async function listPrunSteps(
   return (res.Items ?? []) as StepRecord[];
 }
 
+/**
+ * List pipeline runs newest-first using the `byKind` GSI.
+ * PRUN items have kind='PRUN' AND startedAt, so they are indexed.
+ */
+export async function listPruns(
+  ddb: DynamoDBDocumentClient,
+  nextToken?: string
+): Promise<{ items: PipelineRun[]; nextToken?: string }> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'byKind',
+      KeyConditionExpression: 'kind = :k',
+      ExpressionAttributeValues: { ':k': 'PRUN' },
+      ScanIndexForward: false,
+      ...(nextToken
+        ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
+        : {}),
+    })
+  );
+  return {
+    items: (res.Items ?? []) as PipelineRun[],
+    ...(res.LastEvaluatedKey
+      ? { nextToken: Buffer.from(JSON.stringify(res.LastEvaluatedKey)).toString('base64') }
+      : {}),
+  };
+}
+
 // ============================================================================
 // PRMPT (prompt header) CRUD helpers (T-02)
 // ============================================================================
