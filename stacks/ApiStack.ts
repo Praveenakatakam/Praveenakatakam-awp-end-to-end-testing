@@ -1,5 +1,6 @@
 import { StackContext, Api, Function, Script, use } from 'sst/constructs';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
+import { Duration } from 'aws-cdk-lib';
 import { AuthStack } from './AuthStack';
 import { StorageStack } from './StorageStack';
 
@@ -71,6 +72,40 @@ export function ApiStack({ stack }: StackContext) {
     ],
   });
 
+  // T-09 — Step worker Lambda for configurable LLM pipeline (D-10, R-17, R-35).
+  // Single reusable function invoked async with { runId, stepIndex }; chains to
+  // itself for each subsequent step. retryAttempts: 0 is CRITICAL — prevents AWS
+  // from replaying a partially-written step record on unhandled failure (D-10).
+  const stepWorkerFn = new Function(stack, 'StepWorkerFunction', {
+    handler: 'packages/functions/src/pipeline.stepWorker',
+    bind: [registry, contracts],
+    timeout: '15 minutes',
+    memorySize: '1024 MB',
+    permissions: [
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['bedrock:InvokeModel'],
+        resources: ['arn:aws:bedrock:*::foundation-model/anthropic.*', 'arn:aws:bedrock:*:*:inference-profile/*'],
+      }),
+    ],
+  });
+  // Self-reference: the step worker invokes itself for next-step dispatch.
+  // Must be added post-construction — stepWorkerFn.functionArn is a CDK Token
+  // (CloudFormation intrinsic) resolved at deploy time, not synth time.
+  // Use account/region-scoped wildcard instead of stepWorkerFn.functionArn to
+  // avoid a CDK Policy→Function→Policy cyclic dependency during synth.
+  stepWorkerFn.attachPermissions([
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${stack.region}:${stack.account}:function:*`],
+    }),
+  ]);
+  stepWorkerFn.configureAsyncInvoke({
+    retryAttempts: 0,
+    maxEventAge: Duration.hours(2),
+  });
+
   const api = new Api(stack, 'Api', {
     authorizers: {
       registryAuth: {
@@ -106,12 +141,17 @@ export function ApiStack({ stack }: StackContext) {
         },
       },
       // Writer-only; creates a job + async-invokes the worker, returns 202 (§3.11, R-115).
+      // When pipelineId is present (T-08), the handler dispatches directly to stepWorkerFn
+      // instead of the legacy FJOB worker (D-13). Both invocations are async (InvocationType: 'Event').
       'POST /generate-functional-tests': {
         function: {
           handler: 'packages/functions/src/functional-gen.handler',
           timeout: '30 seconds',
-          environment: { FUNCTIONAL_WORKER_FUNCTION_NAME: functionalWorker.functionName },
-          permissions: [functionalWorker], // grants lambda:InvokeFunction on the worker
+          environment: {
+            FUNCTIONAL_WORKER_FUNCTION_NAME: functionalWorker.functionName,
+            STEP_WORKER_FUNCTION_NAME: stepWorkerFn.functionName,
+          },
+          permissions: [functionalWorker, stepWorkerFn], // grants lambda:InvokeFunction on both workers
         },
       },
       'GET /contracts': 'packages/functions/src/read.contracts',
@@ -155,6 +195,53 @@ export function ApiStack({ stack }: StackContext) {
       'GET /experiments': 'packages/functions/src/read.experiments',
       'GET /experiments/{experimentId}': 'packages/functions/src/read.experiment',
       'GET /experiments/{experimentId}/artifact': 'packages/functions/src/read.experimentArtifact',
+      // Pipeline CRUD (configurable-llm-pipeline · T-09, R-35).
+      // GET handlers live in read.ts (T-05); mutation handlers in pipeline.ts (T-03, T-04).
+      'GET /pipelines': 'packages/functions/src/read.getPipelinesHandler',
+      'GET /pipelines/{id}': 'packages/functions/src/read.getPipelineHandler',
+      'POST /pipelines': {
+        function: {
+          handler: 'packages/functions/src/pipeline.createPipeline',
+          timeout: '30 seconds',
+        },
+      },
+      'PUT /pipelines/{id}': {
+        function: {
+          handler: 'packages/functions/src/pipeline.updatePipeline',
+          timeout: '30 seconds',
+        },
+      },
+      'DELETE /pipelines/{id}': {
+        function: {
+          handler: 'packages/functions/src/pipeline.deletePipeline',
+          timeout: '30 seconds',
+        },
+      },
+      // Prompt CRUD (configurable-llm-pipeline · T-09, R-35).
+      'GET /prompts': 'packages/functions/src/read.getPromptsHandler',
+      'GET /prompts/{key}': 'packages/functions/src/read.getPromptHandler',
+      'GET /prompts/{key}/versions': 'packages/functions/src/read.getPromptVersionsHandler',
+      'POST /prompts': {
+        function: {
+          handler: 'packages/functions/src/pipeline.createPrompt',
+          timeout: '30 seconds',
+        },
+      },
+      'PUT /prompts/{key}': {
+        function: {
+          handler: 'packages/functions/src/pipeline.updatePrompt',
+          timeout: '30 seconds',
+        },
+      },
+      'DELETE /prompts/{key}': {
+        function: {
+          handler: 'packages/functions/src/pipeline.deletePrompt',
+          timeout: '30 seconds',
+        },
+      },
+      // Pipeline run status (configurable-llm-pipeline · T-09, T-05, R-35).
+      // Lazy lease-expiry check included in handler (T-05, R-25, R-26-loop).
+      'GET /runs/{runId}': 'packages/functions/src/read.getPipelineRunHandler',
     },
   });
 
@@ -175,9 +262,10 @@ export function ApiStack({ stack }: StackContext) {
     onUpdate: 'packages/functions/src/prompt-seed.handler',
   });
 
-  // Ensure seeder runs before either worker Lambda is deployed/updated.
+  // Ensure seeder runs before worker Lambdas are deployed/updated.
   functionalWorker.node.addDependency(seeder);
   experimentWorker.node.addDependency(seeder);
+  stepWorkerFn.node.addDependency(seeder);
 
   stack.addOutputs({ ApiUrl: api.url });
 

@@ -20,7 +20,19 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Table } from 'sst/node/table';
 import { Bucket } from 'sst/node/bucket';
-import type { ValidationError, ParsedRequirement, PromptVersionRecord, ExperimentRecord } from '@registry/core';
+import type {
+  ValidationError,
+  ParsedRequirement,
+  PromptVersionRecord,
+  ExperimentRecord,
+  PipelineConfig,
+  PipelineRun,
+  StepRecord,
+  PromptItem,
+  PromptVersionItem,
+  ModelAllowlist,
+  StepOutputRef,
+} from '@registry/core';
 
 const TABLE = Table.Registry.tableName;
 const BUCKET = Bucket.Contracts.bucketName;
@@ -848,3 +860,436 @@ async function batchWriteAll(requests: unknown[]): Promise<void> {
 }
 
 export const repository = new Repository();
+
+// ============================================================================
+// Pipeline item key builders (T-02 — design §Data Model Changes)
+// ============================================================================
+
+/** PK/SK pair for a PIPELINE config item. */
+export const pipelinePk = (pipelineId: string): { pk: string; sk: string } => ({
+  pk: `PIPELINE#${pipelineId}`,
+  sk: 'PIPELINE',
+});
+
+/** PK/SK pair for a PRUN (pipeline run) record. */
+export const prunPk = (runId: string): { pk: string; sk: string } => ({
+  pk: `PRUN#${runId}`,
+  sk: 'PRUN',
+});
+
+/**
+ * Sort key for a step record within a run.
+ * Zero-pads to 2 digits so lexicographic order matches numeric order for up
+ * to 99 steps (e.g. `STEP#00`, `STEP#09`, `STEP#10`).
+ */
+export const stepSk = (stepIndex: number): string =>
+  `STEP#${String(stepIndex).padStart(2, '0')}`;
+
+/** PK/SK pair for a PRMPT (prompt header) item. */
+export const prmptPk = (promptKey: string): { pk: string; sk: string } => ({
+  pk: `PRMPT#${promptKey}`,
+  sk: 'PRMPT',
+});
+
+/**
+ * PK/SK pair for a PRMPTVER (immutable prompt version) item.
+ * Version is zero-padded to 5 digits (e.g. `PRMPTVER#my-prompt#00001`).
+ */
+export const prmptverPk = (promptKey: string, version: number): { pk: string; sk: string } => ({
+  pk: `PRMPTVER#${promptKey}#${String(version).padStart(5, '0')}`,
+  sk: 'PRMPTVER',
+});
+
+/** PK/SK pair for a STEPCACHE dedup item. */
+export const stepcachePk = (cacheKey: string): { pk: string; sk: string } => ({
+  pk: `STEPCACHE#${cacheKey}`,
+  sk: 'CACHE',
+});
+
+/** PK/SK pair for the SYSCONFIG / MODEL_ALLOWLIST system config item. */
+export const sysconfigPk = (): { pk: string; sk: string } => ({
+  pk: 'SYSCONFIG',
+  sk: 'MODEL_ALLOWLIST',
+});
+
+// ============================================================================
+// Pipeline CRUD helpers (T-02)
+// All accept a DynamoDBDocumentClient for testability.
+// ============================================================================
+
+/** Fetch a pipeline config item; returns undefined when not found. */
+export async function getPipeline(
+  ddb: DynamoDBDocumentClient,
+  pipelineId: string
+): Promise<PipelineConfig | undefined> {
+  const { pk, sk } = pipelinePk(pipelineId);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as PipelineConfig | undefined;
+}
+
+/** Write (create or overwrite) a pipeline config item. */
+export async function putPipeline(ddb: DynamoDBDocumentClient, item: PipelineConfig): Promise<void> {
+  const { pk, sk } = pipelinePk(item.pipelineId);
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: { PK: pk, SK: sk, ...item },
+    })
+  );
+}
+
+/** Patch selected fields on a pipeline config item. */
+export async function updatePipeline(
+  ddb: DynamoDBDocumentClient,
+  pipelineId: string,
+  updates: Partial<PipelineConfig>
+): Promise<void> {
+  const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  const { pk, sk } = pipelinePk(pipelineId);
+  const setExprParts = entries.map(([k], i) => `#f${i} = :v${i}`);
+  const expressionNames: Record<string, string> = {};
+  const expressionValues: Record<string, unknown> = {};
+  for (let i = 0; i < entries.length; i++) {
+    expressionNames[`#f${i}`] = entries[i][0];
+    expressionValues[`:v${i}`] = entries[i][1];
+  }
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: `SET ${setExprParts.join(', ')}`,
+      ExpressionAttributeNames: expressionNames,
+      ExpressionAttributeValues: expressionValues,
+    })
+  );
+}
+
+/**
+ * List active pipelines via the `byKind` GSI.
+ * Returns a page of items and an opaque `nextToken` for the next page.
+ */
+export async function listPipelines(
+  ddb: DynamoDBDocumentClient,
+  nextToken?: string
+): Promise<{ items: PipelineConfig[]; nextToken?: string }> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'byKind',
+      KeyConditionExpression: 'kind = :k',
+      ExpressionAttributeValues: { ':k': 'PIPELINE' },
+      ScanIndexForward: false,
+      ...(nextToken
+        ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
+        : {}),
+    })
+  );
+  return {
+    items: (res.Items ?? []) as PipelineConfig[],
+    ...(res.LastEvaluatedKey
+      ? { nextToken: Buffer.from(JSON.stringify(res.LastEvaluatedKey)).toString('base64') }
+      : {}),
+  };
+}
+
+// ============================================================================
+// PRUN (pipeline run) CRUD helpers (T-02)
+// ============================================================================
+
+/** Fetch a pipeline run record; returns undefined when not found. */
+export async function getPrun(
+  ddb: DynamoDBDocumentClient,
+  runId: string
+): Promise<PipelineRun | undefined> {
+  const { pk, sk } = prunPk(runId);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as PipelineRun | undefined;
+}
+
+/** Write (create or overwrite) a pipeline run record. */
+export async function putPrun(ddb: DynamoDBDocumentClient, item: PipelineRun): Promise<void> {
+  const { pk, sk } = prunPk(item.runId);
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: { PK: pk, SK: sk, ...item },
+    })
+  );
+}
+
+/**
+ * Patch selected fields on a pipeline run record.
+ * Conditional — only writes if the run is still non-terminal (`status = 'running'`),
+ * so a stale step Lambda cannot clobber a run that already reached a terminal state.
+ */
+export async function updatePrun(
+  ddb: DynamoDBDocumentClient,
+  runId: string,
+  updates: Partial<PipelineRun>
+): Promise<void> {
+  const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  const { pk, sk } = prunPk(runId);
+  const setExprParts = entries.map(([k], i) => `#f${i} = :v${i}`);
+  const expressionNames: Record<string, string> = { '#status': 'status' };
+  const expressionValues: Record<string, unknown> = { ':running': 'running' };
+  for (let i = 0; i < entries.length; i++) {
+    expressionNames[`#f${i}`] = entries[i][0];
+    expressionValues[`:v${i}`] = entries[i][1];
+  }
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: `SET ${setExprParts.join(', ')}`,
+      ConditionExpression: '#status = :running',
+      ExpressionAttributeNames: expressionNames,
+      ExpressionAttributeValues: expressionValues,
+    })
+  );
+}
+
+/**
+ * List all STEP records for a run (shares PK with the PRUN record).
+ * Returns steps in ascending index order (sort key lexicographic ascending).
+ */
+export async function listPrunSteps(
+  ddb: DynamoDBDocumentClient,
+  runId: string
+): Promise<StepRecord[]> {
+  const { pk } = prunPk(runId);
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: { ':pk': pk, ':prefix': 'STEP#' },
+      ScanIndexForward: true,
+    })
+  );
+  return (res.Items ?? []) as StepRecord[];
+}
+
+// ============================================================================
+// PRMPT (prompt header) CRUD helpers (T-02)
+// ============================================================================
+
+/** Fetch a prompt header item; returns undefined when not found. */
+export async function getPrmpt(
+  ddb: DynamoDBDocumentClient,
+  promptKey: string
+): Promise<PromptItem | undefined> {
+  const { pk, sk } = prmptPk(promptKey);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as PromptItem | undefined;
+}
+
+/** Write (create or overwrite) a prompt header item. */
+export async function putPrmpt(ddb: DynamoDBDocumentClient, item: PromptItem): Promise<void> {
+  const { pk, sk } = prmptPk(item.promptKey);
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: { PK: pk, SK: sk, ...item },
+    })
+  );
+}
+
+/** Patch selected fields on a prompt header item. */
+export async function updatePrmpt(
+  ddb: DynamoDBDocumentClient,
+  promptKey: string,
+  updates: Partial<PromptItem>
+): Promise<void> {
+  const entries = Object.entries(updates).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return;
+  const { pk, sk } = prmptPk(promptKey);
+  const setExprParts = entries.map(([k], i) => `#f${i} = :v${i}`);
+  const expressionNames: Record<string, string> = {};
+  const expressionValues: Record<string, unknown> = {};
+  for (let i = 0; i < entries.length; i++) {
+    expressionNames[`#f${i}`] = entries[i][0];
+    expressionValues[`:v${i}`] = entries[i][1];
+  }
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: `SET ${setExprParts.join(', ')}`,
+      ExpressionAttributeNames: expressionNames,
+      ExpressionAttributeValues: expressionValues,
+    })
+  );
+}
+
+/**
+ * List active prompts via the `byKind` GSI (excludes soft-deleted items).
+ * Returns a page of items and an opaque `nextToken` for the next page.
+ */
+export async function listPrmpts(
+  ddb: DynamoDBDocumentClient,
+  nextToken?: string
+): Promise<{ items: PromptItem[]; nextToken?: string }> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'byKind',
+      KeyConditionExpression: 'kind = :k',
+      FilterExpression: '#active = :active',
+      ExpressionAttributeNames: { '#active': 'active' },
+      ExpressionAttributeValues: { ':k': 'PRMPT', ':active': true },
+      ScanIndexForward: false,
+      ...(nextToken
+        ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
+        : {}),
+    })
+  );
+  return {
+    items: (res.Items ?? []) as PromptItem[],
+    ...(res.LastEvaluatedKey
+      ? { nextToken: Buffer.from(JSON.stringify(res.LastEvaluatedKey)).toString('base64') }
+      : {}),
+  };
+}
+
+// ============================================================================
+// PRMPTVER (prompt version) CRUD helpers (T-02)
+// ============================================================================
+
+/** Fetch a single prompt version item; returns undefined when not found. */
+export async function getPrmptVer(
+  ddb: DynamoDBDocumentClient,
+  promptKey: string,
+  version: number
+): Promise<PromptVersionItem | undefined> {
+  const { pk, sk } = prmptverPk(promptKey, version);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as PromptVersionItem | undefined;
+}
+
+/**
+ * Write a prompt version item (write-once: fails with
+ * `ConditionalCheckFailedException` if the item already exists — R-32).
+ */
+export async function putPrmptVer(ddb: DynamoDBDocumentClient, item: PromptVersionItem): Promise<void> {
+  const { pk, sk } = prmptverPk(item.promptKey, item.version);
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE,
+      Item: { PK: pk, SK: sk, ...item },
+      ConditionExpression: 'attribute_not_exists(PK)',
+    })
+  );
+}
+
+/**
+ * List all version records for a prompt, sorted by version ascending.
+ * Queries the `byKind` GSI for `kind = 'PRMPTVER'` and filters by `promptKey`.
+ */
+export async function listPrmptVers(
+  ddb: DynamoDBDocumentClient,
+  promptKey: string
+): Promise<PromptVersionItem[]> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'byKind',
+      KeyConditionExpression: 'kind = :k',
+      FilterExpression: 'promptKey = :pk',
+      ExpressionAttributeValues: { ':k': 'PRMPTVER', ':pk': promptKey },
+      ScanIndexForward: true,
+    })
+  );
+  return (res.Items ?? []) as PromptVersionItem[];
+}
+
+// ============================================================================
+// SYSCONFIG / MODEL_ALLOWLIST helper (T-02)
+// ============================================================================
+
+/** Fetch the model allowlist system config; returns undefined when not found. */
+export async function getSysconfig(ddb: DynamoDBDocumentClient): Promise<ModelAllowlist | undefined> {
+  const { pk, sk } = sysconfigPk();
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as ModelAllowlist | undefined;
+}
+
+// ============================================================================
+// STEPCACHE helpers (T-02 — Caching section)
+// ============================================================================
+
+/** Fetch a step cache entry; returns undefined on a cache miss. */
+export async function getStepcache(
+  ddb: DynamoDBDocumentClient,
+  cacheKey: string
+): Promise<{ outputRef: StepOutputRef } | undefined> {
+  const { pk, sk } = stepcachePk(cacheKey);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  if (!res.Item) return undefined;
+  return { outputRef: res.Item.outputRef as StepOutputRef };
+}
+
+/**
+ * Write a step cache entry with an `attribute_not_exists(pk)` guard so that
+ * concurrent step Lambdas that finish at the same time only write once.
+ * On `ConditionalCheckFailedException` (a racing Lambda already wrote the
+ * entry), reads and returns the existing entry instead of propagating the
+ * error (D-design §Caching concurrent dedup guard).
+ */
+export async function putStepcacheConditional(
+  ddb: DynamoDBDocumentClient,
+  cacheKey: string,
+  outputRef: StepOutputRef
+): Promise<{ outputRef: StepOutputRef }> {
+  const { pk, sk } = stepcachePk(cacheKey);
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: { PK: pk, SK: sk, outputRef },
+        ConditionExpression: 'attribute_not_exists(pk)',
+      })
+    );
+    return { outputRef };
+  } catch (err) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+      // A concurrent Lambda already wrote the entry — read and return it.
+      const existing = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+      return { outputRef: (existing.Item?.outputRef ?? outputRef) as StepOutputRef };
+    }
+    throw err;
+  }
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Active run check for pipeline soft-delete guard (R-09)
+// ---------------------------------------------------------------------------
+
+export async function listActiveRunsByPipelineId(
+  ddb: DynamoDBDocumentClient,
+  pipelineId: string,
+): Promise<Array<{ status: string; runId: string }>> {
+  const results: Array<{ status: string; runId: string }> = [];
+  let lastKey: Record<string, unknown> | undefined;
+  const TABLE = Table.Registry.tableName;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        IndexName: 'byKind',
+        KeyConditionExpression: 'kind = :k',
+        FilterExpression: 'pipelineId = :pid AND #s = :running',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':k': 'PRUN', ':pid': pipelineId, ':running': 'running' },
+        ...(lastKey ? { ExclusiveStartKey: lastKey } : {}),
+      }),
+    );
+    for (const item of res.Items ?? []) {
+      results.push({ status: item['status'] as string, runId: item['runId'] as string });
+    }
+    lastKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastKey);
+  return results;
+}
