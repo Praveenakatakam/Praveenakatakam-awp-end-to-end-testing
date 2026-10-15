@@ -146,6 +146,13 @@ export function createApi(getToken: () => Promise<string>) {
       await reqMut(`/pipelines/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
+    /**
+     * POST /generate-functional-tests with pipelineId
+     * Starts a pipeline run. Returns { runId } for batch or { runIds } for per_requirement mode.
+     */
+    runPipeline: async (pipelineId: string): Promise<{ runId?: string; runIds?: string[] }> =>
+      (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId }) })).json(),
+
     // -------------------------------------------------------------------------
     // Prompt CRUD (T-11, R-31, R-35, R-37, R-41)
     // -------------------------------------------------------------------------

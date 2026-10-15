@@ -1,21 +1,14 @@
 /**
- * PipelinesPage — list of active pipelines with an inline editor panel.
+ * PipelinesPage — list of pipelines with inline editor panel.
  *
- * List view: pipeline name, step count, active/inactive badge, last-updated date.
- * Writers see "New Pipeline" button (R-44, TS-24, TS-25) and per-row delete controls.
- * Selecting a pipeline opens an inline editor panel:
- *   - Editable name, ordered step list with model selector + prompt body preview.
- *   - Writers can add/remove/reorder steps, view prompt text inline, open a "New Prompt"
- *     sub-form, and swap promptKey (R-39).
- *   - Save calls PUT /pipelines/{id}; HTTP 422 body shown as inline error banner (R-40, TS-26).
- * Non-writers see a read-only view.
+ * Active / Archived tabs filter by pipeline.active. Writers see "New Pipeline"
+ * on the Active tab and "Recover" on the Archived tab. Selecting a pipeline
+ * opens an inline editor panel with a resizable drag divider.
  *
  * Requirements: R-38, R-39, R-40, R-44
- * Design: SPA Design §PipelinesPage, D-14 (TanStack Query), query keys §['pipelines']
- * Task: T-12
  */
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
@@ -25,6 +18,8 @@ import {
   useCreatePipeline,
   useUpdatePipeline,
   useDeletePipeline,
+  useRestorePipeline,
+  useRunPipeline,
   usePrompt,
   useCreatePrompt,
 } from '../hooks/usePipelines.js';
@@ -33,7 +28,6 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Well-known Bedrock model IDs offered in the step model selector. */
 const KNOWN_MODELS = [
   'us.anthropic.claude-sonnet-4-6',
   'us.anthropic.claude-haiku-4-5',
@@ -82,8 +76,14 @@ function StepRow({
   const [newPromptBody, setNewPromptBody] = useState('');
   const [newPromptError, setNewPromptError] = useState('');
 
-  // Fetch prompt body for inline preview — query is skipped when promptKey is empty
-  const { data: promptData } = usePrompt(api, step.promptKey);
+  // Debounce prompt key so we don't fire a query on every keystroke
+  const [debouncedPromptKey, setDebouncedPromptKey] = useState(step.promptKey);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedPromptKey(step.promptKey), 600);
+    return () => clearTimeout(id);
+  }, [step.promptKey]);
+
+  const { data: promptData } = usePrompt(api, debouncedPromptKey);
   const createPromptMutation = useCreatePrompt(api);
 
   const isCustomModel = step.model !== '' && !KNOWN_MODELS.includes(step.model);
@@ -258,24 +258,8 @@ function StepRow({
             </div>
           )}
 
-          {/* Flags */}
+          {/* Include context flag only — Optional and Wait for human are not exposed yet */}
           <div className="cluster" style={{ gap: 16, flexWrap: 'wrap' }}>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.optional}
-                onChange={(e) => onChange({ ...step, optional: e.target.checked })}
-              />
-              Optional
-            </label>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.waitForHuman}
-                onChange={(e) => onChange({ ...step, waitForHuman: e.target.checked })}
-              />
-              Wait for human
-            </label>
             <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -359,11 +343,13 @@ function PipelineEditorPanel({
   pipeline,
   writer,
   onClose,
+  onRun,
 }: {
   api: Api;
   pipeline: PipelineConfig;
   writer: boolean;
   onClose: () => void;
+  onRun: (pipelineId: string) => void;
 }) {
   const updateMutation = useUpdatePipeline(api);
 
@@ -425,6 +411,16 @@ function PipelineEditorPanel({
         >
           {pipeline.name}
         </p>
+        {writer && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            style={{ flexShrink: 0 }}
+            onClick={() => onRun(pipeline.pipelineId)}
+          >
+            ▶ Run
+          </button>
+        )}
         <Link
           to={`/pipelines/${pipeline.pipelineId}`}
           className="btn btn-ghost btn-sm"
@@ -443,13 +439,12 @@ function PipelineEditorPanel({
         </button>
       </div>
 
-      {/* Pipeline metadata */}
+      {/* Pipeline metadata (no Max steps) */}
       <dl className="meta-grid" style={{ marginBottom: 12 }}>
         {(
           [
             ['Version', String(pipeline.version)],
             ['Mode', pipeline.defaultMode],
-            ['Max steps', String(pipeline.maxSteps)],
             ['Updated', new Date(pipeline.updatedAt).toLocaleDateString()],
           ] as [string, string][]
         ).map(([k, v]) => (
@@ -642,13 +637,21 @@ function NewPipelinePanel({
 export default function PipelinesPage({ api, token }: { api: Api; token: string }) {
   const { data, isLoading, error: fetchError } = usePipelines(api);
   const deleteMutation = useDeletePipeline(api);
+  const restoreMutation = useRestorePipeline(api);
+  const runMutation = useRunPipeline(api);
+  const navigate = useNavigate();
 
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [panelWidth, setPanelWidth] = useState<number | null>(null);
 
   const writer = isWriter(token);
   const pipelines = data?.pipelines ?? [];
+  const activePipelines = pipelines.filter((p) => p.active);
+  const archivedPipelines = pipelines.filter((p) => !p.active);
+  const visiblePipelines = activeTab === 'active' ? activePipelines : archivedPipelines;
 
   // Derive the selected pipeline record from the live list (auto-updates after mutations)
   const selected = selectedId
@@ -673,18 +676,67 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
     setShowNewForm(false);
   }
 
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = panelWidth ?? 480;
+    function onMove(ev: MouseEvent) {
+      const delta = startX - ev.clientX;
+      const next = Math.min(Math.max(startWidth + delta, 280), window.innerWidth * 0.7);
+      setPanelWidth(next);
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  async function handleRun(pipelineId: string) {
+    try {
+      const res = await runMutation.mutateAsync(pipelineId);
+      const runId = res.runId ?? res.runIds?.[0];
+      if (runId) navigate(`/runs/${runId}`);
+    } catch {
+      // error surfaced inline in the panel
+    }
+  }
+
   return (
     <div className="app-body" aria-label="pipelines">
       <div className="app-main">
-        {/* Page heading + "New Pipeline" button */}
-        <div className="cluster" style={{ marginBottom: 12 }}>
-          <h3 className="section-heading" style={{ marginBottom: 0 }}>Pipelines</h3>
-          {writer && (
+        {/* Tabs + New Pipeline button */}
+        <div className="cluster" style={{ marginBottom: 12, gap: 0, alignItems: 'flex-end' }}>
+          <div className="tabs" style={{ flex: 1 }}>
+            <button
+              className={`tab ${activeTab === 'active' ? 'tab-active' : ''}`}
+              type="button"
+              onClick={() => setActiveTab('active')}
+            >
+              Active
+              {activePipelines.length > 0 && (
+                <span className="badge badge-muted">{activePipelines.length}</span>
+              )}
+            </button>
+            <button
+              className={`tab ${activeTab === 'archived' ? 'tab-active' : ''}`}
+              type="button"
+              onClick={() => setActiveTab('archived')}
+            >
+              Archived
+              {archivedPipelines.length > 0 && (
+                <span className="badge badge-muted">{archivedPipelines.length}</span>
+              )}
+            </button>
+          </div>
+          {writer && activeTab === 'active' && (
             <button
               className="btn btn-primary btn-sm"
               type="button"
               onClick={openNew}
               data-testid="new-pipeline-btn"
+              style={{ marginLeft: 12 }}
             >
               New Pipeline
             </button>
@@ -696,17 +748,18 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
           <p className="alert alert-danger" role="alert">Failed to load pipelines.</p>
         )}
 
-        {!isLoading && !fetchError && pipelines.length === 0 && (
+        {!isLoading && !fetchError && visiblePipelines.length === 0 && (
           <p className="text-muted text-sm">
-            No active pipelines.
-            {writer ? ' Click "New Pipeline" to create one.' : ''}
+            {activeTab === 'active'
+              ? `No active pipelines.${writer ? ' Click "New Pipeline" to create one.' : ''}`
+              : 'No archived pipelines.'}
           </p>
         )}
 
-        {/* Pipeline list (R-38) */}
-        {pipelines.length > 0 && (
+        {/* Pipeline list */}
+        {visiblePipelines.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {pipelines.map((p) => {
+            {visiblePipelines.map((p) => {
               const isSelected = selectedId === p.pipelineId;
               return (
                 <div
@@ -742,16 +795,12 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
                     {p.steps.length} step{p.steps.length !== 1 ? 's' : ''}
                   </span>
 
-                  <span className={`badge ${p.active ? 'badge-success' : 'badge-muted'}`}>
-                    {p.active ? 'active' : 'inactive'}
-                  </span>
-
                   <span className="text-muted text-sm">
                     {new Date(p.updatedAt).toLocaleDateString()}
                   </span>
 
-                  {/* Delete controls (writer only) */}
-                  {writer && deleteConfirmId !== p.pipelineId && (
+                  {/* Active tab: Delete controls */}
+                  {writer && activeTab === 'active' && deleteConfirmId !== p.pipelineId && (
                     <button
                       className="btn btn-ghost btn-sm"
                       type="button"
@@ -761,17 +810,17 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
                         setDeleteConfirmId(p.pipelineId);
                       }}
                     >
-                      Delete
+                      Archive
                     </button>
                   )}
-                  {writer && deleteConfirmId === p.pipelineId && (
+                  {writer && activeTab === 'active' && deleteConfirmId === p.pipelineId && (
                     <div
                       className="cluster"
                       style={{ gap: 4, flexShrink: 0 }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <span className="text-sm" style={{ color: 'var(--danger, #e53e3e)' }}>
-                        Confirm?
+                        Archive?
                       </span>
                       <button
                         className="btn btn-danger btn-sm"
@@ -794,6 +843,22 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
                       </button>
                     </div>
                   )}
+
+                  {/* Archived tab: Recover button */}
+                  {writer && activeTab === 'archived' && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      style={{ flexShrink: 0 }}
+                      disabled={restoreMutation.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        restoreMutation.mutate(p.pipelineId);
+                      }}
+                    >
+                      Recover
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -801,20 +866,31 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
         )}
       </div>
 
-      {/* Inline editor / create panel */}
+      {/* Resizable drag divider + inline editor / create panel */}
       {panelOpen && (
-        <aside className="app-panel" aria-label="pipeline-detail">
-          {showNewForm ? (
-            <NewPipelinePanel api={api} onCreated={closePanel} onClose={closePanel} />
-          ) : selected ? (
-            <PipelineEditorPanel
-              api={api}
-              pipeline={selected}
-              writer={writer}
-              onClose={closePanel}
-            />
-          ) : null}
-        </aside>
+        <>
+          <div
+            className="pane-divider"
+            onMouseDown={startResize}
+          />
+          <aside
+            className="app-panel"
+            aria-label="pipeline-detail"
+            style={panelWidth ? { width: panelWidth, minWidth: 280, maxWidth: '70vw' } : undefined}
+          >
+            {showNewForm ? (
+              <NewPipelinePanel api={api} onCreated={closePanel} onClose={closePanel} />
+            ) : selected ? (
+              <PipelineEditorPanel
+                api={api}
+                pipeline={selected}
+                writer={writer}
+                onClose={closePanel}
+                onRun={handleRun}
+              />
+            ) : null}
+          </aside>
+        </>
       )}
     </div>
   );

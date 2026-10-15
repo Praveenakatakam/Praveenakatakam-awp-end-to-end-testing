@@ -2,29 +2,24 @@
  * PipelinePage — detail and full-edit page for a single pipeline.
  *
  * Route: /pipelines/:pipelineId
- * - Shows pipeline name, version, default sampling/mode, and ordered step list.
- * - Writers can edit all fields: name, maxSteps, steps (add/remove/reorder), per-step
- *   label/model/promptKey/flags.
- * - Save calls PUT /pipelines/{id}; HTTP 422 response body displayed as inline error
- *   banner, form stays open (R-40, TS-26).
- * - "Run" button stubs a pipeline run (POST /generate-functional-tests) — navigates or
- *   shows a placeholder until the run page (T-14) is wired up.
- * - Non-writers see a read-only view.
+ * - Writers can edit name, mode, sampling, steps; Run button triggers a pipeline run.
+ * - "New Prompt" sub-form on each step for creating prompts inline.
+ * - Optional, Wait for human, and Max steps are not exposed in the UI.
  *
  * Requirements: R-38, R-39, R-40, R-44
- * Design: SPA Design §PipelinesPage (detail editor), D-14 (TanStack Query)
- * Task: T-12 (extra — explicitly requested alongside PipelinesPage.tsx)
  */
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
-import type { PipelineStep } from '@registry/core';
+import type { PipelineStep, SamplingConfig } from '@registry/core';
 import {
   usePipeline,
   useUpdatePipeline,
   usePrompts,
+  useCreatePrompt,
+  useRunPipeline,
 } from '../hooks/usePipelines.js';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +48,7 @@ function makeStep(index: number): PipelineStep {
 // ---------------------------------------------------------------------------
 
 function StepEditor({
+  api,
   step,
   index,
   total,
@@ -63,6 +59,7 @@ function StepEditor({
   onMoveDown,
   onRemove,
 }: {
+  api: Api;
   step: PipelineStep;
   index: number;
   total: number;
@@ -73,6 +70,12 @@ function StepEditor({
   onMoveDown: () => void;
   onRemove: () => void;
 }) {
+  const [newPromptMode, setNewPromptMode] = useState(false);
+  const [newPromptKey, setNewPromptKey] = useState('');
+  const [newPromptBody, setNewPromptBody] = useState('');
+  const [newPromptError, setNewPromptError] = useState('');
+  const createPromptMutation = useCreatePrompt(api);
+
   const isCustomModel = step.model !== '' && !KNOWN_MODELS.includes(step.model);
 
   return (
@@ -170,46 +173,98 @@ function StepEditor({
             )}
           </div>
 
+          {/* Prompt key + New Prompt sub-form */}
           <div className="form-group">
             <label className="form-label">Prompt key</label>
-            {promptKeys.length > 0 ? (
-              <select
-                className="form-select"
-                value={step.promptKey}
-                onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
+            <div className="cluster" style={{ gap: 6 }}>
+              {promptKeys.length > 0 ? (
+                <select
+                  className="form-select"
+                  style={{ flex: 1 }}
+                  value={step.promptKey}
+                  onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
+                >
+                  <option value="">— select prompt —</option>
+                  {promptKeys.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  value={step.promptKey}
+                  onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
+                  placeholder="functional-test-gen-default"
+                />
+              )}
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => setNewPromptMode((p) => !p)}
               >
-                <option value="">— select prompt —</option>
-                {promptKeys.map((k) => (
-                  <option key={k} value={k}>{k}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="form-input"
-                value={step.promptKey}
-                onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
-                placeholder="functional-test-gen-default"
-              />
-            )}
+                {newPromptMode ? 'Cancel' : '+ New prompt'}
+              </button>
+            </div>
           </div>
 
+          {newPromptMode && (
+            <div style={{
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '8px 10px',
+              background: 'var(--bg)',
+            }}>
+              <p className="text-sm" style={{ marginBottom: 6, fontWeight: 500 }}>New prompt</p>
+              <div className="form-group">
+                <label className="form-label">Prompt key</label>
+                <input
+                  className="form-input"
+                  value={newPromptKey}
+                  onChange={(e) => setNewPromptKey(e.target.value)}
+                  placeholder="my-prompt-key"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Prompt body</label>
+                <textarea
+                  className="form-textarea"
+                  value={newPromptBody}
+                  onChange={(e) => setNewPromptBody(e.target.value)}
+                  rows={4}
+                />
+              </div>
+              {newPromptError && (
+                <p className="form-error" role="alert">{newPromptError}</p>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                disabled={createPromptMutation.isPending || !newPromptKey || !newPromptBody}
+                onClick={async () => {
+                  setNewPromptError('');
+                  try {
+                    await createPromptMutation.mutateAsync({ promptKey: newPromptKey, body: newPromptBody });
+                    onChange({ ...step, promptKey: newPromptKey });
+                    setNewPromptMode(false);
+                    setNewPromptKey('');
+                    setNewPromptBody('');
+                  } catch (err) {
+                    const msg =
+                      err instanceof ApiError && err.serverMessage
+                        ? err.serverMessage
+                        : (err as Error).message;
+                    setNewPromptError(msg);
+                  }
+                }}
+              >
+                {createPromptMutation.isPending ? 'Creating…' : 'Create prompt'}
+              </button>
+            </div>
+          )}
+
+          {/* Include context only — Optional and Wait for human not exposed yet */}
           <div className="cluster" style={{ gap: 16, flexWrap: 'wrap' }}>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.optional}
-                onChange={(e) => onChange({ ...step, optional: e.target.checked })}
-              />
-              Optional
-            </label>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.waitForHuman}
-                onChange={(e) => onChange({ ...step, waitForHuman: e.target.checked })}
-              />
-              Wait for human
-            </label>
             <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -228,7 +283,6 @@ function StepEditor({
               ['Label', step.label],
               ['Model', step.model],
               ['Prompt key', step.promptKey || '—'],
-              ['Optional', step.optional ? 'Yes' : 'No'],
               ['Include context', step.includeContext ? 'Yes' : 'No'],
             ] as [string, string][]
           ).map(([k, v]) => (
@@ -263,22 +317,24 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
   const { data: pipeline, isLoading, error: fetchError } =
     usePipeline(api, pipelineId ?? '');
   const updateMutation = useUpdatePipeline(api);
+  const runMutation = useRunPipeline(api);
   const { data: promptsData } = usePrompts(api);
 
   const [name, setName] = useState('');
-  const [maxSteps, setMaxSteps] = useState(10);
+  const [defaultMode, setDefaultMode] = useState<'per_requirement' | 'batch'>('per_requirement');
+  const [sampling, setSampling] = useState<SamplingConfig>({ strategy: 'first_n', n: 3 });
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [saveError, setSaveError] = useState('');
 
   const writer = isWriter(token);
   const promptKeys = (promptsData?.prompts ?? []).map((p) => p.promptKey);
 
-  // Sync form state from the fetched pipeline (only when the pipeline ID changes,
-  // not on every background refetch — preserves unsaved edits)
+  // Sync form state from the fetched pipeline (only when the pipeline ID changes)
   useEffect(() => {
     if (pipeline) {
       setName(pipeline.name);
-      setMaxSteps(pipeline.maxSteps);
+      setDefaultMode(pipeline.defaultMode);
+      setSampling(pipeline.defaultSampling);
       setSteps(pipeline.steps);
       setSaveError('');
     }
@@ -304,7 +360,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
     try {
       await updateMutation.mutateAsync({
         id: pipelineId!,
-        body: { name, maxSteps, steps },
+        body: { name, defaultMode, defaultSampling: sampling, steps },
       });
     } catch (err) {
       const msg =
@@ -315,10 +371,15 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
     }
   }
 
-  function handleRun() {
-    // Stub: RunDetailPage (T-14) handles the actual run flow.
-    // TODO: POST /generate-functional-tests { pipelineId } then navigate to run detail.
-    alert(`Run pipeline "${name}" — pipeline run UI coming in a future task.`);
+  async function handleRun() {
+    setSaveError('');
+    try {
+      const res = await runMutation.mutateAsync(pipeline!.pipelineId);
+      const runId = res.runId ?? res.runIds?.[0];
+      if (runId) navigate(`/runs/${runId}`);
+    } catch (err) {
+      setSaveError((err as Error).message);
+    }
   }
 
   // Loading / error states
@@ -362,7 +423,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
   return (
     <div className="app-body" aria-label="pipeline-detail">
       <div className="app-main">
-        {/* Breadcrumb */}
+        {/* Breadcrumb + actions */}
         <div className="cluster" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <button
             className="btn btn-ghost btn-sm"
@@ -374,13 +435,19 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
             {pipeline.name}
           </h3>
           <span className={`badge ${pipeline.active ? 'badge-success' : 'badge-muted'}`}>
-            {pipeline.active ? 'active' : 'inactive'}
+            {pipeline.active ? 'active' : 'archived'}
           </span>
 
           {writer && (
             <div className="cluster" style={{ marginLeft: 'auto', gap: 8 }}>
-              <button className="btn btn-ghost" type="button" onClick={handleRun}>
-                ▶ Run
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={runMutation.isPending || !pipeline.active}
+                onClick={handleRun}
+                title={!pipeline.active ? 'Cannot run an archived pipeline' : undefined}
+              >
+                {runMutation.isPending ? 'Starting…' : '▶ Run'}
               </button>
               <button
                 className="btn btn-primary"
@@ -404,19 +471,13 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
                 ['Version', String(pipeline.version)],
                 ['Created', new Date(pipeline.createdAt).toLocaleString()],
                 ['Updated', new Date(pipeline.updatedAt).toLocaleString()],
-                ['Default mode', pipeline.defaultMode],
-                ['Sampling strategy', pipeline.defaultSampling.strategy],
               ] as [string, string][]
             ).map(([k, v]) => (
               <div key={k} style={{ display: 'contents' }}>
                 <dt className="meta-key">{k}</dt>
                 <dd
                   className="meta-val"
-                  style={
-                    k === 'Pipeline ID'
-                      ? { fontFamily: 'var(--font-mono)', fontSize: 12 }
-                      : undefined
-                  }
+                  style={k === 'Pipeline ID' ? { fontFamily: 'var(--font-mono)', fontSize: 12 } : undefined}
                 >
                   {v}
                 </dd>
@@ -424,37 +485,95 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
             ))}
           </dl>
 
-          {/* Editable name + maxSteps (writer only) */}
+          {/* Editable config (writer only) */}
           {writer && (
             <div className="form-grid" style={{ marginTop: 12 }}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="pp-name">Name</label>
+                <input
+                  id="pp-name"
+                  className="form-input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label" htmlFor="pp-name">Name</label>
-                  <input
-                    id="pp-name"
-                    className="form-input"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
+                  <label className="form-label" htmlFor="pp-mode">Mode</label>
+                  <select
+                    id="pp-mode"
+                    className="form-select"
+                    value={defaultMode}
+                    onChange={(e) => setDefaultMode(e.target.value as 'per_requirement' | 'batch')}
+                  >
+                    <option value="per_requirement">Per requirement</option>
+                    <option value="batch">Batch</option>
+                  </select>
                 </div>
-                <div className="form-group" style={{ maxWidth: 120 }}>
-                  <label className="form-label" htmlFor="pp-max-steps">Max steps</label>
-                  <input
-                    id="pp-max-steps"
-                    className="form-input"
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={maxSteps}
-                    onChange={(e) => setMaxSteps(Number(e.target.value))}
-                  />
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="pp-sampling">Sampling strategy</label>
+                  <select
+                    id="pp-sampling"
+                    className="form-select"
+                    value={sampling.strategy}
+                    onChange={(e) => {
+                      const s = e.target.value;
+                      if (s === 'first_n') setSampling({ strategy: 'first_n', n: 3 });
+                      else if (s === 'percentage') setSampling({ strategy: 'percentage', percentage: 100 });
+                      else if (s === 'ids') setSampling({ strategy: 'ids', ids: [] });
+                      else setSampling({ strategy: 'all' });
+                    }}
+                  >
+                    <option value="first_n">First N</option>
+                    <option value="percentage">Percentage</option>
+                    <option value="all">All</option>
+                    <option value="ids">Specific IDs</option>
+                  </select>
+                  {sampling.strategy === 'first_n' && (
+                    <input
+                      className="form-input"
+                      style={{ marginTop: 4 }}
+                      type="number"
+                      min={1}
+                      value={(sampling as { strategy: 'first_n'; n: number }).n}
+                      onChange={(e) => setSampling({ strategy: 'first_n', n: Number(e.target.value) })}
+                    />
+                  )}
+                  {sampling.strategy === 'percentage' && (
+                    <input
+                      className="form-input"
+                      style={{ marginTop: 4 }}
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={(sampling as { strategy: 'percentage'; percentage: number }).percentage}
+                      onChange={(e) => setSampling({ strategy: 'percentage', percentage: Number(e.target.value) })}
+                    />
+                  )}
+                  {sampling.strategy === 'ids' && (
+                    <textarea
+                      className="form-textarea"
+                      style={{ marginTop: 4 }}
+                      rows={3}
+                      placeholder="One requirement ID per line"
+                      value={(sampling as { strategy: 'ids'; ids: string[] }).ids.join('\n')}
+                      onChange={(e) =>
+                        setSampling({
+                          strategy: 'ids',
+                          ids: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean),
+                        })
+                      }
+                    />
+                  )}
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* 422 error banner — form stays open */}
+        {/* Error / success banners */}
         {saveError && (
           <p className="alert alert-danger" role="alert" style={{ marginBottom: 12 }}>
             {saveError}
@@ -491,6 +610,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
         {steps.map((step, index) => (
           <StepEditor
             key={step.stepId || String(index)}
+            api={api}
             step={step}
             index={index}
             total={steps.length}
