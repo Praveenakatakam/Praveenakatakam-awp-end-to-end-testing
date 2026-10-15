@@ -104,6 +104,14 @@ Responsibilities:
 Inputs: specific `T-nn`/`T-nna` task pair, `requirements.md` (relevant section), `design.md` (relevant section)
 Output: passing tests + implementation + drift report (empty if no drift)
 
+**Worktree consolidation (after each approved task):**
+Implementer agents run in isolated git worktrees. After the human approves a task's output, merge the worktree branch back into the feature branch so all changes stay consolidated:
+```sh
+# From the feature branch (main checkout)
+git merge <worktree-branch-name>
+```
+If multiple tasks ran in parallel worktrees, merge them one at a time and resolve any conflicts before the next merge. Never let worktree branches accumulate — merge as you go so the feature branch is always the source of truth.
+
 ---
 
 ## Stage 6 — Implementation Review
