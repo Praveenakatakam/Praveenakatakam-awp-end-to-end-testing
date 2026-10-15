@@ -8,7 +8,7 @@ Spec-driven development in this repo. The spec is always the oracle — if code 
 
 ### 0. Fit check
 
-Before creating a stub, confirm SDD is the right tool and run a gap discovery session. See [fit-check.md](fit-check.md).
+Before creating a stub, confirm SDD is the right tool and run a gap discovery session. See [fit-check.md](fit-check.md). Then use `/stub-requirement <idea>` to capture the stub.
 
 ### 1. Idea → pending
 
@@ -71,12 +71,19 @@ When updating `requirements.md`, bump the version in the header and add a log en
 
 ---
 
+## Commands
+
+- `/stub-requirement <idea>` — fast capture to `specs/pending/` without starting SDD
+- `/start-feature` — full SDD flow from intake through implementation (can reference a pending stub)
+- `/resume-feature <slug>` — continue an in-progress spec from its last approval gate
+- `/health-check <slug> [HC-n ...]` — drift audit (HC-1–HC-5) and reconcile spec ↔ design ↔ tests ↔ code
+
 ## Subagents
 
-See [subagents.md](subagents.md) for how to parallelize SDD work across Claude sessions.
+See [subagents.md](subagents.md) for the full pipeline. Executable agent files live in `.claude/agents/`.
 
 ---
 
 ## Health checks
 
-Run periodically to detect spec drift. See [health-check.md](health-check.md).
+Run at the end of each implementation phase (scoped), at close-out (full), and periodically to detect and reconcile spec drift. See [health-check.md](health-check.md) and `/health-check`.
