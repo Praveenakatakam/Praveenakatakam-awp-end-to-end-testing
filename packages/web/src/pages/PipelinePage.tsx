@@ -376,7 +376,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
     try {
       const res = await runMutation.mutateAsync(pipeline!.pipelineId);
       const runId = res.runId ?? res.runIds?.[0];
-      if (runId) navigate(`/runs/${runId}`);
+      if (runId) navigate(`/pipelines/${pipeline!.pipelineId}/runs/${runId}`);
     } catch (err) {
       setSaveError((err as Error).message);
     }
