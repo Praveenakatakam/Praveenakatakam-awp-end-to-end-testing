@@ -472,3 +472,58 @@ describe('step outputType validation (R-59)', () => {
     expect(updatePipelineRepo).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// v0.6.0: step planSchema validation (R-84)
+// ---------------------------------------------------------------------------
+
+describe('step planSchema validation (R-84)', () => {
+  beforeEach(() => {
+    vi.mocked(getSysconfig).mockResolvedValue(allowlist());
+    vi.mocked(getPrmpt).mockResolvedValue(activePrompt('my-prompt'));
+  });
+
+  it('POST accepts planSchema v1 / v2 / absent on plan steps and persists it', async () => {
+    const steps = [
+      { ...validStep(), stepId: 's1', outputType: 'plan', planSchema: 'v1' },
+      { ...validStep(), stepId: 's2', planSchema: 'v2' },
+      { ...validStep(), stepId: 's3' },
+    ];
+    const res = await createPipeline(ev({ name: 'Schemas', steps }));
+    expect(res.statusCode).toBe(201);
+    const written = vi.mocked(putPipeline).mock.calls[0][1];
+    expect(written.steps.map((st) => st.planSchema)).toEqual(['v1', 'v2', undefined]);
+  });
+
+  it('POST with an unknown planSchema → HTTP 422', async () => {
+    const res = await createPipeline(ev({ name: 'Bad', steps: [{ ...validStep(), planSchema: 'v3' }] }));
+    expect(res.statusCode).toBe(422);
+    expect(JSON.parse(res.body!).error).toMatch(/planSchema "v3"/);
+    expect(putPipeline).not.toHaveBeenCalled();
+  });
+
+  it('POST with planSchema on a non-plan step → HTTP 422', async () => {
+    const res = await createPipeline(
+      ev({ name: 'Bad', steps: [{ ...validStep(), outputType: 'critique', planSchema: 'v1' }] })
+    );
+    expect(res.statusCode).toBe(422);
+    expect(JSON.parse(res.body!).error).toMatch(/planSchema/);
+    expect(putPipeline).not.toHaveBeenCalled();
+  });
+
+  it('PUT with an unknown planSchema → HTTP 422', async () => {
+    vi.mocked(getPipelineRepo).mockResolvedValue(existingPipeline() as any);
+    const res = await updatePipeline(ev({ steps: [{ ...validStep(), planSchema: 'legacy' }] }, { id: 'pipe-1' }));
+    expect(res.statusCode).toBe(422);
+    expect(updatePipelineRepo).not.toHaveBeenCalled();
+  });
+
+  it('PUT with planSchema on a freeform step → HTTP 422', async () => {
+    vi.mocked(getPipelineRepo).mockResolvedValue(existingPipeline() as any);
+    const res = await updatePipeline(
+      ev({ steps: [{ ...validStep(), outputType: 'freeform', planSchema: 'v2' }] }, { id: 'pipe-1' })
+    );
+    expect(res.statusCode).toBe(422);
+    expect(updatePipelineRepo).not.toHaveBeenCalled();
+  });
+});

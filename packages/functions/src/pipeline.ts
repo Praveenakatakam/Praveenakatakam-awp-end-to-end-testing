@@ -37,12 +37,15 @@ import type {
   RunArtifact,
   StepInputSnapshot,
   UserMessageSection,
+  PlanSchemaVersion,
 } from '@registry/core';
 import { STEP_OUTPUT_TYPES, resolveOutputType } from '@registry/core';
 import type { GroundedContext } from '@registry/functest';
 import {
+  PLAN_SCHEMA_V1,
   PLAN_SCHEMA_V2,
   CRITIQUE_SCHEMA,
+  validatePlanV1,
   validatePlanV2,
   validateCritique,
   emitFunctionalTest,
@@ -198,6 +201,15 @@ async function validatePipelineSteps(
     // outputInstructions is an optional opt-in flag (R-73).
     if (step.outputInstructions !== undefined && typeof step.outputInstructions !== 'boolean') {
       return `step "${step.stepId}" has non-boolean outputInstructions`;
+    }
+    // planSchema is optional (absent → 'v2'), only meaningful on plan steps (R-84).
+    if (step.planSchema !== undefined) {
+      if (!PLAN_SCHEMA_VERSIONS.includes(step.planSchema)) {
+        return `step "${step.stepId}" has unknown planSchema "${String(step.planSchema)}" (expected one of: ${PLAN_SCHEMA_VERSIONS.join(', ')})`;
+      }
+      if (resolveOutputType(step) !== 'plan') {
+        return `step "${step.stepId}" sets planSchema but its outputType is "${resolveOutputType(step)}" (planSchema applies only to plan steps)`;
+      }
     }
   }
 
@@ -951,11 +963,34 @@ export function buildPriorContext(
   return { outputs: fitted, truncated };
 }
 
+/** Allowed `planSchema` values (R-84). */
+const PLAN_SCHEMA_VERSIONS: readonly PlanSchemaVersion[] = ['v1', 'v2'];
+
+/** A step's effective plan schema — `'v2'` unless a plan step sets `'v1'` (R-84). */
+function resolvePlanSchema(step: PipelineStep): PlanSchemaVersion {
+  return resolveOutputType(step) === 'plan' && step.planSchema === 'v1' ? 'v1' : 'v2';
+}
+
+interface StepToolDef {
+  name: string;
+  description: string;
+  input_schema: unknown;
+  schemaVersion: string;
+}
+
+/**
+ * The legacy generator's tool, verbatim from `llm.ts` (same name and
+ * description, `PLAN_SCHEMA_V1`), for `planSchema: 'v1'` plan steps (R-84, D-32).
+ */
+const PLAN_V1_TOOL: StepToolDef = {
+  name: 'emit_functional_test_plan',
+  schemaVersion: 'plan-v1',
+  description: 'Return the single cross-service functional test plan for the given requirement.',
+  input_schema: PLAN_SCHEMA_V1,
+};
+
 /** Bedrock tool contract per step output type (R-60). `freeform` has none. */
-const STEP_TOOLS: Record<
-  Exclude<StepOutputType, 'freeform'>,
-  { name: string; description: string; input_schema: unknown; schemaVersion: string }
-> = {
+const STEP_TOOLS: Record<Exclude<StepOutputType, 'freeform'>, StepToolDef> = {
   plan: {
     name: 'emit_functional_test_plan',
     schemaVersion: 'plan-v2',
@@ -970,19 +1005,29 @@ const STEP_TOOLS: Record<
   },
 };
 
+/** The forced tool for a step: by output type, and `planSchema` for plan steps (R-60, R-84). */
+function stepTool(step: PipelineStep): StepToolDef | undefined {
+  const outputType = resolveOutputType(step);
+  if (outputType === 'freeform') return undefined;
+  if (outputType === 'plan' && resolvePlanSchema(step) === 'v1') return PLAN_V1_TOOL;
+  return STEP_TOOLS[outputType];
+}
+
 /**
  * Validate a step's raw output against its output-type contract (R-64). Plans
  * are checked against PLAN_SCHEMA v2 and the grounding (entity, trigger source,
- * every assertion service); critiques against CRITIQUE_SCHEMA. Throws
+ * every assertion service) — or, for `planSchema: 'v1'`, with the legacy
+ * `validatePlanV1` (R-84); critiques against CRITIQUE_SCHEMA. Throws
  * `StepValidationError` (terminal) with the validation reason.
  */
 export function validateStepOutput(
   outputType: StepOutputType,
   raw: unknown,
-  grounded: { entity: string; sources: string[] }
+  grounded: { entity: string; sources: string[] },
+  planSchema: PlanSchemaVersion = 'v2'
 ): void {
   if (outputType === 'plan') {
-    const v = validatePlanV2(raw, grounded);
+    const v = planSchema === 'v1' ? validatePlanV1(raw, grounded) : validatePlanV2(raw, grounded);
     if (!v.ok) throw new StepValidationError(v.reason);
   } else if (outputType === 'critique') {
     const v = validateCritique(raw);
@@ -1008,14 +1053,13 @@ async function callBedrockForStep(
   region: string | undefined,
   systemPrompt: string,
   userMessage: string,
-  outputType: StepOutputType
+  toolDef: StepToolDef | undefined
 ): Promise<BedrockStepResult> {
   const { BedrockRuntimeClient, InvokeModelCommand } = await import('@aws-sdk/client-bedrock-runtime');
   const client = new BedrockRuntimeClient(region ? { region } : {});
 
-  // Shape the call by outputType (R-60): plan/critique force their tool;
-  // freeform sends no tools and the text blocks are the output.
-  const toolDef = outputType === 'freeform' ? undefined : STEP_TOOLS[outputType];
+  // Shape the call by outputType (R-60): plan/critique force their tool
+  // (`stepTool`); freeform sends no tools and the text blocks are the output.
   // `schemaVersion` is snapshot metadata (R-74), not part of the Bedrock tool contract.
   const tool = toolDef
     ? { name: toolDef.name, description: toolDef.description, input_schema: toolDef.input_schema }
@@ -1227,11 +1271,17 @@ async function _emitRunArtifact(
 
   try {
     const raw: unknown = JSON.parse(await _readStepOutput(candidate.outputRef!));
-    // Stored/cached plans may predate v2 — tolerate a missing rationale (D-25).
-    const v = validatePlanV2(raw, grounded, { requireRationale: false });
+    const candidateDef = pipeline.steps[candidate.stepIndex];
+    const legacyV1 = candidateDef !== undefined && resolvePlanSchema(candidateDef) === 'v1';
+    // v1 steps reproduce the legacy generator (R-84): v1 validation and the
+    // legacy emitter call (no apiTargets). Stored/cached v2 plans may predate
+    // v2 — tolerate a missing rationale (D-25).
+    const v = legacyV1 ? validatePlanV1(raw, grounded) : validatePlanV2(raw, grounded, { requireRationale: false });
     if (!v.ok) throw new Error(v.reason);
     const plan: FunctionalTestPlan = { ...v.body, inputHash: grounded.inputHash };
-    const content = emitFunctionalTest(plan, 0, { apiTargets: grounded.apiTargets });
+    const content = legacyV1
+      ? emitFunctionalTest(plan, 0)
+      : emitFunctionalTest(plan, 0, { apiTargets: grounded.apiTargets });
     const s3Key = `pipeline-outputs/${runId}/test.generated.ts`;
     await _s3.send(
       new PutObjectCommand({
@@ -1517,6 +1567,8 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
   priorOutputs = prior.outputs;
   const priorOutputsTruncated = prior.truncated;
   const outputType = resolveOutputType(step); // absent → 'plan' (R-59, TS-45)
+  const planSchema = resolvePlanSchema(step); // absent → 'v2' (R-84)
+  const toolDef = stepTool(step);
 
   const contextWithPrior: GroundedContextWithPrior = { ...groundedCtx, priorOutputs };
   // Output instructions are opt-in per step (R-73); off → pre-v0.5.0 message.
@@ -1540,10 +1592,7 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
     systemPrompt: { promptKey: step.promptKey, version: promptVersion, body: promptBody },
     userMessage: userMessage.text,
     sections: userMessage.sections,
-    tool:
-      outputType === 'freeform'
-        ? null
-        : { name: STEP_TOOLS[outputType].name, schemaVersion: STEP_TOOLS[outputType].schemaVersion },
+    tool: toolDef ? { name: toolDef.name, schemaVersion: toolDef.schemaVersion } : null,
     priorOutputsTruncated,
     instructionsVersion,
   });
@@ -1606,14 +1655,14 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
           process.env.AWS_REGION,
           promptBody,
           userMessage.text,
-          outputType
+          toolDef
         );
         bedrockLatencyMs = Date.now() - bedrockCallStart;
         inputTokens = result.inputTokens;
         outputTokens = result.outputTokens;
         // Validate before the output is written or cached (R-64). A failure
         // throws StepValidationError → terminal path below (never retried).
-        validateStepOutput(outputType, result.output, groundedCtx);
+        validateStepOutput(outputType, result.output, groundedCtx, planSchema);
         rawOutput = result.output;
         break; // success
       } catch (err) {
