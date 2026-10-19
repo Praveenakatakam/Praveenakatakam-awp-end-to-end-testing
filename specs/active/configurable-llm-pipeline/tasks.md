@@ -637,25 +637,25 @@ Backend (T-25 → T-26) and web (T-27) run in parallel after T-24; tests ship in
 
 Backend (T-29 → T-30 → T-31) and web (T-32 → T-33 → T-34) in parallel after T-28; tests inside each task. Fix `dbd78bb` (D-33) already landed.
 
-### T-28: Core types — `PipelineExperiment`, `PipelineStep.planSchema`, `PipelineRun.experimentId`, `ExperimentIndexEntry`, `ExperimentResults`
+### T-28: Core types — `PipelineExperiment`, `PipelineStep.planSchema`, `PipelineRun.experimentId`, `ExperimentIndexEntry`, `ExperimentResults` ✅
 **Subagent:** none · **Files:** `packages/core/src/pipeline.ts` · **Requirements:** R-80, R-82, R-83, R-84
 
-### T-29: PEXP record, dry run, `GET /experiment-index`, `GET /experiment-results/{kind}/{id}`
+### T-29: PEXP record, dry run, `GET /experiment-index`, `GET /experiment-results/{kind}/{id}` ✅
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/functional-gen.ts`, `packages/functions/src/repository.ts`, `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, tests · **Requirements:** R-80 – R-83 · **Tests:** TS-68 – TS-71
 
-### T-30: `planSchema: "v1"` steps
+### T-30: `planSchema: "v1"` steps ✅
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/pipeline.ts`, tests · **Requirements:** R-84 · **Tests:** TS-72, TS-73
 
-### T-31: Baseline seed + selective legacy import
+### T-31: Baseline seed + selective legacy import ✅
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/prompt-seed.ts` (additive only — existing seeded text byte-identical), `packages/functions/src/pipeline.ts`, tests · **Requirements:** R-85, R-86 · **Tests:** TS-74, TS-75
 
-### T-32: Nav + routes + Experiments hub (list, detail, new-experiment dry-run flow, deprecated legacy run action)
+### T-32: Nav + routes + Experiments hub (list, detail, new-experiment dry-run flow, deprecated legacy run action) ✅
 **Subagent:** implementer (web) · **Requirements:** R-87, R-88, R-91 · **Tests:** TS-76, TS-77
 
-### T-33: Unified Prompts page + legacy group in step editor prompt picker
+### T-33: Unified Prompts page + legacy group in step editor prompt picker ✅
 **Subagent:** implementer (web) · **Requirements:** R-89 · **Tests:** TS-78
 
-### T-34: Experiment-level Compare page
+### T-34: Experiment-level Compare page ✅
 **Subagent:** implementer (web) · **Requirements:** R-90 · **Tests:** TS-79
 
 ### Q5 follow-up (manual, after deploy): verify baseline vs legacy v1, then remove the deprecated legacy run action (R-91)
