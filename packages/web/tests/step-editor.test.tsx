@@ -40,6 +40,7 @@ function makeApi() {
     updatePipeline: vi.fn().mockImplementation(async (_id: string, body: unknown) => ({ ...pipeline, ...(body as object) })),
     runPipeline: vi.fn(),
     createPrompt: vi.fn(),
+    listPromptVersions: vi.fn().mockResolvedValue({ promptVersions: [] }),
   } as unknown as Api & Record<string, ReturnType<typeof vi.fn>>;
 }
 
