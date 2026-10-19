@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../src/App.js';
 
 // Controllable auth + api mocks.
@@ -19,6 +20,10 @@ const fakeApi = {
   listCrawls: vi.fn(),
   refresh: vi.fn(),
   listRequirements: vi.fn(),
+  listExperimentIndex: vi.fn(),
+  listPipelines: vi.fn(),
+  listPrompts: vi.fn(),
+  listPromptVersions: vi.fn(),
 };
 vi.mock('../src/api.js', () => ({ createApi: () => fakeApi, ApiError: class {} }));
 
@@ -79,6 +84,10 @@ beforeEach(() => {
   fakeApi.listRequirements.mockResolvedValue(requirements);
   // Divergence comes from the per-entity semantic diff (GET /entities/{entity}).
   fakeApi.getEntity.mockImplementation(async (entity: string) => ({ entity, divergent: entity === 'user' }));
+  fakeApi.listExperimentIndex.mockResolvedValue([]);
+  fakeApi.listPipelines.mockResolvedValue({ pipelines: [] });
+  fakeApi.listPrompts.mockResolvedValue({ prompts: [] });
+  fakeApi.listPromptVersions.mockResolvedValue({ promptVersions: [] });
   window.location.hash = '';
 });
 
@@ -314,27 +323,49 @@ describe('Sidebar regroup (T-22 · R-69)', () => {
     }
 
     const experiments = screen.getByRole('navigation', { name: /^experiments navigation/i });
-    expect(within(experiments).getByText('Experiments')).toBeInTheDocument();
     expect(within(experiments).getByRole('link', { name: 'Pipelines' })).toHaveAttribute('href', '#/pipelines');
     expect(within(experiments).getByRole('link', { name: 'Prompts' })).toHaveAttribute('href', '#/prompts');
-    expect(within(experiments).getByRole('link', { name: 'Runs' })).toHaveAttribute('href', '#/runs');
-    expect(within(experiments).getByRole('link', { name: 'Compare runs' })).toHaveAttribute('href', '#/runs/compare');
 
     expect(screen.queryByText(/source pipeline/i)).not.toBeInTheDocument();
   });
 
-  it('puts the legacy /experiments/* pages in a collapsed "Legacy (deprecated)" group', async () => {
+  it('TS-76: Experiments area shows Experiments, Pipelines, Prompts, Compare in order; no "Legacy" group', async () => {
     render(<App />);
     await screen.findByText('org');
-    const summary = screen.getByText('Legacy (deprecated)');
-    const details = summary.closest('details')!;
-    expect(details).not.toHaveAttribute('open');
-    const legacy = within(details);
-    expect(legacy.getByRole('link', { name: 'Prompt versions', hidden: true })).toHaveAttribute('href', '#/experiments/prompt-versions');
-    expect(legacy.getByRole('link', { name: 'Run experiments', hidden: true })).toHaveAttribute('href', '#/experiments/run');
-    expect(legacy.getByRole('link', { name: 'Compare results', hidden: true })).toHaveAttribute('href', '#/experiments/compare');
-    // Legacy links are not part of the Experiments area.
     const experiments = screen.getByRole('navigation', { name: /^experiments navigation/i });
-    expect(within(experiments).queryByRole('link', { name: 'Prompt versions' })).not.toBeInTheDocument();
+    const links = within(experiments).getAllByRole('link');
+    expect(links.map((l) => l.textContent)).toEqual(['Experiments', 'Pipelines', 'Prompts', 'Compare']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['#/experiments', '#/pipelines', '#/prompts', '#/compare']);
+    expect(screen.queryByText(/legacy/i)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-area="legacy"]')).toBeNull();
+    // Runs is reachable by URL but no longer in the nav.
+    expect(screen.queryByRole('link', { name: /^runs$/i })).not.toBeInTheDocument();
+  });
+
+});
+
+describe('Legacy experiment URLs redirect to unified pages (T-32 · R-87)', () => {
+  beforeEach(() => {
+    authState.token = readerToken;
+  });
+
+  function renderApp() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+  }
+
+  it('/experiments/run → /experiments (hub)', async () => {
+    window.location.hash = '#/experiments/run';
+    renderApp();
+    expect(await screen.findByText(/no experiments yet/i)).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/experiments'));
+    expect(fakeApi.listExperimentIndex).toHaveBeenCalled();
+  });
+
+  it('/experiments/prompt-versions → /prompts', async () => {
+    window.location.hash = '#/experiments/prompt-versions';
+    renderApp();
+    expect(await screen.findByLabelText('prompts')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/prompts'));
   });
 });

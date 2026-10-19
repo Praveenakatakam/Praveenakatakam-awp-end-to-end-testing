@@ -9,7 +9,7 @@ import App from './App.js';
  * staleTime: 30 s — pipeline and prompt data changes infrequently; avoids
  * redundant background refetches while navigating between pages.
  *
- * Existing pages (ExperimentsPage, ContractData, etc.) use their own raw-fetch
+ * Existing pages (ContractData, etc.) use their own raw-fetch
  * pattern and are unaffected by this client.
  */
 const queryClient = new QueryClient({
