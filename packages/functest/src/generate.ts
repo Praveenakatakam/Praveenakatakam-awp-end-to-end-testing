@@ -13,7 +13,7 @@
  * plan skips that ONE requirement with a reason (R-120, NFR-4).
  */
 import { ground, type ApiMapLike, type ContractInput, type GroundedContext, type RequirementInput } from './ground.js';
-import { validatePlan, type FunctionalTestPlan } from './plan.js';
+import { validatePlanV1, type FunctionalTestPlan } from './plan.js';
 import { emitFunctionalTest } from './emit.js';
 
 export type {
@@ -25,7 +25,14 @@ export type {
   PropagationKind,
   ValidatePlanOptions,
 } from './plan.js';
-export { PLAN_SCHEMA, validatePlan } from './plan.js';
+export {
+  PLAN_SCHEMA,
+  PLAN_SCHEMA_V1,
+  PLAN_SCHEMA_V2,
+  validatePlan,
+  validatePlanV1,
+  validatePlanV2,
+} from './plan.js';
 export * from './ground.js';
 export * from './emit.js';
 
@@ -118,10 +125,16 @@ export async function generateFunctionalPlans(
       continue;
     }
 
+    // The legacy generator is pinned to the v1 plan contract. A cache hit that
+    // is not a valid v1 plan (e.g. a v2 plan cached while v0.4.0 routed this
+    // path through PLAN_SCHEMA v2) is treated as a miss and re-synthesized.
     const cached = await cache.get(g.context.inputHash);
     if (cached) {
-      plans.push(cached);
-      continue;
+      const { inputHash: _hash, ...cachedBody } = cached;
+      if (validatePlanV1(cachedBody, { entity: g.context.entity, sources: g.context.sources }).ok) {
+        plans.push(cached);
+        continue;
+      }
     }
 
     let raw: unknown;
@@ -132,7 +145,7 @@ export async function generateFunctionalPlans(
       continue;
     }
 
-    const v = validatePlan(raw, { entity: g.context.entity, sources: g.context.sources });
+    const v = validatePlanV1(raw, { entity: g.context.entity, sources: g.context.sources });
     if (!v.ok) {
       skipped.push({ requirement: label, reason: v.reason });
       continue;

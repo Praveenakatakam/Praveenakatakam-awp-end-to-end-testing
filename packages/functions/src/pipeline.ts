@@ -41,9 +41,9 @@ import type {
 import { STEP_OUTPUT_TYPES, resolveOutputType } from '@registry/core';
 import type { GroundedContext } from '@registry/functest';
 import {
-  PLAN_SCHEMA,
+  PLAN_SCHEMA_V2,
   CRITIQUE_SCHEMA,
-  validatePlan,
+  validatePlanV2,
   validateCritique,
   emitFunctionalTest,
   functionalTestPath,
@@ -960,7 +960,7 @@ const STEP_TOOLS: Record<
     name: 'emit_functional_test_plan',
     schemaVersion: 'plan-v2',
     description: 'Return the single cross-service functional test plan for the given requirement.',
-    input_schema: PLAN_SCHEMA,
+    input_schema: PLAN_SCHEMA_V2,
   },
   critique: {
     name: 'emit_critique',
@@ -982,7 +982,7 @@ export function validateStepOutput(
   grounded: { entity: string; sources: string[] }
 ): void {
   if (outputType === 'plan') {
-    const v = validatePlan(raw, grounded);
+    const v = validatePlanV2(raw, grounded);
     if (!v.ok) throw new StepValidationError(v.reason);
   } else if (outputType === 'critique') {
     const v = validateCritique(raw);
@@ -1228,7 +1228,7 @@ async function _emitRunArtifact(
   try {
     const raw: unknown = JSON.parse(await _readStepOutput(candidate.outputRef!));
     // Stored/cached plans may predate v2 — tolerate a missing rationale (D-25).
-    const v = validatePlan(raw, grounded, { requireRationale: false });
+    const v = validatePlanV2(raw, grounded, { requireRationale: false });
     if (!v.ok) throw new Error(v.reason);
     const plan: FunctionalTestPlan = { ...v.body, inputHash: grounded.inputHash };
     const content = emitFunctionalTest(plan, 0, { apiTargets: grounded.apiTargets });

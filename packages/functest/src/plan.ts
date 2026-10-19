@@ -80,6 +80,66 @@ export interface FunctionalTestPlan extends PlanBody {
 }
 
 /**
+ * The ORIGINAL v1 plan schema (pre-v0.4.0), verbatim. Pinned for the LEGACY
+ * generator (`generateFunctionalPlans` — `POST /generate-functional-tests`
+ * without `pipelineId`, and single-step experiments) so its tool contract and
+ * validation stay exactly as before v0.4.0: `publisher | consumer` assertion
+ * services, `cdc`-only propagation, no v2 fields. The pipeline step worker uses
+ * `PLAN_SCHEMA_V2`.
+ */
+export const PLAN_SCHEMA_V1 = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['requirementIds', 'title', 'setup', 'trigger', 'propagation', 'assertions'],
+  properties: {
+    requirementIds: { type: 'array', items: { type: 'string' } },
+    title: { type: 'string' },
+    setup: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['description'],
+        properties: { description: { type: 'string' } },
+      },
+    },
+    trigger: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['source', 'entity', 'method', 'path', 'payloadShape'],
+      properties: {
+        source: { type: 'string' },
+        entity: { type: 'string' },
+        method: { type: 'string', enum: ['POST', 'PUT', 'PATCH', 'DELETE'] },
+        path: { type: 'string' },
+        payloadShape: { type: 'string' },
+      },
+    },
+    propagation: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'waitFor'],
+      properties: {
+        kind: { type: 'string', enum: ['cdc'] },
+        waitFor: { type: 'string' },
+      },
+    },
+    assertions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['service', 'assertion'],
+        properties: {
+          service: { type: 'string', enum: ['publisher', 'consumer'] },
+          assertion: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const;
+
+/**
  * JSON Schema for the plan body — v2 (R-61, D-25). Doubles as the Anthropic
  * structured-output format and the inbound Ajv guard. Kept to the subset
  * structured outputs support: `type`/`properties`/`required`/`enum`,
@@ -90,7 +150,7 @@ export interface FunctionalTestPlan extends PlanBody {
  * validated with `{ requireRationale: false }`. `assertions[].service` is no
  * longer an enum — it is checked at runtime against the grounded sources.
  */
-export const PLAN_SCHEMA = {
+export const PLAN_SCHEMA_V2 = {
   type: 'object',
   additionalProperties: false,
   required: ['requirementIds', 'title', 'rationale', 'setup', 'trigger', 'propagation', 'assertions'],
@@ -159,17 +219,52 @@ export const PLAN_SCHEMA = {
   },
 } as const;
 
+/**
+ * @deprecated Alias of `PLAN_SCHEMA_V2` (the v0.4.0 meaning). Name the version
+ * explicitly — `PLAN_SCHEMA_V1` (legacy generator) or `PLAN_SCHEMA_V2` (pipeline).
+ */
+export const PLAN_SCHEMA = PLAN_SCHEMA_V2;
+
 /** v2 schema minus the `rationale` requirement — for stored/cached v1 plans (D-25). */
 const STORED_PLAN_SCHEMA = {
-  ...PLAN_SCHEMA,
-  required: PLAN_SCHEMA.required.filter((k) => k !== 'rationale'),
+  ...PLAN_SCHEMA_V2,
+  required: PLAN_SCHEMA_V2.required.filter((k) => k !== 'rationale'),
 };
 
 const ajv = new Ajv({ allErrors: true });
-const validateModelBody = ajv.compile(PLAN_SCHEMA as object);
+const validateV1Body = ajv.compile(PLAN_SCHEMA_V1 as object);
+const validateModelBody = ajv.compile(PLAN_SCHEMA_V2 as object);
 const validateStoredBody = ajv.compile(STORED_PLAN_SCHEMA as object);
 
 export type PlanValidation = { ok: true; body: PlanBody } | { ok: false; reason: string };
+
+/**
+ * Validate against the ORIGINAL v1 contract — exactly the pre-v0.4.0
+ * `validatePlan`: `PLAN_SCHEMA_V1` plus the trigger entity/source grounding
+ * checks (assertion services are constrained by the v1 enum). Used by the
+ * legacy generator for fresh LLM output and cache hits.
+ */
+export function validatePlanV1(raw: unknown, grounded: { entity: string; sources: string[] }): PlanValidation {
+  if (!validateV1Body(raw)) {
+    const first = validateV1Body.errors?.[0];
+    const where = first?.instancePath || '/';
+    return { ok: false, reason: `malformed plan (schema ${where}: ${first?.message ?? 'invalid'})` };
+  }
+  const body = raw as PlanBody;
+  if (body.trigger.entity !== grounded.entity) {
+    return {
+      ok: false,
+      reason: `hallucinated target: trigger entity '${body.trigger.entity}' ≠ grounded '${grounded.entity}'`,
+    };
+  }
+  if (!grounded.sources.includes(body.trigger.source)) {
+    return {
+      ok: false,
+      reason: `hallucinated target: trigger source '${body.trigger.source}' is not a catalog source`,
+    };
+  }
+  return { ok: true, body };
+}
 
 export interface ValidatePlanOptions {
   /**
@@ -180,12 +275,12 @@ export interface ValidatePlanOptions {
 }
 
 /**
- * Validate a raw LLM response against `PLAN_SCHEMA` AND its grounding: the
+ * Validate a raw LLM response against `PLAN_SCHEMA_V2` AND its grounding: the
  * trigger must name the grounded entity and a known source, and every assertion
  * must target a grounded source (R-117, R-64 — "a plan naming an unknown target
  * is rejected"). Returns a skip reason instead of throwing.
  */
-export function validatePlan(
+export function validatePlanV2(
   raw: unknown,
   grounded: { entity: string; sources: string[] },
   opts: ValidatePlanOptions = {}
@@ -218,3 +313,9 @@ export function validatePlan(
   }
   return { ok: true, body };
 }
+
+/**
+ * @deprecated Alias of `validatePlanV2`. Name the version explicitly —
+ * `validatePlanV1` (legacy generator) or `validatePlanV2` (pipeline).
+ */
+export const validatePlan = validatePlanV2;

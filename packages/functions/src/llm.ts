@@ -10,15 +10,16 @@
  * The IAM `bedrock:InvokeModel` grant lives on the worker Function (ApiStack).
  *
  * Structured output uses **forced tool use** (the broadly-supported Bedrock
- * mechanism): a single tool whose `input_schema` IS `PLAN_SCHEMA`, with
+ * mechanism): a single tool whose `input_schema` IS `PLAN_SCHEMA_V1` (the legacy
+ * generator is pinned to the original v1 plan contract), with
  * `tool_choice` pinned to it, so the plan comes back as the tool-use `input`.
- * The core re-validates every response with Ajv (`validatePlan`) before trusting
+ * The core re-validates every response with Ajv (`validatePlanV1`) before trusting
  * it, so drift or a refusal is skipped, never emitted (R-120). `model` (a Bedrock
  * model id / inference-profile id) and `promptVersion` are part of the plan-cache
  * input hash (R-119), so changing either busts the cache.
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { PLAN_SCHEMA, type LlmClient, type GroundedContext } from '@registry/functest';
+import { PLAN_SCHEMA_V1, type LlmClient, type GroundedContext } from '@registry/functest';
 
 
 function userPrompt(ctx: GroundedContext): string {
@@ -70,7 +71,7 @@ export function createBedrockClient(model: string, region: string | undefined, p
           {
             name: TOOL_NAME,
             description: 'Return the single cross-service functional test plan for the given requirement.',
-            input_schema: PLAN_SCHEMA,
+            input_schema: PLAN_SCHEMA_V1,
           },
         ],
         tool_choice: { type: 'tool', name: TOOL_NAME },
@@ -89,7 +90,7 @@ export function createBedrockClient(model: string, region: string | undefined, p
       };
       const block = (decoded.content ?? []).find((b) => b.type === 'tool_use');
       if (!block) throw new Error(`no tool_use block in Bedrock response (stop_reason=${decoded.stop_reason})`);
-      // The pure core re-validates this against PLAN_SCHEMA before use (R-120).
+      // The pure core re-validates this against PLAN_SCHEMA_V1 before use (R-120).
       return block.input;
     },
   };
