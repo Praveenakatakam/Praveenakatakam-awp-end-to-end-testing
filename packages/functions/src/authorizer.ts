@@ -35,6 +35,8 @@ export const WRITER_ROUTES = new Set([
   'POST /prompts',
   'PUT /prompts/{key}',
   'DELETE /prompts/{key}',
+  // Legacy prompt-version import (v0.4.0 · R-72)
+  'POST /prompts/import-legacy',
 ]);
 
 /** The group a route requires. */

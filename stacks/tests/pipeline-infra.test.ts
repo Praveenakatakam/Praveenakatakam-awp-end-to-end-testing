@@ -120,6 +120,13 @@ describe('ApiStack — configurable-llm-pipeline infra (T-09)', () => {
     });
   });
 
+  it('registers POST /prompts/import-legacy route with authorizer (v0.4.0 · R-72)', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /prompts/import-legacy',
+      AuthorizationType: 'CUSTOM',
+    });
+  });
+
   it('registers GET /runs/{runId}/artifact route with authorizer (v0.4.0 · R-65)', () => {
     template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'GET /runs/{runId}/artifact',
