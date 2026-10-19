@@ -120,6 +120,13 @@ describe('ApiStack — configurable-llm-pipeline infra (T-09)', () => {
     });
   });
 
+  it('registers GET /runs/{runId}/artifact route with authorizer (v0.4.0 · R-65)', () => {
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /runs/{runId}/artifact',
+      AuthorizationType: 'CUSTOM',
+    });
+  });
+
   // ── Functional-gen handler env var ────────────────────────────────────────
 
   it('functional-gen handler carries STEP_WORKER_FUNCTION_NAME for dual-path dispatch (T-08 · D-13)', () => {

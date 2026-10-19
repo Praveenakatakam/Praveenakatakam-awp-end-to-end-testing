@@ -152,9 +152,14 @@ export async function generateFunctionalPlans(
 export function emitFunctionalTests(plans: FunctionalTestPlan[]): FunctionalArtifactFile[] {
   const ordered = [...plans].sort(planOrder);
   return ordered.map((plan, i) => ({
-    path: `functional/${fileSlug(plan)}.generated.test.ts`,
+    path: functionalTestPath(plan),
     contents: emitFunctionalTest(plan, i),
   }));
+}
+
+/** Repo-relative path (under `generated-tests/`) of a plan's emitted test file. */
+export function functionalTestPath(plan: FunctionalTestPlan): string {
+  return `functional/${fileSlug(plan)}.generated.test.ts`;
 }
 
 /** Deterministic file slug from the first requirement id + entity. */
