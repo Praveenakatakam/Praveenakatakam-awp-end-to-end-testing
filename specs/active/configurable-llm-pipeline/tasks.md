@@ -622,8 +622,8 @@ Backend (T-25 → T-26) and web (T-27) run in parallel after T-24; tests ship in
 ### T-24: Core types — `StepInputSnapshot`, `StepRecord.inputRef`, `RunStepDetail`
 **Subagent:** none — single-file type additions · **Files:** `packages/core/src/pipeline.ts` · **Requirements:** R-74, R-75
 
-### T-25: Output instructions + sectioned user message + input snapshot + seed prompt text
-**Subagent:** implementer (backend) · **Files:** `packages/functions/src/output-instructions.ts` (create), `packages/functions/src/pipeline.ts`, `packages/functions/src/prompt-seed.ts`, tests in `packages/functions/tests/` · **Requirements:** R-73, R-74, R-78 · **Tests:** TS-58 – TS-62
+### T-25: Output instructions + sectioned user message + input snapshot
+**Subagent:** implementer (backend) · **Files:** `packages/functions/src/output-instructions.ts` (create), `packages/functions/src/pipeline.ts`, tests in `packages/functions/tests/` · **Requirements:** R-73, R-74 (R-78 withdrawn — seeded prompts untouched) · **Tests:** TS-58 – TS-62
 
 ### T-26: `GET /runs/{runId}/steps/{stepIndex}`
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, tests in `packages/functions/tests/read-pipeline.test.ts`, `stacks/tests/pipeline-infra.test.ts` · **Requirements:** R-75 · **Tests:** TS-63
