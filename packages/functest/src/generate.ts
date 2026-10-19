@@ -16,7 +16,15 @@ import { ground, type ApiMapLike, type ContractInput, type GroundedContext, type
 import { validatePlan, type FunctionalTestPlan } from './plan.js';
 import { emitFunctionalTest } from './emit.js';
 
-export type { FunctionalTestPlan, PlanBody, PlanStep, PlanAssertion } from './plan.js';
+export type {
+  FunctionalTestPlan,
+  PlanBody,
+  PlanStep,
+  PlanAssertion,
+  PlanNegativeCase,
+  PropagationKind,
+  ValidatePlanOptions,
+} from './plan.js';
 export { PLAN_SCHEMA, validatePlan } from './plan.js';
 export * from './ground.js';
 export * from './emit.js';
