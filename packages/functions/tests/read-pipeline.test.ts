@@ -60,7 +60,9 @@ import {
   getPromptVersionsHandler,
   getPipelineRunHandler,
   runArtifact,
+  runStep,
 } from '../src/read.js';
+import { requiredGroup } from '../src/authorizer.js';
 
 import {
   getPipeline,
@@ -663,5 +665,102 @@ describe('runArtifact (GET /runs/{runId}/artifact)', () => {
     });
     const res = await runArtifact(ev({ runId: 'run-1' }));
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /runs/{runId}/steps/{stepIndex} (v0.5.0 · R-75, TS-63)
+// ---------------------------------------------------------------------------
+
+describe('runStep (GET /runs/{runId}/steps/{stepIndex})', () => {
+  beforeEach(() => {
+    mockS3Send.mockReset();
+    vi.mocked(getPrun).mockResolvedValue(runFixture('run-1', 'completed') as any);
+  });
+
+  const snapshot = {
+    model: 'us.anthropic.claude-sonnet-4-6',
+    outputType: 'plan',
+    systemPrompt: { promptKey: 'p', version: 2, body: 'sys' },
+    userMessage: 'Requirement R-01 ...',
+    sections: [{ name: 'Requirement', text: 'Requirement R-01 ...' }],
+    tool: { name: 'emit_functional_test_plan', schemaVersion: 'plan-v2' },
+    priorOutputsTruncated: false,
+    instructionsVersion: '1',
+  };
+
+  function s3Objects(objects: Record<string, string>): void {
+    mockS3Send.mockImplementation(async (cmd: any) => {
+      const body = objects[cmd.input.Key];
+      if (body === undefined) throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+      return { Body: { transformToString: async () => body } };
+    });
+  }
+
+  it('TS-63: output stored in S3 → returned in `output`; input snapshot parsed from S3', async () => {
+    const step = stepFixture('run-1', 1, {
+      stepIndex: 1,
+      outputRef: { s3Key: 'pipeline-outputs/run-1/01.json' },
+      inputRef: { s3Key: 'pipeline-outputs/run-1/01.input.json' },
+    });
+    vi.mocked(listPrunSteps).mockResolvedValue([stepFixture('run-1', 0, { stepIndex: 0 }), step] as any);
+    s3Objects({
+      'pipeline-outputs/run-1/01.json': '{"title":"big plan"}',
+      'pipeline-outputs/run-1/01.input.json': JSON.stringify(snapshot),
+    });
+
+    const res = await runStep(ev({ runId: 'run-1', stepIndex: '1' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body as string)).toEqual({ step, input: snapshot, output: '{"title":"big plan"}' });
+    expect(mockS3Send.mock.calls.map((c) => c[0].input.Bucket)).toEqual(['Contracts', 'Contracts']);
+  });
+
+  it('TS-63: pre-v0.5.0 step (no inputRef) → input: null; inline output returned without S3', async () => {
+    const step = stepFixture('run-1', 0, { stepIndex: 0, outputRef: { inline: '{"a":1}' } });
+    vi.mocked(listPrunSteps).mockResolvedValue([step] as any);
+
+    const res = await runStep(ev({ runId: 'run-1', stepIndex: '0' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body as string)).toEqual({ step, input: null, output: '{"a":1}' });
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('step without outputRef (failed) → output: null; missing snapshot object → input: null', async () => {
+    const step = stepFixture('run-1', 0, {
+      stepIndex: 0,
+      status: 'failed',
+      inputRef: { s3Key: 'pipeline-outputs/run-1/00.input.json' },
+    });
+    vi.mocked(listPrunSteps).mockResolvedValue([step] as any);
+    s3Objects({});
+
+    const res = await runStep(ev({ runId: 'run-1', stepIndex: '0' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body as string)).toMatchObject({ input: null, output: null });
+  });
+
+  it('404 for an unknown run', async () => {
+    vi.mocked(getPrun).mockResolvedValue(undefined);
+    expect((await runStep(ev({ runId: 'nope', stepIndex: '0' }))).statusCode).toBe(404);
+  });
+
+  it('404 for an unknown step index', async () => {
+    vi.mocked(listPrunSteps).mockResolvedValue([stepFixture('run-1', 0, { stepIndex: 0 })] as any);
+    expect((await runStep(ev({ runId: 'run-1', stepIndex: '3' }))).statusCode).toBe(404);
+  });
+
+  it('404 for a non-numeric step index (no DDB read)', async () => {
+    vi.mocked(getPrun).mockClear();
+    for (const idx of ['abc', '-1', '1.5', '']) {
+      expect((await runStep(ev({ runId: 'run-1', stepIndex: idx }))).statusCode).toBe(404);
+    }
+    expect(getPrun).not.toHaveBeenCalled();
+  });
+
+  it('is a reader route (not in WRITER_ROUTES)', () => {
+    expect(requiredGroup('GET /runs/{runId}/steps/{stepIndex}')).toBe('reader');
   });
 });
