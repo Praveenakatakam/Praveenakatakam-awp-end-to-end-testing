@@ -98,7 +98,6 @@ function orgPlan() {
   return {
     requirementIds: ['R-10'],
     title: 'publisher-created org appears to the consumer',
-    rationale: 'R-10 requires a created org to be published to consumers.',
     setup: [{ description: 'a writer token' }],
     trigger: { source: 'publisher', entity: 'org', method: 'POST', path: '/orgs', payloadShape: '{ sourcedId }' },
     propagation: { kind: 'cdc', waitFor: 'consumer read model updates' },

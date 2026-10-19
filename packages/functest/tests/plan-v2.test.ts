@@ -4,7 +4,7 @@
  * Requirements: R-61, R-62, R-64, D-25 · Tests: TS-47 (validator half)
  */
 import { describe, it, expect } from 'vitest';
-import { validatePlan, validateCritique, PLAN_SCHEMA, CRITIQUE_SCHEMA, type PlanBody } from '../src/index.js';
+import { validatePlanV2, validateCritique, PLAN_SCHEMA_V2, CRITIQUE_SCHEMA, type PlanBody } from '../src/index.js';
 
 const grounded = { entity: 'TaskPublished', sources: ['create-evb', 'get-ready'] };
 
@@ -33,34 +33,34 @@ function v2Plan(): PlanBody {
 
 describe('PLAN_SCHEMA v2 (R-61)', () => {
   it('accepts a plan using every v2 field', () => {
-    expect(validatePlan(v2Plan(), grounded)).toEqual({ ok: true, body: v2Plan() });
+    expect(validatePlanV2(v2Plan(), grounded)).toEqual({ ok: true, body: v2Plan() });
   });
 
   it('requires rationale for model output', () => {
-    const v = validatePlan(v1Plan(), grounded);
+    const v = validatePlanV2(v1Plan(), grounded);
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/rationale/);
-    expect(PLAN_SCHEMA.required).toContain('rationale');
+    expect(PLAN_SCHEMA_V2.required).toContain('rationale');
   });
 
   it('tolerates an absent rationale for stored/cached v1 plans (D-25)', () => {
-    expect(validatePlan(v1Plan(), grounded, { requireRationale: false }).ok).toBe(true);
+    expect(validatePlanV2(v1Plan(), grounded, { requireRationale: false }).ok).toBe(true);
   });
 
   it('accepts propagation kinds cdc | eventbridge | sync and rejects others', () => {
     for (const kind of ['cdc', 'eventbridge', 'sync']) {
-      expect(validatePlan({ ...v2Plan(), propagation: { kind, waitFor: 'x' } }, grounded).ok).toBe(true);
+      expect(validatePlanV2({ ...v2Plan(), propagation: { kind, waitFor: 'x' } }, grounded).ok).toBe(true);
     }
-    expect(validatePlan({ ...v2Plan(), propagation: { kind: 'kafka', waitFor: 'x' } }, grounded).ok).toBe(false);
+    expect(validatePlanV2({ ...v2Plan(), propagation: { kind: 'kafka', waitFor: 'x' } }, grounded).ok).toBe(false);
   });
 
   it('assertions[].service is not an enum — any grounded source passes', () => {
-    expect(PLAN_SCHEMA.properties.assertions.items.properties.service).toEqual({ type: 'string' });
+    expect(PLAN_SCHEMA_V2.properties.assertions.items.properties.service).toEqual({ type: 'string' });
   });
 
   it('TS-47: an assertion service outside the grounded sources is a hallucinated target', () => {
     const bad = { ...v2Plan(), assertions: [{ service: 'consumer', assertion: 'x' }] };
-    const v = validatePlan(bad, grounded);
+    const v = validatePlanV2(bad, grounded);
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/hallucinated target: assertion service 'consumer'/);
   });
