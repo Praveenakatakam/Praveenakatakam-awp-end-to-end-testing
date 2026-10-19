@@ -13,6 +13,7 @@
  *   ['prompts', promptKey]                 — single prompt
  *   ['prompts', promptKey, 'versions']     — prompt version history
  *   ['pipelines', 'runs', runId, 'artifact'] — emitted test file for a run (R-65)
+ *   ['pipelines', 'runs', runId, 'steps', stepIndex] — step detail: input + output (R-75)
  *
  * Requirements: R-35, R-37, R-38, R-39, R-41, R-54
  */
@@ -291,5 +292,20 @@ export function useRunArtifact(api: Api, runId: string, enabled: boolean) {
     queryFn: () => api.getRunArtifact(runId),
     enabled: enabled && Boolean(runId),
     staleTime: Infinity, // artifacts are immutable once written
+  });
+}
+
+/**
+ * Fetches one step's detail — record, input snapshot, resolved output (R-75,
+ * R-77). Enable only when the step card is expanded. Only terminal steps are
+ * expandable, so the result is treated as immutable.
+ * Query key: ['pipelines', 'runs', runId, 'steps', stepIndex]
+ */
+export function useRunStep(api: Api, runId: string, stepIndex: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['pipelines', 'runs', runId, 'steps', stepIndex],
+    queryFn: () => api.getRunStep(runId, stepIndex),
+    enabled: enabled && Boolean(runId),
+    staleTime: Infinity,
   });
 }

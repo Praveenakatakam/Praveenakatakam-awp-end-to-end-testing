@@ -13,7 +13,12 @@
  *   - Skipped requirements from the run trigger (router state, R-71)
  *   - Emitted test artifact with Copy / Download when run.artifact is set (R-65, R-71)
  *
- * Requirements: R-54, R-71
+ *   - Step header: label, model, output type, prompt key@version, status,
+ *     cached indicator (R-76)
+ *   - Expanded step: errors, then Output / Input / Changes / Raw / Metrics tabs
+ *     backed by GET /runs/{runId}/steps/{stepIndex} (R-75, R-77)
+ *
+ * Requirements: R-54, R-71, R-76, R-77
  */
 import { useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
@@ -24,8 +29,14 @@ import type {
   PipelineRunStatus,
   StepStatus,
   SamplingConfig,
+  StepOutputType,
 } from '@registry/core';
-import { usePipelineRun, useRunArtifact } from '../hooks/usePipelines.js';
+import { usePipeline, usePipelineRun, useRunArtifact, useRunStep } from '../hooks/usePipelines.js';
+import { parsePlan } from '../lib.js';
+import { outputTypeOf } from '../components/StepEditor.js';
+import StepOutputView, { RawText } from '../components/step-output/StepOutputView.js';
+import StepInputView from '../components/step-output/StepInputView.js';
+import PlanDiff from '../components/step-output/PlanDiff.js';
 import SkippedRequirements, { type RunNavState } from '../components/SkippedRequirements.js';
 
 // ---------------------------------------------------------------------------
@@ -80,12 +91,106 @@ function isS3Output(step: StepRecord): boolean {
   return 's3Key' in step.outputRef;
 }
 
+const stepNo = (step: StepRecord) => `STEP #${String(step.stepIndex).padStart(2, '0')}`;
+
 // ---------------------------------------------------------------------------
-// StepCard — one expandable card per step record
+// Step metrics (R-51, R-77 Metrics tab)
 // ---------------------------------------------------------------------------
 
-function StepCard({ step }: { step: StepRecord }) {
+function StepMetrics({ step }: { step: StepRecord }) {
+  const rows: [string, string][] = [];
+  if (step.durationMs !== undefined) rows.push(['Duration', `${step.durationMs.toLocaleString()} ms`]);
+  if (step.bedrockLatencyMs !== undefined) rows.push(['Bedrock latency', `${step.bedrockLatencyMs.toLocaleString()} ms`]);
+  if (step.inputTokens !== undefined) rows.push(['Input tokens', step.inputTokens.toLocaleString()]);
+  if (step.outputTokens !== undefined) rows.push(['Output tokens', step.outputTokens.toLocaleString()]);
+  if (step.inputCharacters !== undefined) rows.push(['Input chars', step.inputCharacters.toLocaleString()]);
+  if (step.outputCharacters !== undefined) rows.push(['Output chars', step.outputCharacters.toLocaleString()]);
+  if (step.contextTokenEstimate !== undefined) rows.push(['Context tokens (est.)', step.contextTokenEstimate.toLocaleString()]);
+  if (step.costEstimateUsd !== undefined) rows.push(['Cost estimate', `$${step.costEstimateUsd.toFixed(6)}`]);
+  if (step.priorOutputsTruncated !== undefined) rows.push(['Prior outputs truncated', step.priorOutputsTruncated ? 'yes' : 'no']);
+  if (step.cacheKey) rows.push(['Cache key', step.cacheKey]);
+
+  if (rows.length === 0) return <p className="text-muted text-sm">No metrics recorded.</p>;
+  return (
+    <dl className="meta-grid" aria-label="step metrics">
+      {rows.map(([k, v]) => (
+        <div key={k} style={{ display: 'contents' }}>
+          <dt className="meta-key">{k}</dt>
+          <dd className="meta-val">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function StepError({ step }: { step: StepRecord }) {
+  if (!(step.status === 'failed' || step.status === 'warning') || !step.errorMessage) return null;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <p className="section-heading" style={{ marginTop: 0, color: 'var(--danger)' }}>Error</p>
+      <p className="alert alert-danger" role="alert" style={{ marginBottom: 0 }}>{step.errorMessage}</p>
+      {step.errorStack && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', padding: '2px 0' }}>
+            Stack trace
+          </summary>
+          <pre className="code-block code-block-auto" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {step.errorStack}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Changes tab — diff against the previous completed plan step (R-77)
+// ---------------------------------------------------------------------------
+
+function ChangesPanel({ api, runId, prior, output }: {
+  api: Api;
+  runId: string;
+  prior: StepRecord;
+  output: string | null;
+}) {
+  const { data, isLoading, error } = useRunStep(api, runId, prior.stepIndex, true);
+  if (isLoading) return <p className="loading">Loading earlier plan…</p>;
+  const priorOutput = data?.output ?? getInlineOutput(prior);
+  if (error && priorOutput === null) {
+    return <p className="alert alert-danger" role="alert">Failed to load the earlier plan step.</p>;
+  }
+  const before = parsePlan(priorOutput);
+  const after = parsePlan(output);
+  if (!before || !after) {
+    return (
+      <p className="alert alert-warning" role="note">
+        Cannot diff — {!after ? 'this step’s' : 'the earlier step’s'} output is not a parseable plan.
+      </p>
+    );
+  }
+  return <PlanDiff before={before} after={after} againstLabel={`${stepNo(prior)} · ${prior.label}`} />;
+}
+
+// ---------------------------------------------------------------------------
+// StepCard — one expandable card per step record (R-76, R-77)
+// ---------------------------------------------------------------------------
+
+type StepTab = 'output' | 'input' | 'changes' | 'raw' | 'metrics';
+
+interface StepCardProps {
+  api: Api;
+  runId: string;
+  step: StepRecord;
+  /** From the pipeline config by `stepId`; `undefined` when the step is not in the loaded config. */
+  configOutputType?: StepOutputType;
+  /** Latest earlier completed/cached plan step in this run — enables the Changes tab. */
+  priorPlanStep?: StepRecord;
+}
+
+function StepCard({ api, runId, step, configOutputType, priorPlanStep }: StepCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<StepTab>('output');
+  const detail = useRunStep(api, runId, step.stepIndex, expanded);
 
   const inline = getInlineOutput(step);
   const hasOutput = inline !== null || isS3Output(step);
@@ -93,11 +198,26 @@ function StepCard({ step }: { step: StepRecord }) {
     step.status === 'completed' || step.status === 'cached' ||
     step.status === 'failed'    || step.status === 'warning';
 
+  // The input snapshot records the type actually used; the pipeline config may
+  // have been edited since the run, so prefer the snapshot once loaded.
+  const outputType: StepOutputType | undefined = detail.data?.input?.outputType ?? configOutputType;
+  const effectiveType: StepOutputType = outputType ?? 'plan';
+  const output = detail.data ? detail.data.output : inline;
+  const showChanges = effectiveType === 'plan' && priorPlanStep !== undefined;
+  const activeTab: StepTab = tab === 'changes' && !showChanges ? 'output' : tab;
+
+  const tabs: { id: StepTab; label: string }[] = [
+    { id: 'output', label: 'Output' },
+    { id: 'input', label: 'Input' },
+    ...(showChanges ? [{ id: 'changes' as const, label: 'Changes' }] : []),
+    { id: 'raw', label: 'Raw' },
+    { id: 'metrics', label: 'Metrics' },
+  ];
+
   return (
-    <div className="card" style={{ marginBottom: 8 }}>
-      {/* Header row — always visible */}
+    <div className="card" style={{ marginBottom: 8 }} data-testid={`step-card-${step.stepIndex}`}>
+      {/* Header row — always visible (R-76) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        {/* Zero-padded step index */}
         <span
           style={{
             fontSize: 11,
@@ -107,25 +227,35 @@ function StepCard({ step }: { step: StepRecord }) {
             minWidth: 52,
           }}
         >
-          STEP #{String(step.stepIndex).padStart(2, '0')}
+          {stepNo(step)}
         </span>
 
-        {/* Label */}
         <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
           {step.label}
         </span>
 
-        {/* Model */}
-        <span
-          style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
-        >
-          {step.model}
-        </span>
+        <div className="step-header-meta">
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {step.model}
+          </span>
+          {outputType && (
+            <span className="badge badge-muted" title="Output type" data-testid="step-output-type">{outputType}</span>
+          )}
+          <Link
+            className="step-prompt-link"
+            to={`/prompts/${encodeURIComponent(step.promptKey)}`}
+            title="Prompt version used by this step"
+          >
+            {step.promptKey}@v{step.promptVersion}
+          </Link>
+          <span className={stepStatusBadgeClass(step.status)}>{step.status}</span>
+          {step.status === 'cached' && (
+            <span className="text-muted text-sm" title="Output reused from the step cache — no model call">
+              from cache
+            </span>
+          )}
+        </div>
 
-        {/* Status badge */}
-        <span className={stepStatusBadgeClass(step.status)}>{step.status}</span>
-
-        {/* Expand/collapse — only for terminal steps */}
         {isTerminal && (
           <button
             className="btn btn-ghost btn-sm"
@@ -157,144 +287,52 @@ function StepCard({ step }: { step: StepRecord }) {
               {inline.slice(0, 500)}{inline.length > 500 ? '…' : ''}
             </p>
           ) : (
-            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Output stored in S3</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Output stored in S3 — expand to view.</p>
           )}
         </div>
       )}
 
-      {/* Expanded detail panel */}
+      {/* Expanded detail panel (R-77) */}
       {expanded && (
-        <div
-          style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}
-        >
-          {/* Full output */}
-          {hasOutput && (
-            <>
-              <p className="section-heading">Output</p>
-              {inline !== null ? (
-                <pre
-                  className="code-block"
-                  aria-label="step output"
-                  style={{ height: 'auto', maxHeight: '40vh', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                >
-                  {inline}
-                </pre>
-              ) : (
-                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  Output stored in S3 — retrieve via artifacts bucket.
-                </p>
-              )}
-            </>
-          )}
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+          <StepError step={step} />
 
-          {/* Metrics grid */}
-          {(step.durationMs         !== undefined ||
-            step.bedrockLatencyMs   !== undefined ||
-            step.inputTokens        !== undefined ||
-            step.outputTokens       !== undefined ||
-            step.costEstimateUsd    !== undefined ||
-            step.inputCharacters    !== undefined ||
-            step.outputCharacters   !== undefined ||
-            step.contextTokenEstimate !== undefined) && (
-            <>
-              <p className="section-heading" style={{ marginTop: 14 }}>Metrics</p>
-              <dl className="meta-grid">
-                {step.durationMs !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Duration</dt>
-                    <dd className="meta-val">{step.durationMs.toLocaleString()} ms</dd>
-                  </div>
-                )}
-                {step.bedrockLatencyMs !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Bedrock latency</dt>
-                    <dd className="meta-val">{step.bedrockLatencyMs.toLocaleString()} ms</dd>
-                  </div>
-                )}
-                {step.inputTokens !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Input tokens</dt>
-                    <dd className="meta-val">{step.inputTokens.toLocaleString()}</dd>
-                  </div>
-                )}
-                {step.outputTokens !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Output tokens</dt>
-                    <dd className="meta-val">{step.outputTokens.toLocaleString()}</dd>
-                  </div>
-                )}
-                {step.inputCharacters !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Input chars</dt>
-                    <dd className="meta-val">{step.inputCharacters.toLocaleString()}</dd>
-                  </div>
-                )}
-                {step.outputCharacters !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Output chars</dt>
-                    <dd className="meta-val">{step.outputCharacters.toLocaleString()}</dd>
-                  </div>
-                )}
-                {step.contextTokenEstimate !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Context tokens (est.)</dt>
-                    <dd className="meta-val">{step.contextTokenEstimate.toLocaleString()}</dd>
-                  </div>
-                )}
-                {step.costEstimateUsd !== undefined && (
-                  <div style={{ display: 'contents' }}>
-                    <dt className="meta-key">Cost estimate</dt>
-                    <dd className="meta-val">${step.costEstimateUsd.toFixed(6)}</dd>
-                  </div>
-                )}
-              </dl>
-            </>
-          )}
-
-          {/* Error block — for failed/warning steps */}
-          {(step.status === 'failed' || step.status === 'warning') && step.errorMessage && (
-            <>
-              <p
-                className="section-heading"
-                style={{ marginTop: 14, color: 'var(--danger)' }}
+          <div className="tabs" role="tablist" aria-label="step detail">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === t.id}
+                className={`tab ${activeTab === t.id ? 'tab-active' : ''}`}
+                onClick={() => setTab(t.id)}
               >
-                Error
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="step-tab-panel" role="tabpanel">
+            {activeTab === 'metrics' ? (
+              <StepMetrics step={step} />
+            ) : detail.isLoading ? (
+              <p className="loading">Loading step detail…</p>
+            ) : detail.error && !(activeTab !== 'input' && inline !== null) ? (
+              <p className="alert alert-danger" role="alert">
+                Failed to load step detail{detail.error instanceof Error ? ` (${detail.error.message})` : ''}.
               </p>
-              <p className="alert alert-danger" role="alert" style={{ marginBottom: 0 }}>
-                {step.errorMessage}
-              </p>
-              {step.errorStack && (
-                <details style={{ marginTop: 6 }}>
-                  <summary
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      padding: '2px 0',
-                    }}
-                  >
-                    Stack trace
-                  </summary>
-                  <pre
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-muted)',
-                      fontFamily: 'var(--font-mono)',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      marginTop: 6,
-                      background: 'var(--bg)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: 8,
-                    }}
-                  >
-                    {step.errorStack}
-                  </pre>
-                </details>
-              )}
-            </>
-          )}
+            ) : activeTab === 'output' ? (
+              <StepOutputView outputType={effectiveType} output={output} />
+            ) : activeTab === 'input' ? (
+              <StepInputView input={detail.data?.input ?? null} />
+            ) : activeTab === 'changes' && priorPlanStep ? (
+              <ChangesPanel api={api} runId={runId} prior={priorPlanStep} output={output} />
+            ) : output === null ? (
+              <p className="text-muted text-sm">This step produced no output.</p>
+            ) : (
+              <RawText text={output} />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -500,6 +538,9 @@ export default function RunDetailPage({ api }: { api: Api }) {
   const { data, isLoading, error } = usePipelineRun(api, runId, {
     refetchInterval: 2000,
   });
+  // Pipeline config — source of each step's outputType for the header (R-76).
+  // Failure is non-fatal: headers just omit the type until a snapshot loads.
+  const pipelineQuery = usePipeline(api, data?.run.pipelineId ?? '');
 
   // Initial loading state — data not yet available
   if (isLoading && !data) {
@@ -521,6 +562,17 @@ export default function RunDetailPage({ api }: { api: Api }) {
   // Sort steps by stepIndex for reliable display order (DDB returns them in SK
   // lexicographic order which matches zero-padded index, but sort defensively).
   const sortedSteps = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
+
+  const configTypes = new Map<string, StepOutputType>(
+    (pipelineQuery.data?.steps ?? []).map((s) => [s.stepId, outputTypeOf(s)]),
+  );
+  /** Latest earlier plan step that produced output — the Changes tab baseline (R-77). */
+  const priorPlanStepOf = (index: number): StepRecord | undefined =>
+    sortedSteps
+      .slice(0, index)
+      .reverse()
+      .find((s) =>
+        configTypes.get(s.stepId) === 'plan' && (s.status === 'completed' || s.status === 'cached'));
 
   return (
     <div className="app-main">
@@ -614,7 +666,16 @@ export default function RunDetailPage({ api }: { api: Api }) {
             No steps recorded yet.
           </p>
         ) : (
-          sortedSteps.map((step) => <StepCard key={step.sk} step={step} />)
+          sortedSteps.map((step, i) => (
+            <StepCard
+              key={step.sk}
+              api={api}
+              runId={run.runId}
+              step={step}
+              configOutputType={configTypes.get(step.stepId)}
+              priorPlanStep={priorPlanStepOf(i)}
+            />
+          ))
         )}
 
       </div>
