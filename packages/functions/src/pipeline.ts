@@ -33,10 +33,20 @@ import type {
   ExecutionMode,
   StepOutputRef,
   StepOutputType,
+  StepRecord,
+  RunArtifact,
 } from '@registry/core';
 import { STEP_OUTPUT_TYPES, resolveOutputType } from '@registry/core';
 import type { GroundedContext } from '@registry/functest';
-import { PLAN_SCHEMA, CRITIQUE_SCHEMA, validatePlan, validateCritique } from '@registry/functest';
+import {
+  PLAN_SCHEMA,
+  CRITIQUE_SCHEMA,
+  validatePlan,
+  validateCritique,
+  emitFunctionalTest,
+  functionalTestPath,
+  type FunctionalTestPlan,
+} from '@registry/functest';
 import {
   getPrun,
   updatePrun,
@@ -1030,6 +1040,96 @@ async function _writeStepTerminal(
 }
 
 /**
+ * Append a message to `PRUN.warnings` (best-effort; conditional on the run
+ * still being `running`, so it must precede the terminal status write).
+ */
+async function _appendRunWarning(runId: string, message: string): Promise<void> {
+  try {
+    await _ddb.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { PK: prunPk(runId).pk, SK: 'PRUN' },
+        UpdateExpression: 'SET warnings = list_append(if_not_exists(warnings, :empty), :w)',
+        ConditionExpression: '#status = :running',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':empty': [],
+          ':w': [message],
+          ':running': 'running',
+        },
+      })
+    );
+  } catch {
+    /* best-effort warnings append */
+  }
+}
+
+/** Read a step output string from its inline value or S3 object. */
+async function _readStepOutput(ref: StepOutputRef): Promise<string> {
+  if ('inline' in ref) return ref.inline;
+  const obj = await _s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: ref.s3Key }));
+  return obj.Body ? await (obj.Body as unknown as { transformToString(): Promise<string> }).transformToString() : '';
+}
+
+/** Warning appended when a completing run has no plan output (R-65, TS-49). */
+export const NO_PLAN_OUTPUT_WARNING = 'no plan output to emit';
+
+/**
+ * Emit the run's deliverable test file (R-65, D-26): render the output of the
+ * LAST `plan` step whose status is `completed` or `cached` with the
+ * functional-test emitter (apiTargets from the grounded context, R-66) and
+ * store it at `pipeline-outputs/<runId>/test.generated.ts`.
+ *
+ * Best-effort: never throws. Returns the artifact pointer, or a warning when no
+ * plan output exists or rendering/storing fails — a completed run is never
+ * flipped to failed by emission.
+ */
+async function _emitRunArtifact(
+  runId: string,
+  pipeline: PipelineConfig,
+  steps: StepRecord[],
+  grounded: GroundedContext
+): Promise<{ artifact?: RunArtifact; warning?: string }> {
+  const candidate = steps
+    .filter((r) => {
+      const def = pipeline.steps[r.stepIndex];
+      return (
+        def !== undefined &&
+        resolveOutputType(def) === 'plan' &&
+        (r.status === 'completed' || r.status === 'cached') &&
+        r.outputRef !== undefined
+      );
+    })
+    .sort((a, b) => b.stepIndex - a.stepIndex)[0];
+  if (!candidate) return { warning: NO_PLAN_OUTPUT_WARNING };
+
+  try {
+    const raw: unknown = JSON.parse(await _readStepOutput(candidate.outputRef!));
+    // Stored/cached plans may predate v2 — tolerate a missing rationale (D-25).
+    const v = validatePlan(raw, grounded, { requireRationale: false });
+    if (!v.ok) throw new Error(v.reason);
+    const plan: FunctionalTestPlan = { ...v.body, inputHash: grounded.inputHash };
+    const content = emitFunctionalTest(plan, 0, { apiTargets: grounded.apiTargets });
+    const s3Key = `pipeline-outputs/${runId}/test.generated.ts`;
+    await _s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: s3Key,
+        Body: content,
+        ContentType: 'text/plain; charset=utf-8',
+      })
+    );
+    const stepId = pipeline.steps[candidate.stepIndex]?.stepId ?? candidate.stepId;
+    log.info('step.worker.artifact_emitted', { runId, stepId, s3Key });
+    return { artifact: { stepId, s3Key, path: functionalTestPath(plan) } };
+  } catch (err) {
+    const msg = redact((err as Error).message ?? 'unknown error');
+    log.warn('step.worker.artifact_emit_failed', { runId, stepIndex: candidate.stepIndex, error: msg });
+    return { warning: `artifact emit failed: ${msg}` };
+  }
+}
+
+/**
  * Mark the run as failed and write error details to the PRUN record.
  * Wraps `updatePrun` in try/catch because the run may already be terminal.
  */
@@ -1418,25 +1518,7 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
           completedAt: new Date().toISOString(),
         });
         // Append to PRUN.warnings
-        try {
-          await _ddb.send(
-            new UpdateCommand({
-              TableName: TABLE,
-              Key: { PK: prunPkVal, SK: 'PRUN' },
-              UpdateExpression:
-                'SET warnings = list_append(if_not_exists(warnings, :empty), :w)',
-              ConditionExpression: '#status = :running',
-              ExpressionAttributeNames: { '#status': 'status' },
-              ExpressionAttributeValues: {
-                ':empty': [],
-                ':w': [`Step ${stepIndex} (${step.stepId}): ${errMsg}`],
-                ':running': 'running',
-              },
-            })
-          );
-        } catch {
-          /* best-effort warnings append */
-        }
+        await _appendRunWarning(runId, `Step ${stepIndex} (${step.stepId}): ${errMsg}`);
         log.warn('step.worker.optional_step_warning', {
           runId,
           stepIndex,
@@ -1590,10 +1672,18 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
       (run.warnings && run.warnings.length > 0);
     const finalStatus = hasWarnings ? 'completed_with_warnings' : 'completed';
 
+    // Emit the run artifact from the last completed/cached plan step (R-65).
+    // Best-effort: a failure only appends a warning; the status determined
+    // above is kept. The warning append is conditional on `running`, so it
+    // precedes the terminal write.
+    const emitted = await _emitRunArtifact(runId, pipeline, allStepsDone, groundedCtx);
+    if (emitted.warning) await _appendRunWarning(runId, emitted.warning);
+
     try {
       await updatePrun(_ddb, runId, {
         status: finalStatus,
         completedAt: new Date().toISOString(),
+        ...(emitted.artifact ? { artifact: emitted.artifact } : {}),
       });
     } catch {
       /* may already be terminal */

@@ -9,6 +9,8 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { Bucket } from 'sst/node/bucket';
 import { parseAndValidate, diffContracts } from '@registry/core';
 import {
   repository,
@@ -27,6 +29,8 @@ import { handleListPromptVersions, handleGetPromptVersion } from './prompt-versi
 
 /** Module-scoped DDB client for the standalone pipeline/prompt CRUD helpers (T-05). */
 const _ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+/** Module-scoped S3 client for run artifacts (v0.4.0 · R-65). */
+const _s3 = new S3Client({});
 
 /** GET /contracts?source=&entity=&validation= (R-50). */
 export async function contracts(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
@@ -331,4 +335,25 @@ export async function getPipelineRunsHandler(event: APIGatewayProxyEventV2): Pro
   const nextToken = event.queryStringParameters?.nextToken;
   const result = await listPruns(_ddb, nextToken);
   return json(200, result);
+}
+
+/**
+ * GET /runs/{runId}/artifact — the run's emitted test file (R-65, D-26).
+ * Returns `{ path, content }`; 404 when the run is unknown, has no `artifact`,
+ * or the S3 object is missing.
+ */
+export async function runArtifact(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const runId = event.pathParameters?.runId;
+  if (!runId) return notFound();
+  const run = await getPrun(_ddb, runId);
+  if (!run) return notFound(`no pipeline run ${runId}`);
+  if (!run.artifact) return notFound(`pipeline run ${runId} has no artifact`);
+  try {
+    const obj = await _s3.send(new GetObjectCommand({ Bucket: Bucket.Contracts.bucketName, Key: run.artifact.s3Key }));
+    const content = obj.Body ? await (obj.Body as { transformToString(): Promise<string> }).transformToString() : '';
+    return json(200, { path: run.artifact.path, content });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'NoSuchKey') return notFound(`artifact for run ${runId} not found`);
+    throw err;
+  }
 }

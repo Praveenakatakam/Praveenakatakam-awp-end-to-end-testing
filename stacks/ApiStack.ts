@@ -243,6 +243,8 @@ export function ApiStack({ stack }: StackContext) {
       // Lazy lease-expiry check included in handler (T-05, R-25, R-26-loop).
       'GET /runs': 'packages/functions/src/read.getPipelineRunsHandler',
       'GET /runs/{runId}': 'packages/functions/src/read.getPipelineRunHandler',
+      // Run artifact — emitted test from the last plan step (v0.4.0 · R-65).
+      'GET /runs/{runId}/artifact': 'packages/functions/src/read.runArtifact',
     },
   });
 

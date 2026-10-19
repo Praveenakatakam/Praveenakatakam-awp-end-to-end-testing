@@ -1091,3 +1091,143 @@ describe('prior-output budget (R-63)', () => {
     expect(metricsUpdate().UpdateExpression).not.toContain('priorOutputsTruncated');
   });
 });
+
+// ── v0.4.0: run artifact emission (R-65, D-26) ────────────────────────────────
+
+describe('run artifact emission (R-65)', () => {
+  const critique = { verdict: 'approve', summary: 'ok', issues: [] };
+  const groundedWithEnv = {
+    ...MOCK_GROUNDED_CTX,
+    apiTargets: [
+      { source: 'svc-a', target: { path: '/orders', recordsAt: '', baseUrlEnv: 'SVC_A_API_URL', tokenEnv: 'SVC_A_TOKEN' } },
+    ],
+  };
+
+  function warningAppends(): string[] {
+    return mockDdbSend.mock.calls
+      .filter((c) => c[0]?._name === 'UpdateCommand' && c[0].input?.UpdateExpression?.includes('list_append'))
+      .flatMap((c) => c[0].input.ExpressionAttributeValues[':w']);
+  }
+
+  function artifactPut(): any {
+    return mockS3Send.mock.calls.find(
+      (c) => c[0]?._name === 'PutObjectCommand' && c[0].input.Key.endsWith('/test.generated.ts')
+    )?.[0].input;
+  }
+
+  it('TS-48: plan → critique run completes → artifact rendered from step 1 plan at pipeline-outputs/<runId>/test.generated.ts', async () => {
+    const pipeline = makePipeline([
+      makeStep({ stepId: 's0', outputType: 'plan' }),
+      makeStep({ stepId: 's1', outputType: 'critique', includeContext: true }),
+    ]);
+    setupHappyPath({ stepId: 's1', outputType: 'critique', includeContext: true });
+    vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ executedSteps: 1 }) as any);
+    vi.mocked(ground).mockReturnValue({ ok: true, context: groundedWithEnv } as any);
+    const plan = validPlan({ title: 'Plan from step one' });
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, label: 'plan', status: 'completed', outputRef: { inline: JSON.stringify(plan) } },
+      { stepId: 's1', stepIndex: 1, label: 'review', status: 'completed', outputRef: { inline: JSON.stringify(critique) } },
+    ] as any);
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: critique }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const put = artifactPut();
+    expect(put.Key).toBe(`pipeline-outputs/${RUN_ID}/test.generated.ts`);
+    expect(put.Body).toContain('functional: Plan from step one');
+    expect(put.Body).toContain('process.env.SVC_A_API_URL');
+    expect(put.Body).toContain(`inputHash ${'hash-abc123'.slice(0, 16)}`);
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({
+        status: 'completed',
+        artifact: {
+          stepId: 's0',
+          s3Key: `pipeline-outputs/${RUN_ID}/test.generated.ts`,
+          path: 'functional/svc-a-r-01-order.generated.test.ts',
+        },
+      })
+    );
+    expect(warningAppends()).toEqual([]);
+  });
+
+  it('uses the LAST completed/cached plan step when several exist (cached counts)', async () => {
+    const pipeline = makePipeline([
+      makeStep({ stepId: 's0' }),
+      makeStep({ stepId: 's1' }),
+      makeStep({ stepId: 's2', outputType: 'freeform' }),
+    ]);
+    setupHappyPath({ stepId: 's2', outputType: 'freeform' });
+    vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ executedSteps: 2 }) as any);
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, status: 'completed', outputRef: { inline: JSON.stringify(validPlan({ title: 'first' })) } },
+      { stepId: 's1', stepIndex: 1, status: 'cached', outputRef: { inline: JSON.stringify(validPlan({ title: 'second' })) } },
+      { stepId: 's2', stepIndex: 2, status: 'completed', outputRef: { inline: 'notes' } },
+    ] as any);
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'text', text: 'notes' }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 2 });
+
+    expect(artifactPut().Body).toContain('functional: second');
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({ artifact: expect.objectContaining({ stepId: 's1' }) })
+    );
+  });
+
+  it('a cached v1 plan without rationale still emits (D-25)', async () => {
+    setupHappyPath();
+    const { rationale: _r, ...v1 } = validPlan();
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, status: 'cached', outputRef: { inline: JSON.stringify(v1) } },
+    ] as any);
+    vi.mocked(getStepcache).mockResolvedValue({ cacheKey: 'k', outputRef: { inline: JSON.stringify(v1) } } as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(artifactPut()).toBeDefined();
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({ status: 'completed', artifact: expect.any(Object) })
+    );
+  });
+
+  it('TS-49: only plan step was optional and failed → warning "no plan output to emit", artifact unset', async () => {
+    setupHappyPath({ optional: true });
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, status: 'warning', label: 'Generate plan' },
+    ] as any);
+    mockBedrockSend.mockRejectedValue(new Error('terminal failure'));
+    vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0 as any; });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(warningAppends()).toContain('no plan output to emit');
+    expect(artifactPut()).toBeUndefined();
+    const completion = vi
+      .mocked(updatePrun)
+      .mock.calls.find((c) => (c[2] as any).status === 'completed_with_warnings');
+    expect(completion).toBeDefined();
+    expect(completion![2]).not.toHaveProperty('artifact');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('an emit failure appends a warning and never fails the run', async () => {
+    setupHappyPath();
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, status: 'completed', outputRef: { inline: 'not json' } },
+    ] as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(warningAppends().some((w) => w.startsWith('artifact emit failed:'))).toBe(true);
+    expect(updatePrun).toHaveBeenCalledWith(expect.anything(), RUN_ID, expect.objectContaining({ status: 'completed' }));
+    expect(updatePrun).not.toHaveBeenCalledWith(expect.anything(), RUN_ID, expect.objectContaining({ status: 'failed' }));
+  });
+});

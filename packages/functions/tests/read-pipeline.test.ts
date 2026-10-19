@@ -11,6 +11,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
+const mockS3Send = vi.hoisted(() => vi.fn());
+vi.mock('@aws-sdk/client-s3', () => ({
+  S3Client: vi.fn(() => ({ send: mockS3Send })),
+  GetObjectCommand: vi.fn((input: unknown) => ({ _name: 'GetObjectCommand', input })),
+}));
+
 vi.mock('../src/repository.js', () => ({
   // Existing repository singleton (used by pre-existing read handlers)
   repository: {
@@ -53,6 +59,7 @@ import {
   getPromptHandler,
   getPromptVersionsHandler,
   getPipelineRunHandler,
+  runArtifact,
 } from '../src/read.js';
 
 import {
@@ -608,5 +615,53 @@ describe('getPipelineRunHandler (GET /runs/{runId})', () => {
 
     // THEN
     expect(updatePrun).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /runs/{runId}/artifact (v0.4.0 · R-65)
+// ---------------------------------------------------------------------------
+
+describe('runArtifact (GET /runs/{runId}/artifact)', () => {
+  beforeEach(() => {
+    mockS3Send.mockReset();
+  });
+
+  const artifact = {
+    stepId: 's0',
+    s3Key: 'pipeline-outputs/run-1/test.generated.ts',
+    path: 'functional/svc-a-r-01-order.generated.test.ts',
+  };
+
+  it('returns { path, content } from S3 when the run has an artifact', async () => {
+    vi.mocked(getPrun).mockResolvedValue({ runId: 'run-1', status: 'completed', artifact } as any);
+    mockS3Send.mockResolvedValue({ Body: { transformToString: async () => '// test file' } });
+
+    const res = await runArtifact(ev({ runId: 'run-1' }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body as string)).toEqual({ path: artifact.path, content: '// test file' });
+    expect(mockS3Send.mock.calls[0][0].input).toEqual({ Bucket: 'Contracts', Key: artifact.s3Key });
+  });
+
+  it('404 when the run has no artifact', async () => {
+    vi.mocked(getPrun).mockResolvedValue({ runId: 'run-1', status: 'completed' } as any);
+    const res = await runArtifact(ev({ runId: 'run-1' }));
+    expect(res.statusCode).toBe(404);
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('404 when the run does not exist', async () => {
+    vi.mocked(getPrun).mockResolvedValue(undefined);
+    expect((await runArtifact(ev({ runId: 'nope' }))).statusCode).toBe(404);
+  });
+
+  it('404 when the S3 object is missing', async () => {
+    vi.mocked(getPrun).mockResolvedValue({ runId: 'run-1', status: 'completed', artifact } as any);
+    mockS3Send.mockImplementation(async () => {
+      throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+    });
+    const res = await runArtifact(ev({ runId: 'run-1' }));
+    expect(res.statusCode).toBe(404);
   });
 });
