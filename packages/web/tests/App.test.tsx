@@ -238,3 +238,44 @@ describe('App Requirements view (T-31 · R-113)', () => {
     expect(within(detail).getByRole('heading', { name: /publisher \/ R-10/i })).toBeInTheDocument();
   });
 });
+
+describe('Sidebar regroup (T-22 · R-69)', () => {
+  beforeEach(() => {
+    authState.token = readerToken;
+  });
+
+  it('TS-54: shows Catalog and Experiments areas; pipeline links under Experiments; no "Source Pipeline"', async () => {
+    render(<App />);
+    await screen.findByText('org');
+
+    const catalog = screen.getByRole('navigation', { name: /catalog navigation/i });
+    expect(within(catalog).getByText('Catalog')).toBeInTheDocument();
+    for (const name of [/contracts by entity/i, /contracts by source/i, /^requirements$/i]) {
+      expect(within(catalog).getByRole('link', { name })).toBeInTheDocument();
+    }
+
+    const experiments = screen.getByRole('navigation', { name: /^experiments navigation/i });
+    expect(within(experiments).getByText('Experiments')).toBeInTheDocument();
+    expect(within(experiments).getByRole('link', { name: 'Pipelines' })).toHaveAttribute('href', '#/pipelines');
+    expect(within(experiments).getByRole('link', { name: 'Prompts' })).toHaveAttribute('href', '#/prompts');
+    expect(within(experiments).getByRole('link', { name: 'Runs' })).toHaveAttribute('href', '#/runs');
+    expect(within(experiments).getByRole('link', { name: 'Compare runs' })).toHaveAttribute('href', '#/runs/compare');
+
+    expect(screen.queryByText(/source pipeline/i)).not.toBeInTheDocument();
+  });
+
+  it('puts the legacy /experiments/* pages in a collapsed "Legacy (deprecated)" group', async () => {
+    render(<App />);
+    await screen.findByText('org');
+    const summary = screen.getByText('Legacy (deprecated)');
+    const details = summary.closest('details')!;
+    expect(details).not.toHaveAttribute('open');
+    const legacy = within(details);
+    expect(legacy.getByRole('link', { name: 'Prompt versions', hidden: true })).toHaveAttribute('href', '#/experiments/prompt-versions');
+    expect(legacy.getByRole('link', { name: 'Run experiments', hidden: true })).toHaveAttribute('href', '#/experiments/run');
+    expect(legacy.getByRole('link', { name: 'Compare results', hidden: true })).toHaveAttribute('href', '#/experiments/compare');
+    // Legacy links are not part of the Experiments area.
+    const experiments = screen.getByRole('navigation', { name: /^experiments navigation/i });
+    expect(within(experiments).queryByRole('link', { name: 'Prompt versions' })).not.toBeInTheDocument();
+  });
+});
