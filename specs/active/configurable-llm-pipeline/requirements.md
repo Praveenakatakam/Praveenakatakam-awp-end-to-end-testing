@@ -1,6 +1,6 @@
 # Requirements — Configurable LLM Pipeline
 
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 > **Status:** Draft
 
 ## 1. Purpose and Context
@@ -24,7 +24,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 **R-01** — The system SHALL store pipeline configuration as a DynamoDB item with key `PIPELINE#<pipelineId>`, containing: `pipelineId`, `name`, `steps` (ordered array), `maxSteps`, `maxAgeMinutes`, `active` (boolean), `version`, `createdAt`, `updatedAt`.
 
-**R-02** — Each step in `steps` SHALL contain: `stepId` (unique within pipeline), `label` (human-readable name), `model` (Bedrock model ID, validated against the model allowlist defined in R-10), `promptKey` (reference to a `PROMPT#` item), `optional` (boolean, default `false`), `waitForHuman` (boolean, default `false`), and `includeContext` (boolean, default `true`).
+**R-02** — Each step in `steps` SHALL contain: `stepId` (unique within pipeline), `label` (human-readable name), `model` (Bedrock model ID, validated against the model allowlist defined in R-10), `promptKey` (reference to a `PROMPT#` item), `optional` (boolean, default `false`), `waitForHuman` (boolean, default `false`), `includeContext` (boolean, default `true`), and `outputType` (`"plan"` | `"critique"` | `"freeform"`, default `"plan"` — added v0.4.0, see R-59/D-22).
 
 **R-03** — WHEN a pipeline configuration is written (created or updated), THE system SHALL validate that `steps.length` does not exceed `maxSteps`.
 
@@ -56,7 +56,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 ### 3.2 Step Definition
 
-**R-11** — A pipeline step is a generic unit defined solely by its fields from R-02. Steps have no predefined roles, typed input/output contracts, or structural constraints beyond those fields. The experiment author defines the step's purpose through `label` and the referenced prompt.
+**R-11** — A pipeline step is a generic unit defined solely by its fields from R-02. Steps have no predefined roles or structural constraints beyond those fields. (v0.4.0: steps declare an `outputType` that selects the output contract — see R-59, D-22.) The experiment author defines the step's purpose through `label` and the referenced prompt.
 
 **R-12** — WHEN a step Lambda executes, THE system SHALL inject context as follows: the original grounded context (contracts and requirements captured by the crawler) is always included as structured context; IF `includeContext` is `true`, an ordered array of prior step outputs in the form `[{ stepId, label, output: string }]` is also included; IF `includeContext` is `false`, only the original grounded context is included. Prompts are static — they contain no template variables; all context injection is performed by the runtime, not through string interpolation in the prompt body.
 
@@ -210,7 +210,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 ### 3.8 SPA — Pipeline and Prompt CRUD
 
-**R-38** — WHERE the authenticated user is in the writer group, THE SPA SHALL render a "Pipelines" section in the Source Pipeline sidebar area that lists all active pipelines with name, step count, and last-modified date.
+**R-38** — WHERE the authenticated user is in the writer group, THE SPA SHALL render a "Pipelines" section in the Experiments sidebar area (v0.4.0, R-69) that lists all active pipelines with name, step count, and last-modified date.
 
 **R-39** — WHEN a writer views a pipeline step, THE SPA SHALL show inline: the step's label, model, and the linked prompt body (current version). The step editor SHALL allow the writer to view the full current prompt text, create a new prompt without leaving the pipeline editor, and swap which prompt the step references. The full ordered step list SHALL include controls to add, remove, and reorder steps.
 
@@ -234,6 +234,83 @@ The functional test generator today runs a single hardcoded LLM call per require
 **TS-36** — Given writer session → /prompts page lists active prompts; soft-deleted prompts do not appear.
 **TS-37** — Given a completed pipeline run with step metrics set → run detail page renders step flow; expanding a completed step shows `durationMs`, `costEstimateUsd`, `inputTokens`, and `outputTokens`.
 **TS-38** — Given a running pipeline run → run detail page polls and updates step status indicators until the run reaches a terminal state.
+
+---
+
+### 3.9 Grounding-Aware Sampling (v0.4.0)
+
+> Added after the first live runs: sampling drew from the whole catalog, so runs routinely landed on requirements that cannot be grounded (R-121 skip reasons in `@registry/functest/ground.ts`) and failed with `Grounding failed: references no cataloged entity`.
+
+**R-55** — WHEN `POST /generate-functional-tests` is called with a `pipelineId`, THE system SHALL ground every catalog requirement (using the same `ground()` rules as the legacy generator) BEFORE applying the sampling strategy, and the sampling strategy SHALL select only from requirements that ground successfully. The `202` response SHALL include `skipped: [{ requirement: "<source>/<id>", reason: string }]` listing every requirement excluded by grounding.
+
+**R-56** — IF no catalog requirement grounds successfully (or none of the requirements named by an `ids` strategy ground), THE system SHALL return HTTP 422 with `{ error, skipped }` and SHALL NOT create any PRUN record.
+
+**R-57** — Requirement identifiers on `PRUN.requirementIds`, in sampling input, and in `skipped` SHALL be source-qualified as `<source>/<id>` (requirement IDs are only unique within a source). The step worker SHALL resolve a requirement by its qualified ID. FOR runs created before v0.4.0 holding a bare ID, the worker SHALL accept the bare ID only if it matches exactly one catalog requirement; otherwise it SHALL fail the step with an ambiguity error.
+
+**R-58** — WHERE `sampling.strategy` is `ids`, each entry MAY be qualified or bare; a bare ID that matches more than one source's requirement SHALL be rejected with HTTP 422 naming the candidates.
+
+**TS-39** — Given a catalog with 5 requirements of which 2 reference no cataloged entity, and `first_n: 3` → 3 runs are created, all for groundable requirements; the response `skipped` lists the 2 ungroundable requirements with reasons.
+**TS-40** — Given a catalog where no requirement grounds → HTTP 422 with `skipped` populated; no PRUN written.
+**TS-41** — Given `publisher/R-01` and `consumer/R-01` both groundable and `ids: ["consumer/R-01"]` → the run's `requirementIds` is `["consumer/R-01"]` and the step worker grounds the consumer requirement.
+**TS-42** — Given `ids: ["R-01"]` where `R-01` exists in two sources → HTTP 422 naming both qualified candidates.
+
+### 3.10 Step Output Types and Plan Fidelity (v0.4.0)
+
+**R-59** — Each pipeline step SHALL carry an `outputType` field: `"plan"` | `"critique"` | `"freeform"` (default `"plan"`; steps persisted before v0.4.0 without the field SHALL be read as `"plan"`). This amends R-02 and R-11 (see D-22).
+
+**R-60** — WHEN a step executes, THE system SHALL shape the Bedrock call by `outputType`:
+- `plan` — forced tool use of `emit_functional_test_plan` with `PLAN_SCHEMA` v2 (R-61);
+- `critique` — forced tool use of `emit_critique` with `CRITIQUE_SCHEMA` (R-62);
+- `freeform` — no tools; the concatenated text content blocks are the step output.
+
+**R-61** — `PLAN_SCHEMA` v2 SHALL extend the v1 plan (all v1 fields retained, so v1 plans remain valid) with:
+- `rationale` (required string) — why this scenario exercises the requirement;
+- `trigger.examplePayload` (optional string) — a concrete JSON example body built only from contract schema properties;
+- `propagation.kind` widened to `"cdc" | "eventbridge" | "sync"`, plus optional `propagation.channel` (e.g. event bus / detail-type);
+- `assertions[].service` widened from the `publisher | consumer` enum to any string, validated at runtime against the grounded `sources` (R-64);
+- optional `assertions[].field` and `assertions[].expected` for property-level checks;
+- optional `negativeCases: [{ description, expectedOutcome }]`.
+
+**R-62** — `CRITIQUE_SCHEMA` SHALL be `{ verdict: "approve" | "revise" | "reject", summary: string, issues: [{ severity: "blocker" | "major" | "minor", target: string, problem: string, suggestion: string }] }`.
+
+**R-63** — WHEN prior step outputs are injected (R-12), THE system SHALL include each output in full, subject to a total budget `PRIOR_OUTPUT_BUDGET_CHARS` (system constant, default 60 000). IF the budget is exceeded, THE system SHALL truncate the OLDEST outputs first, mark each truncated output with an explicit `[truncated N chars]` suffix, and set `priorOutputsTruncated: true` on the step record. This supersedes the fixed 2 000-character per-output cut.
+
+**R-64** — WHEN a `plan` step returns, THE system SHALL validate the output against `PLAN_SCHEMA` v2 AND its grounding (trigger entity = grounded entity; trigger source and every assertion service ∈ grounded sources). IF validation fails, THE system SHALL treat it as a terminal (non-retryable) step error whose message is the validation reason; R-15/R-16 then apply. `critique` outputs SHALL be validated against `CRITIQUE_SCHEMA` the same way.
+
+**R-65** — WHEN a run reaches `completed` or `completed_with_warnings`, THE system SHALL take the output of the LAST step with `outputType: "plan"` whose status is `completed` or `cached`, render it with the functional-test emitter, store it at `pipeline-outputs/<runId>/test.generated.ts`, and set `PRUN.artifact = { stepId, s3Key, path }`. IF no plan step produced output, THE system SHALL append the warning `"no plan output to emit"` to `PRUN.warnings` and leave `artifact` unset. `GET /runs/{runId}/artifact` SHALL return `{ path, content }` (404 if unset).
+
+**R-66** — The functional-test emitter SHALL derive base-URL and token environment variable names from the grounded `apiTargets` (per source) rather than hardcoding `PUBLISHER_*` / `CONSUMER_*`, and SHALL render `rationale`, `examplePayload`, `negativeCases`, and property-level assertions when present. Output for a v1 plan (no new fields) whose sources are `publisher`/`consumer` SHALL be unchanged.
+
+**TS-43** — Given a step with `outputType: "critique"` → the Bedrock request forces tool `emit_critique`; the stored output parses against `CRITIQUE_SCHEMA`.
+**TS-44** — Given a step with `outputType: "freeform"` → the Bedrock request has no `tools`/`tool_choice`; the stored output is the response text.
+**TS-45** — Given a pipeline item with no `outputType` on its steps → the worker treats every step as `plan`.
+**TS-46** — Given two prior outputs of 50 000 chars each → the oldest is truncated with a `[truncated N chars]` marker, the newest is intact, and `priorOutputsTruncated` is `true`.
+**TS-47** — Given a plan step whose output names an assertion service not in the grounded sources → the step fails terminally with a "hallucinated target" message.
+**TS-48** — Given a 2-step run (plan → critique) that completes → `PRUN.artifact.s3Key` is `pipeline-outputs/<runId>/test.generated.ts` and the file was rendered from step 1's plan.
+**TS-49** — Given a run whose only plan step was optional and failed → `PRUN.warnings` contains `"no plan output to emit"` and `artifact` is unset.
+**TS-50** — Given a grounded `TaskPublished` context with sources `get-ready`, `create-evb` → the emitted file reads `GET_READY_API_URL` / `GET_READY_TOKEN` and does not reference `PUBLISHER_API_URL`.
+
+### 3.11 SPA Amendments (v0.4.0)
+
+**R-67** — The pipeline step editor SHALL be a single shared component used by both the pipeline side panel (`/pipelines`) and the full pipeline page (`/pipelines/:pipelineId`). In both views it SHALL offer "View prompt body" (R-39) and an `outputType` selector.
+
+**R-68** — The pipeline side panel and the full pipeline page (step list | selected-step detail) SHALL use a shared resizable split pane that: responds to pointer (mouse, touch, pen) drag on a divider with a hit area of at least 8 px; starts from the pane's measured rendered width (no jump on first drag); clamps to one set of bounds (min 320 px, max 70 vw); supports keyboard resizing (arrow keys, `role="separator"`, `aria-valuenow`); and persists width per pane in `localStorage`.
+
+**R-69** — The sidebar SHALL be organised into two areas: **Catalog** (renamed from "Source Pipeline": contracts by entity, contracts by source, requirements, crawl refresh) and **Experiments** (Pipelines, Prompts, Runs, Compare runs). The legacy prompt-versioning pages (Prompt versions, single-step experiments, experiment compare) SHALL appear under a collapsed **Legacy** group labelled deprecated. This supersedes the area placement in R-38 and R-41.
+
+**R-70** — The SPA SHALL provide a **Compare runs** page (`/runs/compare?a=<runId>&b=<runId>`) that shows two runs side by side: per-step label/model/prompt version/status, metrics, raw output, and a line diff of the two emitted test artifacts (R-65) where both exist.
+
+**R-71** — WHEN a writer triggers a run, THE SPA SHALL display the `skipped` requirements (R-55) returned by the API. WHEN a run has an `artifact`, the run detail page SHALL render the emitted test file with copy and download controls.
+
+**R-72** — `POST /prompts/import-legacy` (writer-only) SHALL copy each legacy prompt-version record (`/prompt-versions`) into the prompt store as `promptKey: "legacy-<promptVersion>"` (version 1, body = legacy `text`), skipping keys that already exist (idempotent), and return `{ imported: string[], skipped: string[] }`. The Prompts page SHALL expose an "Import legacy prompt versions" action for writers. Legacy `/prompt-versions` and `/experiments` endpoints remain available and unchanged (see D-27).
+
+**TS-51** — Given the full pipeline page with a step that has a `promptKey` → a "View prompt body" control renders and reveals the prompt text.
+**TS-52** — Given the split pane, a pointer drag of −100 px on the divider → the panel width increases by 100 px from its measured width and is written to `localStorage`; a remount restores it.
+**TS-53** — Given the split pane focused divider → ArrowLeft increases panel width; width never exceeds 70 vw or drops below 320 px.
+**TS-54** — Given an authenticated session → the sidebar shows "Catalog" and "Experiments" areas; "Pipelines", "Prompts", "Runs", "Compare runs" are under Experiments; "Source Pipeline" text is absent.
+**TS-55** — Given two completed runs with artifacts → the compare page renders both step columns and a diff of the artifacts.
+**TS-56** — Given a run trigger response with 2 `skipped` entries → the SPA lists both requirements with reasons.
+**TS-57** — Given 2 legacy prompt versions, one already imported → `POST /prompts/import-legacy` returns `imported` of length 1 and `skipped` of length 1; repeating returns `imported: []`.
 
 ---
 
@@ -282,6 +359,7 @@ All open questions from v0.1.0 have been resolved:
 
 - **Q1 (model allowlist format):** Closed — `step.model` is validated against a configurable allowlist stored as a system config value in DynamoDB. New models can be added without a code change. HTTP 422 on unknown model.
 - **Q3 (lease duration):** Closed — default lease duration is 5 minutes, a single value applied per step. Making it configurable per step is deferred as a follow-on.
+- **Q4 (batch-mode grounding, open — v0.4.0):** `batch` mode (R-49) still grounds only `requirementIds[0]` in the step worker. Combining several grounded contexts (possibly different entities) into one prompt needs its own design; tracked as a follow-on, not in v0.4.0 scope.
 
 ## 8. Decisions Log
 
@@ -324,3 +402,33 @@ All open questions from v0.1.0 have been resolved:
 - **Decision:** Caught errors are not automatically terminal. The step Lambda classifies each error as transient (re-lease and retry) or terminal (mark failed and stop). Only when it gives up does it write the `failed` status.
 - **Reason:** Error categories are call-specific — a Bedrock throttle is retryable, a malformed prompt is not. Centralising this decision in the Lambda keeps the error handling policy co-located with the code that understands the error.
 - **Affects:** R-21a, R-21b, R-21c, R-24
+
+**D-22 — Steps gain a typed `outputType` (amends R-02, R-11).**
+- **Decision:** Steps declare `outputType: plan | critique | freeform`; the runtime picks the Bedrock tool contract from it. R-11's "no typed input/output contracts" is withdrawn for outputs; steps still have no predefined roles.
+- **Reason:** In v0.3.0 every step was forced through `emit_functional_test_plan`, so review/adversarial steps could only re-emit a plan — steps 1 and 2 of a two-step run produced near-identical output. A small closed set keeps the worker simple while letting non-plan steps say something different.
+- **Affects:** R-02, R-11, R-59, R-60, R-62
+
+**D-23 — Sample only from groundable requirements.**
+- **Decision:** The run handler grounds the whole catalog first and samples from the groundable subset; exclusions are returned, not silently dropped.
+- **Reason:** Ungroundable requirements (infra-only, single-service, unmapped entities) can never produce a plan; sampling them wasted runs and surfaced as `Grounding failed` run failures. Returning `skipped` preserves the R-121 "never silently dropped" principle.
+- **Affects:** R-48, R-49, R-55, R-56
+
+**D-24 — Requirement IDs are source-qualified end to end.**
+- **Decision:** `<source>/<id>` everywhere a requirement is identified on a run.
+- **Reason:** Requirement IDs are unique only within a source; bare-ID matching picked the first source's requirement when two sources shared an ID.
+- **Affects:** R-57, R-58
+
+**D-25 — Plan schema v2 is a strict superset of v1.**
+- **Decision:** New plan fields are additive (only `rationale` is newly required for model output; validation of stored v1 plans tolerates its absence) and the enum on `assertions[].service` moves to runtime validation against grounded sources.
+- **Reason:** The v1 enum (`publisher | consumer`) and `cdc`-only propagation predate the TaskPublished/EventBridge contracts; a static enum cannot track catalog sources. Keeping v1 fields means cached legacy plans and the legacy generator keep working.
+- **Affects:** R-61, R-64, R-66
+
+**D-26 — A run's deliverable is the emitted test from its last plan step.**
+- **Decision:** On successful completion the worker renders the last completed plan step and stores it as the run artifact.
+- **Reason:** v0.3.0 runs ended in plan JSON with no test file, so pipelines could not be compared with legacy experiments on their actual output.
+- **Affects:** R-65, R-70, R-71
+
+**D-27 — Converge legacy experiments into pipelines without deleting legacy endpoints.**
+- **Decision:** The SPA groups pipelines/prompts/runs as "Experiments", demotes the legacy pages to a deprecated group, and offers a one-way idempotent import of legacy prompt versions. Legacy endpoints and data are left in place.
+- **Reason:** Two parallel experiment systems in the nav was misleading, but removing deployed endpoints and DDB records is irreversible; removal is deferred until the legacy pages are unused.
+- **Affects:** R-38, R-41, R-69, R-72
