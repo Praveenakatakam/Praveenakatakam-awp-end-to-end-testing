@@ -817,7 +817,7 @@ New shared components in `packages/web/src/components/`:
 
 `RunsComparePage.tsx` (`/runs/compare?a&b`): run pickers (from `GET /runs`), two columns of step cards aligned by step index, artifact diff via a small LCS line diff in `lib.ts` (no new dependency).
 
-Run trigger (`PipelinesPage` / `PipelinePage` `handleRun`): when the 202 has `skipped.length > 0`, show an inline "N requirements skipped" disclosure listing requirement + reason, then navigate as today. `RunDetailPage`: `useRunArtifact(runId)` when `run.artifact` is set → `<pre>` with Copy / Download buttons.
+Run trigger (`PipelinesPage` / `PipelinePage` `handleRun`): the 202 is normalised to `{ runIds, skipped }` and passed as router state; `RunDetailPage` renders the "N requirements skipped" disclosure. A 422 `{ error, skipped }` is rendered inline on the trigger page. The SPA mirrors `STEP_OUTPUT_TYPES` locally because `@registry/core`'s pipeline module imports `node:crypto` (types-only import from core). `RunDetailPage`: `useRunArtifact(runId)` when `run.artifact` is set → `<pre>` with Copy / Download buttons.
 
 `PromptsPage`: writer-only "Import legacy prompt versions" button → `POST /prompts/import-legacy` → toast with counts, invalidates the prompts query.
 
