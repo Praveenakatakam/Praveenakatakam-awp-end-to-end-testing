@@ -98,6 +98,7 @@ vi.mock('../src/log.js', () => ({
 
 // ── Imports (must come after vi.mock declarations) ────────────────────────────
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   stepWorker,
   buildPriorContext,
@@ -1269,13 +1270,15 @@ describe('output instructions + sectioned user message (R-73)', () => {
     return call![0].input.ExpressionAttributeValues[':ck'];
   }
 
-  /** Two-step run: s0 (plan, completed) → s1 (given outputType), includeContext. */
-  function setupSecondStep(s1OutputType: string, s0OutputType = 'plan'): void {
-    const pipeline = makePipeline([
-      makeStep({ stepId: 's0', outputType: s0OutputType }),
-      makeStep({ stepId: 's1', outputType: s1OutputType, includeContext: true }),
-    ]);
-    setupHappyPath({ stepId: 's1', outputType: s1OutputType, includeContext: true });
+  /** Two-step run: s0 (completed) → s1 (given outputType), includeContext, instructions opted in. */
+  function setupSecondStep(
+    s1OutputType: string,
+    s0OutputType = 'plan',
+    flag: { outputInstructions?: boolean } = { outputInstructions: true }
+  ): void {
+    const s1 = { stepId: 's1', outputType: s1OutputType, includeContext: true, ...flag };
+    const pipeline = makePipeline([makeStep({ stepId: 's0', outputType: s0OutputType }), makeStep(s1)]);
+    setupHappyPath(s1);
     vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
     vi.mocked(getPrun).mockResolvedValue(freshRun({ executedSteps: 1 }) as any);
     vi.mocked(listPrunSteps).mockResolvedValue([
@@ -1320,8 +1323,8 @@ describe('output instructions + sectioned user message (R-73)', () => {
     ]);
   });
 
-  it('a fresh plan step appends the "Output instructions" section describing the plan fields', async () => {
-    setupHappyPath();
+  it('a fresh plan step with outputInstructions: true appends the section describing the plan fields', async () => {
+    setupHappyPath({ outputInstructions: true });
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     const userMessage: string = bedrockRequest().messages[0].content;
     const idx = userMessage.indexOf('\n\nOutput instructions:\n');
@@ -1333,7 +1336,7 @@ describe('output instructions + sectioned user message (R-73)', () => {
     expect(section).not.toContain('REVISED');
   });
 
-  it('TS-58: a critique step after a plan step ends with instructions to review the prior plan', async () => {
+  it('TS-58: an opted-in critique step after a plan step ends with instructions to review the prior plan', async () => {
     setupSecondStep('critique');
     mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: critique }]) });
 
@@ -1349,7 +1352,7 @@ describe('output instructions + sectioned user message (R-73)', () => {
     expect(section).toContain('suggestion');
   });
 
-  it('TS-58: a freeform step gets no "Output instructions" section', async () => {
+  it('TS-58: a freeform step gets no "Output instructions" section even when opted in', async () => {
     setupSecondStep('freeform');
     mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'text', text: 'notes' }]) });
 
@@ -1360,7 +1363,7 @@ describe('output instructions + sectioned user message (R-73)', () => {
     expect(userMessage.endsWith(`    ${JSON.stringify(validPlan())}`)).toBe(true);
   });
 
-  it('TS-59: a plan step whose prior outputs include a plan gets the "revise" variant', async () => {
+  it('TS-59: an opted-in plan step whose prior outputs include a plan gets the "revise" variant', async () => {
     setupSecondStep('plan');
 
     await stepWorker({ runId: RUN_ID, stepIndex: 1 });
@@ -1382,19 +1385,19 @@ describe('output instructions + sectioned user message (R-73)', () => {
     expect(userMessage).not.toContain('REVISED');
   });
 
-  it('TS-60: changing OUTPUT_INSTRUCTIONS_VERSION changes the step cache key', async () => {
-    setupHappyPath();
+  it('TS-60: changing OUTPUT_INSTRUCTIONS_VERSION changes the step cache key (opted-in step)', async () => {
+    setupHappyPath({ outputInstructions: true });
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     const keyV1 = cacheKeyWritten();
 
     vi.clearAllMocks();
-    setupHappyPath();
+    setupHappyPath({ outputInstructions: true });
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     expect(cacheKeyWritten()).toBe(keyV1); // deterministic for identical inputs
 
     vi.clearAllMocks();
     instructionsVersionRef.v = '2';
-    setupHappyPath();
+    setupHappyPath({ outputInstructions: true });
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     expect(cacheKeyWritten()).not.toBe(keyV1);
     expect(getStepcache).toHaveBeenCalledWith(expect.anything(), cacheKeyWritten());
@@ -1465,7 +1468,7 @@ describe('output instructions + sectioned user message (R-73)', () => {
     expect(JSON.parse(snapshotPut().input.Body).tool).toBeNull();
 
     vi.clearAllMocks();
-    setupHappyPath();
+    setupHappyPath({ outputInstructions: true });
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     expect(JSON.parse(snapshotPut().input.Body).tool).toEqual({
       name: 'emit_functional_test_plan',
@@ -1484,6 +1487,49 @@ describe('output instructions + sectioned user message (R-73)', () => {
     mockBedrockSend.mockRejectedValue(new Error('terminal failure'));
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
     expect(snapshotPut()).toBeDefined();
+  });
+
+  it('flag absent → no instructions section, pre-v0.5.0 cache key, snapshot instructionsVersion null', async () => {
+    for (const flag of [{}, { outputInstructions: false }]) {
+      vi.clearAllMocks();
+      setupSecondStep('plan', 'plan', flag);
+      await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+      const userMessage: string = bedrockRequest().messages[0].content;
+      expect(userMessage).not.toContain('Output instructions');
+      // Byte-identical to the pre-v0.5.0 message: ends with the prior output block.
+      expect(userMessage.endsWith(`    ${JSON.stringify(validPlan())}`)).toBe(true);
+
+      // Cache key tuple is exactly the pre-v0.5.0 one (no instructionsVersion).
+      const preV05Key = createHash('sha256')
+        .update(
+          JSON.stringify({
+            inputHash: MOCK_GROUNDED_CTX.inputHash,
+            pipelineId: PIPELINE_ID,
+            pipelineConfigVersion: 1,
+            stepId: 's1',
+            promptKey: 'test-prompt',
+            promptVersion: 1,
+          })
+        )
+        .digest('hex');
+      expect(cacheKeyWritten()).toBe(preV05Key);
+
+      const snap = JSON.parse(snapshotPut().input.Body);
+      expect(snap.instructionsVersion).toBeNull();
+      expect(snap.sections.map((x: any) => x.name)).not.toContain('Output instructions');
+    }
+  });
+
+  it('flag absent → bumping OUTPUT_INSTRUCTIONS_VERSION does not change the cache key', async () => {
+    setupHappyPath();
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    const before = cacheKeyWritten();
+    vi.clearAllMocks();
+    instructionsVersionRef.v = '2';
+    setupHappyPath();
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(cacheKeyWritten()).toBe(before);
   });
 
   it('TS-62: snapshot PutObject throwing → warning logged, no inputRef, step still completes', async () => {
