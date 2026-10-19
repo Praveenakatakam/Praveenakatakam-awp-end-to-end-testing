@@ -821,6 +821,20 @@ Run trigger (`PipelinesPage` / `PipelinePage` `handleRun`): the 202 is normalise
 
 `PromptsPage`: writer-only "Import legacy prompt versions" button → `POST /prompts/import-legacy` → toast with counts, invalidates the prompts query.
 
+## v0.5.0 Amendments — Step Transparency
+
+Covers R-73 – R-78, D-28, D-29.
+
+**User message sections.** `userMessageFromContext` becomes `buildUserMessage(ctx, outputType): { text, sections }`, where `sections` is an ordered `[{ name, text }]` (Requirement, Entity, Contract schema, API targets, Prior step outputs, Output instructions) and `text` is the sections joined exactly as before (one blank line between) — so the existing message format is unchanged apart from the appended instructions.
+
+**Output instructions.** `packages/functions/src/output-instructions.ts` exports `OUTPUT_INSTRUCTIONS_VERSION` (string, start at `"1"`) and `outputInstructions(outputType, { hasPriorPlan }): string | null`. "Has prior plan" = any injected prior output that came from a step whose `outputType` resolves to `plan` (the worker knows each prior step's index → pipeline step). `instructionsVersion` is added to the cache-key tuple.
+
+**Input snapshot.** After the message is built and before `getStepcache`, `PutObject` the R-74 JSON to `pipeline-outputs/<runId>/<nn>.input.json` (try/catch → `log.warn('step.worker.snapshot_failed')`), then `UpdateCommand SET inputRef = :ref`. `StepRecord.inputRef?: { s3Key }`; snapshot type `StepInputSnapshot` in `@registry/core`. Tool `schemaVersion`: `"plan-v2"` / `"critique-v1"`.
+
+**Read endpoint.** `read.ts` `runStep` handler: `getPrun` → `listPrunSteps` (or direct Get on `STEP#nn`) → resolve `inputRef` and `outputRef` from S3 in parallel → `200 { step, input, output }`. Route `GET /runs/{runId}/steps/{stepIndex}` in `stacks/ApiStack.ts`.
+
+**SPA.** `RunDetailPage` `StepCard`: header additions per R-76 (pipeline step lookup by `stepId` from the run's pipeline config for `outputType`; `promptVersion` already on the step record; `cached` from `status === 'cached'`). On expand, `useRunStep(runId, stepIndex)` (TanStack Query, enabled on expand). New components in `packages/web/src/components/step-output/`: `PlanView`, `CritiqueView`, `StepInputView`, `PlanDiff` (pure `diffPlans(a, b)` in `lib.ts`: compares scalar fields, and list fields — setup, assertions, negativeCases — by stringified item with added/removed). Tab bar reuses existing `.tabs` / `.tab` styles.
+
 ## Decisions Log
 
 **D-1 through D-8** are carried forward from `requirements.md` decisions log. Design-phase additions:
@@ -917,3 +931,4 @@ Run trigger (`PipelinesPage` / `PipelinePage` `handleRun`): the 202 is normalise
 - **Affects:** R-51
 
 **D-22 – D-27** — see requirements.md §8 (v0.4.0 amendments).
+**D-28 – D-29** — see requirements.md §8 (v0.5.0).

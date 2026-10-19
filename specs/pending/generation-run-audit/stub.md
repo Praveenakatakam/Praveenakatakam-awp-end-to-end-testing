@@ -7,6 +7,7 @@
 Generation runs today are partially tracked (crawl run IDs, test-artifact records) but there is no:
 
 - Per-step audit trail (what model, what prompt version, what tokens, what duration, was it a cache hit)
+  - _Partly delivered by `configurable-llm-pipeline` v0.5.0 (R-74/R-75, D-29): per-step input snapshots (`pipeline-outputs/<runId>/<nn>.input.json`) and `GET /runs/{runId}/steps/{stepIndex}`. Build on these rather than re-implementing._
 - Snapshot of the exact contracts + requirements that fed a run, so a run can be replayed against identical inputs
 - Baseline concept — designating a run as the reference point for a pipeline/prompt version so new runs can be diffed against it
 - Stable test-data set for QA: without pinned inputs, iterating on prompts produces outputs that differ for two reasons (prompt change AND data change), making apples-to-apples quality comparison impossible
