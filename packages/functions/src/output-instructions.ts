@@ -1,11 +1,12 @@
 /**
  * Runtime-generated output instructions appended to a pipeline step's user
- * message (R-73, D-28).
+ * message (R-73, D-28). Opt-in per step via `PipelineStep.outputInstructions`;
+ * steps without the flag receive exactly the pre-v0.5.0 message.
  *
  * The output shape is enforced in code (forced tool use, R-60), so the text that
  * describes it lives here rather than in author-written prompt bodies. These
  * texts are versioned by `OUTPUT_INSTRUCTIONS_VERSION`, which is part of the
- * step cache key — bump it whenever any text below changes.
+ * step cache key for opted-in steps — bump it whenever any text below changes.
  */
 import type { StepOutputType } from '@registry/core';
 

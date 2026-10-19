@@ -443,4 +443,32 @@ describe('step outputType validation (R-59)', () => {
     expect(res.statusCode).toBe(422);
     expect(updatePipelineRepo).not.toHaveBeenCalled();
   });
+
+  it('POST accepts outputInstructions true / false / absent and persists it (R-73)', async () => {
+    const steps = [
+      { ...validStep(), stepId: 's1', outputInstructions: true },
+      { ...validStep(), stepId: 's2', outputInstructions: false },
+      { ...validStep(), stepId: 's3' },
+    ];
+    const res = await createPipeline(ev({ name: 'Instr', steps }));
+    expect(res.statusCode).toBe(201);
+    const written = vi.mocked(putPipeline).mock.calls[0][1];
+    expect(written.steps.map((st) => st.outputInstructions)).toEqual([true, false, undefined]);
+  });
+
+  it('POST with a non-boolean outputInstructions → HTTP 422', async () => {
+    const res = await createPipeline(ev({ name: 'Bad', steps: [{ ...validStep(), outputInstructions: 'yes' }] }));
+    expect(res.statusCode).toBe(422);
+    expect(JSON.parse(res.body!).error).toMatch(/outputInstructions/);
+    expect(putPipeline).not.toHaveBeenCalled();
+  });
+
+  it('PUT with a non-boolean outputInstructions → HTTP 422', async () => {
+    vi.mocked(getPipelineRepo).mockResolvedValue(existingPipeline() as any);
+    const res = await updatePipeline(
+      ev({ steps: [{ ...validStep(), outputInstructions: 1 }] }, { id: 'pipe-1' })
+    );
+    expect(res.statusCode).toBe(422);
+    expect(updatePipelineRepo).not.toHaveBeenCalled();
+  });
 });

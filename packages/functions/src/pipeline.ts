@@ -195,6 +195,10 @@ async function validatePipelineSteps(
     if (step.outputType !== undefined && !STEP_OUTPUT_TYPES.includes(step.outputType)) {
       return `step "${step.stepId}" has unknown outputType "${String(step.outputType)}" (expected one of: ${STEP_OUTPUT_TYPES.join(', ')})`;
     }
+    // outputInstructions is an optional opt-in flag (R-73).
+    if (step.outputInstructions !== undefined && typeof step.outputInstructions !== 'boolean') {
+      return `step "${step.stepId}" has non-boolean outputInstructions`;
+    }
   }
 
   for (const step of steps) {
@@ -861,13 +865,14 @@ function sleep(ms: number): Promise<void> {
  * named sections (R-73, R-74). Mirrors the private `userPrompt` function in
  * `llm.ts` so the step worker can call Bedrock directly and capture usage
  * metrics (TS-32). `text` is the sections joined with one blank line between,
- * byte-identical to the pre-v0.5.0 format apart from the appended
- * "Output instructions" section (absent for `freeform`).
+ * byte-identical to the pre-v0.5.0 format. The "Output instructions" section
+ * is appended only when `opts.instructions` is true (the step opted in) and
+ * the output type is not `freeform`.
  */
 export function buildUserMessage(
   ctx: GroundedContextWithPrior,
   outputType: StepOutputType,
-  opts: { hasPriorPlan: boolean } = { hasPriorPlan: false }
+  opts: { instructions: boolean; hasPriorPlan: boolean } = { instructions: false, hasPriorPlan: false }
 ): { text: string; sections: UserMessageSection[] } {
   const schema = ctx.schema
     .map((p) => `  - ${p.name}${p.required ? ' (required)' : ''}: ${p.logicalType ?? 'unknown'}`)
@@ -908,7 +913,7 @@ export function buildUserMessage(
     sections.push({ name: 'Prior step outputs', text: lines.join('\n') });
   }
 
-  const instructions = outputInstructions(outputType, opts);
+  const instructions = opts.instructions ? outputInstructions(outputType, opts) : null;
   if (instructions !== null) {
     sections.push({ name: 'Output instructions', text: instructions });
   }
@@ -1514,7 +1519,13 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
   const outputType = resolveOutputType(step); // absent → 'plan' (R-59, TS-45)
 
   const contextWithPrior: GroundedContextWithPrior = { ...groundedCtx, priorOutputs };
-  const userMessage = buildUserMessage(contextWithPrior, outputType, { hasPriorPlan });
+  // Output instructions are opt-in per step (R-73); off → pre-v0.5.0 message.
+  const instructionsOn = step.outputInstructions === true && outputType !== 'freeform';
+  const instructionsVersion = instructionsOn ? OUTPUT_INSTRUCTIONS_VERSION : null;
+  const userMessage = buildUserMessage(contextWithPrior, outputType, {
+    instructions: instructionsOn,
+    hasPriorPlan,
+  });
 
   // ── 9. contextTokenEstimate heuristic (D-15, R-13) ────────────────────────
   const serializedContext = JSON.stringify(contextWithPrior);
@@ -1534,7 +1545,7 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
         ? null
         : { name: STEP_TOOLS[outputType].name, schemaVersion: STEP_TOOLS[outputType].schemaVersion },
     priorOutputsTruncated,
-    instructionsVersion: OUTPUT_INSTRUCTIONS_VERSION,
+    instructionsVersion,
   });
 
   // ── 6 (deferred). Compute full cache key (R-27, design §Caching) ─────────
@@ -1548,7 +1559,9 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
         stepId: step.stepId,
         promptKey: step.promptKey,
         promptVersion,
-        instructionsVersion: OUTPUT_INSTRUCTIONS_VERSION, // R-73, TS-60
+        // Only when the step opted in, so baseline steps keep their pre-v0.5.0
+        // cache keys (R-73, TS-60).
+        ...(instructionsVersion !== null ? { instructionsVersion } : {}),
       })
     )
     .digest('hex');
