@@ -287,11 +287,13 @@ export function createApi(getToken: () => Promise<string>) {
       (await req(`/prompts/${encodeURIComponent(key)}/versions`)).json(),
 
     /**
-     * POST /prompts/import-legacy (writer-only, R-72)
-     * Copies legacy prompt versions into the prompt store; idempotent.
+     * POST /prompts/import-legacy (writer-only, R-72, R-86)
+     * Copies legacy prompt versions into the prompt store; idempotent. With
+     * `{ promptVersions }` only those versions are imported.
      */
-    importLegacyPrompts: async (): Promise<ImportLegacyResult> => {
-      const res = await (await reqMut('/prompts/import-legacy', { method: 'POST' })).json();
+    importLegacyPrompts: async (body?: { promptVersions: string[] }): Promise<ImportLegacyResult> => {
+      const init: RequestInit = body ? { method: 'POST', ...jsonBody(body) } : { method: 'POST' };
+      const res = await (await reqMut('/prompts/import-legacy', init)).json();
       return { imported: res.imported ?? [], skipped: res.skipped ?? [] };
     },
 

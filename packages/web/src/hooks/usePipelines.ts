@@ -265,14 +265,18 @@ export function useDeletePrompt(api: Api) {
   });
 }
 
+/** Prompt key a legacy prompt version is imported under (R-72). */
+export const legacyPromptKey = (promptVersion: string) => `legacy-${promptVersion}`;
+
 /**
- * Mutation: import legacy prompt versions as `legacy-<promptVersion>` prompts (R-72).
+ * Mutation: import legacy prompt versions as `legacy-<promptVersion>` prompts
+ * (R-72); pass `{ promptVersions }` to import only those (R-86).
  * On success, invalidates the prompt list cache.
  */
 export function useImportLegacyPrompts(api: Api) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.importLegacyPrompts(),
+    mutationFn: (body?: { promptVersions: string[] }) => api.importLegacyPrompts(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['prompts'] });
     },
