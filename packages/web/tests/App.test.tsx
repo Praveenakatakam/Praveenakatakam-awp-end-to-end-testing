@@ -362,6 +362,13 @@ describe('Legacy experiment URLs redirect to unified pages (T-32 · R-87)', () =
     expect(fakeApi.listExperimentIndex).toHaveBeenCalled();
   });
 
+  it('/experiments/compare → /compare', async () => {
+    window.location.hash = '#/experiments/compare';
+    renderApp();
+    expect(await screen.findByLabelText('compare experiments')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/compare'));
+  });
+
   it('/experiments/prompt-versions → /prompts', async () => {
     window.location.hash = '#/experiments/prompt-versions';
     renderApp();

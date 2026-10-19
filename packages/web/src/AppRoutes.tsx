@@ -23,6 +23,7 @@
  *   /runs                                → RunsPage (not in nav since v0.6.0)
  *   /runs/:runId                         → RunDetailPage (experiment detail links)
  *   /runs/compare?a=&b=                  → RunsComparePage (T-23, R-70)
+ *   /compare?a=kind:id&b=kind:id         → ComparePage (T-34, R-90)
  *   /*                                   → redirect → /source/contracts-by-entity
  *
  * Requirements: R-38, R-41, R-53, R-54, R-87
@@ -44,6 +45,7 @@ import PromptsPage from './pages/PromptsPage.js';
 import PromptPage from './pages/PromptPage.js';
 import RunsPage from './pages/RunsPage.js';
 import RunsComparePage from './pages/RunsComparePage.js';
+import ComparePage from './pages/ComparePage.js';
 
 function AuthenticatedShell({ token }: { token: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -123,6 +125,9 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
         <Route path="runs" element={<RunsPage api={api} />} />
         <Route path="runs/compare" element={<RunsComparePage api={api} />} />
         <Route path="runs/:runId" element={<RunDetailPage api={api} />} />
+
+        {/* Experiment-level compare (T-34, R-90) */}
+        <Route path="compare" element={<ComparePage api={api} />} />
 
         <Route path="*" element={<Navigate to="/source/contracts-by-entity" replace />} />
       </Route>
