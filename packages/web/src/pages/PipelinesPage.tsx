@@ -3,7 +3,8 @@
  *
  * Active / Archived tabs filter by pipeline.active. Writers see "New Pipeline"
  * on the Active tab and "Recover" on the Archived tab. Selecting a pipeline
- * opens an inline editor panel with a resizable drag divider.
+ * opens an inline editor panel in a shared resizable SplitPane (R-68) using the
+ * shared StepEditor (R-67).
  *
  * Requirements: R-38, R-39, R-40, R-44
  */
@@ -20,319 +21,9 @@ import {
   useDeletePipeline,
   useRestorePipeline,
   useRunPipeline,
-  usePrompt,
-  useCreatePrompt,
 } from '../hooks/usePipelines.js';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const KNOWN_MODELS = [
-  'us.anthropic.claude-sonnet-4-6',
-  'us.anthropic.claude-haiku-4-5',
-];
-
-function makeStep(index: number): PipelineStep {
-  return {
-    stepId: `s${index + 1}`,
-    label: `Step ${index + 1}`,
-    model: KNOWN_MODELS[0],
-    promptKey: '',
-    optional: false,
-    waitForHuman: false,
-    includeContext: true,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// StepRow — one editable (or read-only) step in the inline panel
-// ---------------------------------------------------------------------------
-
-function StepRow({
-  api,
-  step,
-  index,
-  total,
-  writer,
-  onChange,
-  onMoveUp,
-  onMoveDown,
-  onRemove,
-}: {
-  api: Api;
-  step: PipelineStep;
-  index: number;
-  total: number;
-  writer: boolean;
-  onChange: (s: PipelineStep) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onRemove: () => void;
-}) {
-  const [showPromptBody, setShowPromptBody] = useState(false);
-  const [newPromptMode, setNewPromptMode] = useState(false);
-  const [newPromptKey, setNewPromptKey] = useState('');
-  const [newPromptBody, setNewPromptBody] = useState('');
-  const [newPromptError, setNewPromptError] = useState('');
-
-  // Debounce prompt key so we don't fire a query on every keystroke
-  const [debouncedPromptKey, setDebouncedPromptKey] = useState(step.promptKey);
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedPromptKey(step.promptKey), 600);
-    return () => clearTimeout(id);
-  }, [step.promptKey]);
-
-  const { data: promptData } = usePrompt(api, debouncedPromptKey);
-  const createPromptMutation = useCreatePrompt(api);
-
-  const isCustomModel = step.model !== '' && !KNOWN_MODELS.includes(step.model);
-
-  return (
-    <div style={{
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-sm)',
-      padding: '10px 12px',
-      marginBottom: 8,
-      background: 'var(--surface, #fff)',
-    }}>
-      {/* Row header: step number, stepId, reorder/remove controls */}
-      <div className="cluster" style={{ marginBottom: 8 }}>
-        <span className="badge badge-muted" style={{ fontSize: 11 }}>
-          {index + 1}
-        </span>
-        <span className="text-muted text-sm" style={{ fontFamily: 'var(--font-mono)' }}>
-          {step.stepId}
-        </span>
-        {writer && (
-          <div className="cluster" style={{ marginLeft: 'auto', gap: 4 }}>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={onMoveUp}
-              disabled={index === 0}
-              title="Move up"
-            >
-              ↑
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={onMoveDown}
-              disabled={index === total - 1}
-              title="Move down"
-            >
-              ↓
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              style={{ color: 'var(--danger, #e53e3e)' }}
-              onClick={onRemove}
-            >
-              Remove
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Edit fields (writer) / read-only metadata (non-writer) */}
-      {writer ? (
-        <div className="form-grid">
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Label</label>
-              <input
-                className="form-input"
-                value={step.label}
-                onChange={(e) => onChange({ ...step, label: e.target.value })}
-                placeholder="Step label"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Model</label>
-              <select
-                className="form-select"
-                value={isCustomModel ? '__custom__' : (step.model || KNOWN_MODELS[0])}
-                onChange={(e) => {
-                  if (e.target.value !== '__custom__') {
-                    onChange({ ...step, model: e.target.value });
-                  } else {
-                    onChange({ ...step, model: '' });
-                  }
-                }}
-              >
-                {KNOWN_MODELS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-                <option value="__custom__">Custom…</option>
-              </select>
-              {isCustomModel && (
-                <input
-                  className="form-input"
-                  style={{ marginTop: 4 }}
-                  value={step.model}
-                  onChange={(e) => onChange({ ...step, model: e.target.value })}
-                  placeholder="us.anthropic.claude-..."
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Prompt key + "New Prompt" sub-form */}
-          <div className="form-group">
-            <label className="form-label">Prompt key</label>
-            <div className="cluster" style={{ gap: 6 }}>
-              <input
-                className="form-input"
-                style={{ flex: 1 }}
-                value={step.promptKey}
-                onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
-                placeholder="functional-test-gen-default"
-              />
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => setNewPromptMode((p) => !p)}
-              >
-                {newPromptMode ? 'Cancel' : '+ New prompt'}
-              </button>
-            </div>
-          </div>
-
-          {newPromptMode && (
-            <div style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '8px 10px',
-              background: 'var(--bg)',
-            }}>
-              <p className="text-sm" style={{ marginBottom: 6, fontWeight: 500 }}>New prompt</p>
-              <div className="form-group">
-                <label className="form-label">Prompt key</label>
-                <input
-                  className="form-input"
-                  value={newPromptKey}
-                  onChange={(e) => setNewPromptKey(e.target.value)}
-                  placeholder="my-prompt-key"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Prompt body</label>
-                <textarea
-                  className="form-textarea"
-                  value={newPromptBody}
-                  onChange={(e) => setNewPromptBody(e.target.value)}
-                  rows={4}
-                />
-              </div>
-              {newPromptError && (
-                <p className="form-error" role="alert">{newPromptError}</p>
-              )}
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                disabled={createPromptMutation.isPending || !newPromptKey || !newPromptBody}
-                onClick={async () => {
-                  setNewPromptError('');
-                  try {
-                    await createPromptMutation.mutateAsync({
-                      promptKey: newPromptKey,
-                      body: newPromptBody,
-                    });
-                    onChange({ ...step, promptKey: newPromptKey });
-                    setNewPromptMode(false);
-                    setNewPromptKey('');
-                    setNewPromptBody('');
-                  } catch (err) {
-                    const msg =
-                      err instanceof ApiError && err.serverMessage
-                        ? err.serverMessage
-                        : (err as Error).message;
-                    setNewPromptError(msg);
-                  }
-                }}
-              >
-                {createPromptMutation.isPending ? 'Creating…' : 'Create prompt'}
-              </button>
-            </div>
-          )}
-
-          {/* Include context flag only — Optional and Wait for human are not exposed yet */}
-          <div className="cluster" style={{ gap: 16, flexWrap: 'wrap' }}>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.includeContext}
-                onChange={(e) => onChange({ ...step, includeContext: e.target.checked })}
-              />
-              Include context
-            </label>
-          </div>
-        </div>
-      ) : (
-        /* Read-only view */
-        <dl className="meta-grid">
-          <div style={{ display: 'contents' }}>
-            <dt className="meta-key">Label</dt>
-            <dd className="meta-val">{step.label}</dd>
-          </div>
-          <div style={{ display: 'contents' }}>
-            <dt className="meta-key">Model</dt>
-            <dd className="meta-val" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              {step.model}
-            </dd>
-          </div>
-          <div style={{ display: 'contents' }}>
-            <dt className="meta-key">Prompt key</dt>
-            <dd className="meta-val" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              {step.promptKey || '—'}
-            </dd>
-          </div>
-        </dl>
-      )}
-
-      {/* Prompt body preview (expandable for all users) */}
-      {step.promptKey && (
-        <div style={{ marginTop: 8 }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => setShowPromptBody((p) => !p)}
-          >
-            {showPromptBody ? 'Hide prompt body' : 'View prompt body'}
-          </button>
-          {showPromptBody && (
-            promptData?.body ? (
-              <pre style={{
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                padding: 10,
-                fontSize: 12,
-                maxHeight: '20vh',
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--text)',
-                marginTop: 4,
-              }}>
-                {promptData.body}
-              </pre>
-            ) : (
-              <p className="text-muted text-sm" style={{ marginTop: 4 }}>
-                {promptData === undefined
-                  ? 'Loading…'
-                  : 'No inline body (may be stored in S3 or prompt not found).'}
-              </p>
-            )
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+import SplitPane from '../components/SplitPane.js';
+import StepEditor, { makeStep } from '../components/StepEditor.js';
 
 // ---------------------------------------------------------------------------
 // PipelineEditorPanel — inline panel for an existing pipeline
@@ -492,8 +183,8 @@ function PipelineEditorPanel({
           </p>
         )}
         {steps.map((step, index) => (
-          <StepRow
-            key={step.stepId || String(index)}
+          <StepEditor
+            key={index}
             api={api}
             step={step}
             index={index}
@@ -645,7 +336,6 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [panelWidth, setPanelWidth] = useState<number | null>(null);
 
   const writer = isWriter(token);
   const pipelines = data?.pipelines ?? [];
@@ -676,23 +366,6 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
     setShowNewForm(false);
   }
 
-  function startResize(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = panelWidth ?? 480;
-    function onMove(ev: MouseEvent) {
-      const delta = startX - ev.clientX;
-      const next = Math.min(Math.max(startWidth + delta, 280), window.innerWidth * 0.7);
-      setPanelWidth(next);
-    }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }
-
   async function handleRun(pipelineId: string) {
     try {
       const res = await runMutation.mutateAsync(pipelineId);
@@ -704,8 +377,8 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
   }
 
   return (
-    <div className="app-body" aria-label="pipelines">
-      <div className="app-main">
+    <SplitPane id="pipelines" sideLabel="pipeline-detail">
+      <div aria-label="pipelines">
         {/* Tabs + New Pipeline button */}
         <div className="cluster" style={{ marginBottom: 12, gap: 0, alignItems: 'flex-end' }}>
           <div className="tabs" style={{ flex: 1 }}>
@@ -866,32 +539,20 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
         )}
       </div>
 
-      {/* Resizable drag divider + inline editor / create panel */}
+      {/* Inline editor / create panel (side pane — absent when closed) */}
       {panelOpen && (
-        <>
-          <div
-            className="pane-divider"
-            onMouseDown={startResize}
+        showNewForm ? (
+          <NewPipelinePanel api={api} onCreated={closePanel} onClose={closePanel} />
+        ) : selected ? (
+          <PipelineEditorPanel
+            api={api}
+            pipeline={selected}
+            writer={writer}
+            onClose={closePanel}
+            onRun={handleRun}
           />
-          <aside
-            className="app-panel"
-            aria-label="pipeline-detail"
-            style={panelWidth ? { width: panelWidth, minWidth: 280, maxWidth: '70vw' } : undefined}
-          >
-            {showNewForm ? (
-              <NewPipelinePanel api={api} onCreated={closePanel} onClose={closePanel} />
-            ) : selected ? (
-              <PipelineEditorPanel
-                api={api}
-                pipeline={selected}
-                writer={writer}
-                onClose={closePanel}
-                onRun={handleRun}
-              />
-            ) : null}
-          </aside>
-        </>
+        ) : null
       )}
-    </div>
+    </SplitPane>
   );
 }
