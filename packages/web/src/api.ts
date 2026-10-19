@@ -122,14 +122,10 @@ export function createApi(getToken: () => Promise<string>) {
     listCrawls: async () => (await (await req('/crawls')).json()).runs,
     refresh: async () => (await req('/refresh', { method: 'POST' })).json(),
     listRequirements: async (): Promise<RequirementEntry[]> => (await (await req('/requirements')).json()).items,
-    createPromptVersion: async (payload: { promptVersion: string; text: string; modelId: string; notes?: string }): Promise<PromptVersionRecord> =>
-      (await reqMut('/prompt-versions', { method: 'POST', ...jsonBody(payload) })).json(),
     listPromptVersions: async (): Promise<{ promptVersions: Omit<PromptVersionRecord, 'text'>[] }> =>
       (await req('/prompt-versions')).json(),
     getPromptVersion: async (promptVersion: string): Promise<PromptVersionRecord> =>
       (await req(`/prompt-versions/${encodeURIComponent(promptVersion)}`)).json(),
-    createExperiment: async (payload: { promptVersion: string }): Promise<{ experimentId: string; statusUrl: string }> =>
-      (await reqMut('/experiments', { method: 'POST', ...jsonBody(payload) })).json(),
     listExperiments: async (): Promise<{ experiments: ExperimentRecord[] }> =>
       (await req('/experiments')).json(),
     getExperiment: async (experimentId: string): Promise<ExperimentRecord> =>
