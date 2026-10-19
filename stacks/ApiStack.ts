@@ -252,6 +252,8 @@ export function ApiStack({ stack }: StackContext) {
       'GET /runs/{runId}': 'packages/functions/src/read.getPipelineRunHandler',
       // Run artifact — emitted test from the last plan step (v0.4.0 · R-65).
       'GET /runs/{runId}/artifact': 'packages/functions/src/read.runArtifact',
+      // Per-step record + input snapshot + output (v0.5.0 · R-75, D-29).
+      'GET /runs/{runId}/steps/{stepIndex}': 'packages/functions/src/read.runStep',
     },
   });
 

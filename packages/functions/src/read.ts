@@ -12,6 +12,7 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Bucket } from 'sst/node/bucket';
 import { parseAndValidate, diffContracts } from '@registry/core';
+import type { RunStepDetail, StepInputSnapshot } from '@registry/core';
 import {
   repository,
   getPipeline,
@@ -356,4 +357,48 @@ export async function runArtifact(event: APIGatewayProxyEventV2): Promise<APIGat
     if ((err as { name?: string }).name === 'NoSuchKey') return notFound(`artifact for run ${runId} not found`);
     throw err;
   }
+}
+
+/** Read an S3 object as a string; `null` when the key does not exist. */
+async function readS3StringOrNull(key: string): Promise<string | null> {
+  try {
+    const obj = await _s3.send(new GetObjectCommand({ Bucket: Bucket.Contracts.bucketName, Key: key }));
+    return obj.Body ? await (obj.Body as { transformToString(): Promise<string> }).transformToString() : '';
+  } catch (err) {
+    if ((err as { name?: string }).name === 'NoSuchKey') return null;
+    throw err;
+  }
+}
+
+/**
+ * GET /runs/{runId}/steps/{stepIndex} — one step's record, input snapshot and
+ * output (R-75, D-29). `input` is the parsed `StepInputSnapshot` or `null` when
+ * the step has no `inputRef` (pre-v0.5.0) or the object is missing; `output` is
+ * resolved from inline or S3, or `null`. 404 for an unknown run or step, or a
+ * non-numeric `stepIndex`.
+ */
+export async function runStep(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const runId = event.pathParameters?.runId;
+  const rawIndex = event.pathParameters?.stepIndex;
+  if (!runId || !rawIndex || !/^\d+$/.test(rawIndex)) return notFound();
+  const stepIndex = Number(rawIndex);
+
+  const run = await getPrun(_ddb, runId);
+  if (!run) return notFound(`no pipeline run ${runId}`);
+  const step = (await listPrunSteps(_ddb, runId)).find((s) => s.stepIndex === stepIndex);
+  if (!step) return notFound(`no step ${stepIndex} in pipeline run ${runId}`);
+
+  const outputRef = step.outputRef;
+  const [inputRaw, output] = await Promise.all([
+    step.inputRef ? readS3StringOrNull(step.inputRef.s3Key) : Promise.resolve(null),
+    !outputRef
+      ? Promise.resolve(null)
+      : 'inline' in outputRef
+        ? Promise.resolve(outputRef.inline)
+        : readS3StringOrNull(outputRef.s3Key),
+  ]);
+  const input = inputRaw === null ? null : (JSON.parse(inputRaw) as StepInputSnapshot);
+
+  const detail: RunStepDetail = { step, input, output };
+  return json(200, detail);
 }
