@@ -29,6 +29,7 @@ import SplitPane from '../components/SplitPane.js';
 import SkippedRequirements from '../components/SkippedRequirements.js';
 import PlanView from '../components/step-output/PlanView.js';
 import LegacyExperimentRunForm from '../components/LegacyExperimentRunForm.js';
+import { KindBadge, experimentRef, parseExperimentRef, statusBadgeClass } from '../components/experiment-ref.js';
 import {
   useDryRunPipeline,
   useExperimentIndex,
@@ -43,36 +44,6 @@ export const CONFIRM_THRESHOLD = 20;
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/** `<kind>:<id>` ⇄ `{ kind, id }` — the URL form used by the hub and Compare (R-90). */
-export function parseExperimentRef(ref: string | null): { kind: ExperimentKind; id: string } | null {
-  if (!ref) return null;
-  const i = ref.indexOf(':');
-  if (i < 0) return null;
-  const kind = ref.slice(0, i);
-  const id = ref.slice(i + 1);
-  if ((kind !== 'pipeline' && kind !== 'legacy') || !id) return null;
-  return { kind, id };
-}
-export const experimentRef = (e: { kind: ExperimentKind; id: string }) => `${e.kind}:${e.id}`;
-
-export function statusBadgeClass(status: string): string {
-  const map: Record<string, string> = {
-    completed: 'badge-success', succeeded: 'badge-success', cached: 'badge-success', valid: 'badge-success',
-    completed_with_warnings: 'badge-warning', warning: 'badge-warning',
-    failed: 'badge-danger', timed_out: 'badge-danger', invalid: 'badge-danger',
-    running: 'badge-accent badge-pulse', pending: 'badge-muted',
-  };
-  return `badge ${map[status] ?? 'badge-muted'}`;
-}
-
-export function KindBadge({ kind }: { kind: ExperimentKind }) {
-  return (
-    <span className={`badge ${kind === 'legacy' ? 'badge-warning' : 'badge-accent'}`} data-testid="kind-badge">
-      {kind}
-    </span>
-  );
-}
 
 const errorMessage = (err: unknown) =>
   err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message;

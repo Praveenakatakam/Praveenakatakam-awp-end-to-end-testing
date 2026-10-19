@@ -7,12 +7,11 @@
  *     status, metrics, raw output
  *   - Line diff (LCS, lib.ts) of the two emitted test artifacts when both exist
  */
-import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Api } from '../api.js';
 import type { PipelineRun, StepRecord } from '@registry/core';
 import { usePipelineRun, useRunArtifact, useRunsList } from '../hooks/usePipelines.js';
-import { lineDiff } from '../lib.js';
+import LineDiffView from '../components/LineDiffView.js';
 
 type RunData = { run: PipelineRun; steps: StepRecord[] };
 
@@ -83,27 +82,6 @@ function RunHeaderCell({ data, side }: { data: RunData | undefined; side: 'A' | 
       <p className="text-muted text-sm" style={{ marginTop: 4 }}>
         config v{run.pipelineConfigVersion} · {run.mode} · {new Date(run.startedAt).toLocaleString()}
       </p>
-    </div>
-  );
-}
-
-function ArtifactDiff({ a, b }: { a: string; b: string }) {
-  const lines = useMemo(() => lineDiff(a, b), [a, b]);
-  const added = lines.filter((l) => l.op === 'add').length;
-  const removed = lines.filter((l) => l.op === 'remove').length;
-  return (
-    <div aria-label="artifact diff">
-      <p className="text-sm" style={{ marginBottom: 6 }}>
-        <span className="diff-add-count">+{added}</span> <span className="diff-remove-count">−{removed}</span>
-        {added === 0 && removed === 0 && <span className="text-muted"> — identical</span>}
-      </p>
-      <pre className="code-block line-diff" style={{ height: 'auto', maxHeight: '70vh' }}>
-        {lines.map((l, i) => (
-          <div key={i} className={`diff-line diff-${l.op}`} data-op={l.op}>
-            {l.op === 'add' ? '+ ' : l.op === 'remove' ? '- ' : '  '}{l.text}
-          </div>
-        ))}
-      </pre>
     </div>
   );
 }
@@ -179,7 +157,7 @@ export default function RunsComparePage({ api }: { api: Api }) {
 
             <p className="section-heading" style={{ marginTop: 16 }}>Emitted test diff</p>
             {artA.data && artB.data ? (
-              <ArtifactDiff a={artA.data.content} b={artB.data.content} />
+              <LineDiffView a={artA.data.content} b={artB.data.content} />
             ) : artA.isLoading || artB.isLoading ? (
               <p className="loading">Loading artifacts…</p>
             ) : (
