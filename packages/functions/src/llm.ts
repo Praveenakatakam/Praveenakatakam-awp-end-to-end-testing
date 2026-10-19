@@ -77,9 +77,17 @@ const TOOL_NAME = 'emit_functional_test_plan';
  * resolution when omitted. `model`/`promptVersion` are also part of the cache
  * key upstream (R-119).
  */
-export function createBedrockClient(model: string = DEFAULT_BEDROCK_MODEL, region?: string, promptVersion = 'v1'): LlmClient {
+export function createBedrockClient(
+  model: string = DEFAULT_BEDROCK_MODEL,
+  region?: string,
+  promptVersion = 'v1',
+  systemText?: string
+): LlmClient {
   const client = new BedrockRuntimeClient(region ? { region } : {});
-  const system = PROMPTS[promptVersion] ?? PROMPTS.v1;
+  // The registry record's text is authoritative (callers pass it); the code map
+  // is only a fallback. Before this, `systemText` was silently dropped and every
+  // prompt version ran with the v1 text.
+  const system = systemText ?? PROMPTS[promptVersion] ?? PROMPTS.v1;
   return {
     async synthesizePlan(context: GroundedContext): Promise<unknown> {
       const body = {
