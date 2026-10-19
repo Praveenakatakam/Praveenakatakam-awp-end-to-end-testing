@@ -354,6 +354,8 @@ export interface StepRecord {
   cacheKey: string;
   /** Where the step's output string is stored. Present after successful completion. */
   outputRef?: StepOutputRef;
+  /** S3 pointer to this step's input snapshot (R-74); absent for pre-v0.5.0 steps. */
+  inputRef?: { s3Key: string };
 
   // — Metrics (R-51) — all optional; populated on completion or failure —
 
@@ -550,4 +552,41 @@ export function selectRequirements(allReqs: string[], sampling: SamplingConfig):
       return [...allReqs].sort();
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Step transparency (v0.5.0 — R-74, R-75)
+// ---------------------------------------------------------------------------
+
+/** One named part of the user message sent to the model (R-74). */
+export interface UserMessageSection {
+  /** e.g. `Requirement`, `Entity`, `Contract schema`, `API targets`, `Prior step outputs`, `Output instructions`. */
+  name: string;
+  text: string;
+}
+
+/**
+ * Exact model input for one step, written to S3 at
+ * `pipeline-outputs/<runId>/<nn>.input.json` before the Bedrock call (R-74, D-29).
+ */
+export interface StepInputSnapshot {
+  model: string;
+  outputType: StepOutputType;
+  systemPrompt: { promptKey: string; version: number; body: string };
+  /** The exact user-message string sent. */
+  userMessage: string;
+  sections: UserMessageSection[];
+  /** Forced tool, or `null` for `freeform`. */
+  tool: { name: string; schemaVersion: string } | null;
+  priorOutputsTruncated: boolean;
+  instructionsVersion: string;
+}
+
+/** `GET /runs/{runId}/steps/{stepIndex}` response (R-75). */
+export interface RunStepDetail {
+  step: StepRecord;
+  /** `null` for steps recorded before v0.5.0. */
+  input: StepInputSnapshot | null;
+  /** Output resolved from inline or S3; `null` if the step produced none. */
+  output: string | null;
 }

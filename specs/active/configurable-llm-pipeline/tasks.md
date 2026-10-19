@@ -612,3 +612,21 @@ Two streams run in parallel after T-16: **backend** (T-17 → T-18 → T-19 → 
 **Subagent:** implementer (web stream)
 **Files:** `packages/web/src/pages/RunsComparePage.tsx` (create), `packages/web/src/pages/RunDetailPage.tsx`, `packages/web/src/pages/PromptsPage.tsx`, `packages/web/src/pages/PipelinesPage.tsx`, `packages/web/src/pages/PipelinePage.tsx`, `packages/web/src/api.ts`, `packages/web/src/hooks/usePipelines.ts`, `packages/web/src/lib.ts`, `packages/web/src/AppRoutes.tsx`, tests in `packages/web/tests/`
 **Requirements:** R-70, R-71, R-72 (UI) · **Tests:** TS-55, TS-56, TS-57 (UI half)
+
+---
+
+## Phase 8 — v0.5.0 step transparency (R-73 – R-78)
+
+Backend (T-25 → T-26) and web (T-27) run in parallel after T-24; tests ship inside each task.
+
+### T-24: Core types — `StepInputSnapshot`, `StepRecord.inputRef`, `RunStepDetail`
+**Subagent:** none — single-file type additions · **Files:** `packages/core/src/pipeline.ts` · **Requirements:** R-74, R-75
+
+### T-25: Output instructions + sectioned user message + input snapshot + seed prompt text
+**Subagent:** implementer (backend) · **Files:** `packages/functions/src/output-instructions.ts` (create), `packages/functions/src/pipeline.ts`, `packages/functions/src/prompt-seed.ts`, tests in `packages/functions/tests/` · **Requirements:** R-73, R-74, R-78 · **Tests:** TS-58 – TS-62
+
+### T-26: `GET /runs/{runId}/steps/{stepIndex}`
+**Subagent:** implementer (backend) · **Files:** `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, tests in `packages/functions/tests/read-pipeline.test.ts`, `stacks/tests/pipeline-infra.test.ts` · **Requirements:** R-75 · **Tests:** TS-63
+
+### T-27: Run detail step transparency UI
+**Subagent:** implementer (web) · **Files:** `packages/web/src/pages/RunDetailPage.tsx`, `packages/web/src/components/step-output/*` (create), `packages/web/src/api.ts`, `packages/web/src/hooks/usePipelines.ts`, `packages/web/src/lib.ts`, `packages/web/src/styles.css`, tests in `packages/web/tests/` · **Requirements:** R-76, R-77 · **Tests:** TS-64 – TS-67
