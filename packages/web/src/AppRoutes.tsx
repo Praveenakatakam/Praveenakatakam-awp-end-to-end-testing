@@ -90,14 +90,14 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
       <Route path="/" element={<AuthenticatedShell token={token} />}>
         <Route index element={<Navigate to="/source/contracts-by-entity" replace />} />
 
-        {/* Source pipeline routes */}
+        {/* Catalog routes */}
         <Route path="source" element={<ContractDataProvider api={api} />}>
           <Route path="contracts-by-entity" element={<ByEntityPage api={api} />} />
           <Route path="contracts-by-source" element={<BySourcePage api={api} />} />
           <Route path="requirements" element={<RequirementsPage api={api} />} />
         </Route>
 
-        {/* Experiments */}
+        {/* Legacy experiments (deprecated — R-69) */}
         <Route path="experiments/*" element={<ExperimentsPage api={api} token={token} />} />
 
         {/* Pipeline management (T-15, R-38, R-39) */}
