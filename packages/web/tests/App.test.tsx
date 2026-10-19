@@ -77,6 +77,9 @@ beforeEach(() => {
   authState.token = undefined;
   fakeApi.listContracts.mockResolvedValue(entries);
   fakeApi.listRequirements.mockResolvedValue(requirements);
+  // Divergence comes from the per-entity semantic diff (GET /entities/{entity}).
+  fakeApi.getEntity.mockImplementation(async (entity: string) => ({ entity, divergent: entity === 'user' }));
+  window.location.hash = '';
 });
 
 describe('App auth gate + Refresh visibility (T-14 · R-60, R-64)', () => {
@@ -109,7 +112,7 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
     await screen.findByText('org');
     expect(screen.getByText('user')).toBeInTheDocument();
     // exactly one divergent badge (user diverges, org does not)
-    expect(screen.getAllByTestId('divergent')).toHaveLength(1);
+    expect(await screen.findAllByTestId('divergent')).toHaveLength(1);
   });
 
   it('opens a contract detail, shows its metadata, and views its YAML (AC-62)', async () => {
@@ -120,7 +123,7 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
     fakeApi.getRaw.mockResolvedValue('kind: DataContract\nversion: 1.0.0\n');
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getAllByRole('button', { name: /publisher v/i })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: /^publisher\s*v/i })[0]);
     // Metadata block renders the entry's fields (R-62), not just the id heading.
     const meta = await screen.findByLabelText('metadata');
     expect(meta).toHaveTextContent('User Contract');
@@ -140,10 +143,11 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
     });
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getAllByRole('button', { name: /publisher v/i })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: /^publisher\s*v/i })[0]);
     // The bumped version entry shows the warning label; the first version does not.
-    const history = await screen.findByLabelText('metadata');
-    expect(history).toHaveTextContent('version not bumped');
+    // Version history renders below the metadata block.
+    await screen.findByLabelText('metadata');
+    expect(await screen.findByText('version not bumped')).toBeInTheDocument();
   });
 
   it('shows a per-property diff for a divergent entity (AC-63)', async () => {
@@ -157,8 +161,7 @@ describe('App browse + detail + diff (T-15 · R-61, R-62, R-63)', () => {
       },
     });
     render(<App />);
-    await screen.findByText('user');
-    await userEvent.click(screen.getByRole('button', { name: /show user diff/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /show user diff/i }));
     const diff = await screen.findByLabelText('diff');
     expect(diff).toHaveTextContent('user.middleName');
     expect(diff).toHaveTextContent('user.email.required');
@@ -179,7 +182,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
   it('toggles to a by-source view listing each source and its contracts (AC-65)', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^contracts by source$/i }));
 
     const sourceView = await screen.findByLabelText('by-source');
     // every crawled source is listed as its own group
@@ -196,7 +199,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
     fakeApi.getContract.mockResolvedValue({ entry: { id: 'user' }, versions: [{ versionNumber: 2, hash: 'abcdef12' }] });
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^contracts by source$/i }));
     const sourceView = await screen.findByLabelText('by-source');
     // consumer/user is currentVersion 2 in the fixture
     await userEvent.click(within(sourceView).getByRole('button', { name: /user v2 \(valid\)/i }));
