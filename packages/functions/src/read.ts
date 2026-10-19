@@ -12,7 +12,21 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Bucket } from 'sst/node/bucket';
 import { parseAndValidate, diffContracts } from '@registry/core';
-import type { RunStepDetail, StepInputSnapshot } from '@registry/core';
+import { resolveOutputType } from '@registry/core';
+import type {
+  RunStepDetail,
+  StepInputSnapshot,
+  ExperimentRecord,
+  ExperimentIndexEntry,
+  ExperimentResult,
+  ExperimentResults,
+  PipelineConfig,
+  PipelineExperiment,
+  PipelineRun,
+  SkippedRequirement,
+  StepOutputRef,
+} from '@registry/core';
+import { functionalTestPath, type FunctionalTestPlan } from '@registry/functest';
 import {
   repository,
   getPipeline,
@@ -24,6 +38,9 @@ import {
   listPrunSteps,
   listPruns,
   updatePrun,
+  getPexp,
+  listPexps,
+  batchGetPruns,
 } from './repository.js';
 import { json, notFound } from './http.js';
 import { handleListPromptVersions, handleGetPromptVersion } from './prompt-versions.js';
@@ -401,4 +418,216 @@ export async function runStep(event: APIGatewayProxyEventV2): Promise<APIGateway
 
   const detail: RunStepDetail = { step, input, output };
   return json(200, detail);
+}
+
+// ---- Unified experiments (v0.6.0 · R-82, R-83, D-31) -----------------------
+
+/** Run statuses that end a run (shared with the lazy lease-expiry check). */
+function isTerminalRun(run: PipelineRun | undefined): boolean {
+  return run !== undefined && TERMINAL_RUN_STATUSES.has(run.status);
+}
+
+/**
+ * Aggregate a pipeline experiment's status from its run headers (R-82):
+ * `running` if any run is non-terminal (a run not yet written counts as
+ * non-terminal); else `failed` if every run failed; else
+ * `completed_with_warnings` if any run failed or warned; else `completed`.
+ * `timed_out` counts as failed.
+ */
+export function aggregateExperimentStatus(
+  runIds: string[],
+  headers: Map<string, PipelineRun>
+): ExperimentIndexEntry['status'] {
+  const runs = runIds.map((id) => headers.get(id));
+  if (runs.some((r) => !isTerminalRun(r))) return 'running';
+  const failed = (r: PipelineRun | undefined) => r!.status === 'failed' || r!.status === 'timed_out';
+  if (runs.length > 0 && runs.every(failed)) return 'failed';
+  if (runs.some((r) => failed(r) || r!.status === 'completed_with_warnings')) return 'completed_with_warnings';
+  return 'completed';
+}
+
+/** Normalise a PEXP record + its run headers into an index row (R-82). */
+function pipelineIndexEntry(pexp: PipelineExperiment, headers: Map<string, PipelineRun>): ExperimentIndexEntry {
+  const runIds = pexp.runs.map((r) => r.runId);
+  return {
+    id: pexp.experimentId,
+    kind: 'pipeline',
+    label: `${pexp.pipelineName} v${pexp.pipelineConfigVersion}`,
+    createdAt: pexp.createdAt,
+    status: aggregateExperimentStatus(runIds, headers),
+    requirementCount: pexp.runs.reduce((n, r) => n + r.requirementIds.length, 0),
+    resultCount: runIds.filter((id) => headers.get(id)?.artifact !== undefined).length,
+    skipCount: pexp.skipped.length,
+  };
+}
+
+/** Normalise a legacy EXPERIMENT record into an index row (R-82). */
+function legacyIndexEntry(rec: ExperimentRecord): ExperimentIndexEntry {
+  const planCount = rec.planCount ?? 0;
+  const skipCount = rec.skipCount ?? 0;
+  return {
+    id: rec.experimentId,
+    kind: 'legacy',
+    label: rec.promptVersion,
+    createdAt: rec.createdAt,
+    status: rec.status,
+    requirementCount: planCount + skipCount,
+    resultCount: planCount,
+    skipCount,
+  };
+}
+
+/** Every PEXP record, following `nextToken` (unpaginated in v0.6.0). */
+async function listAllPexps(): Promise<PipelineExperiment[]> {
+  const all: PipelineExperiment[] = [];
+  let token: string | undefined;
+  do {
+    const page = await listPexps(_ddb, token);
+    all.push(...page.items);
+    token = page.nextToken;
+  } while (token);
+  return all;
+}
+
+/**
+ * GET /experiment-index — pipeline (PEXP) and legacy (EXPERIMENT) experiments,
+ * newest first, normalised to `ExperimentIndexEntry` (R-82). Pipeline status
+ * is aggregated from a chunked `BatchGet` of all referenced PRUN headers.
+ * Returns `{ experiments }`.
+ */
+export async function experimentIndex(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const [pexps, legacy] = await Promise.all([listAllPexps(), repository.listExperiments()]);
+  const headers = await batchGetPruns(
+    _ddb,
+    pexps.flatMap((p) => p.runs.map((r) => r.runId))
+  );
+  const experiments: ExperimentIndexEntry[] = [
+    ...pexps.map((p) => pipelineIndexEntry(p, headers)),
+    ...legacy.map(legacyIndexEntry),
+  ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  return json(200, { experiments });
+}
+
+/** Read a step output string from inline or S3; `null` when the object is missing. */
+async function readStepOutputOrNull(ref: StepOutputRef): Promise<string | null> {
+  return 'inline' in ref ? ref.inline : readS3StringOrNull(ref.s3Key);
+}
+
+/** Parse JSON, returning `null` for unparseable input. */
+function parseJsonOrNull(text: string | null): unknown | null {
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One pipeline run's result (R-83): `plan` = parsed output of the run's LAST
+ * `plan` step with status `completed` or `cached` (resolved against the current
+ * pipeline config — prior config versions are not retained), `testFile` = the
+ * run artifact from S3.
+ */
+async function pipelineRunResult(
+  entry: PipelineExperiment['runs'][number],
+  header: PipelineRun | undefined,
+  pipeline: PipelineConfig | undefined
+): Promise<ExperimentResult> {
+  const steps = header ? await listPrunSteps(_ddb, entry.runId) : [];
+  const planStep = steps
+    .filter((s) => {
+      const def = pipeline?.steps[s.stepIndex];
+      // Without a config every step is a candidate (best effort).
+      const isPlan = def === undefined ? pipeline === undefined : resolveOutputType(def) === 'plan';
+      return isPlan && (s.status === 'completed' || s.status === 'cached') && s.outputRef !== undefined;
+    })
+    .sort((a, b) => b.stepIndex - a.stepIndex)[0];
+  const plan = planStep ? parseJsonOrNull(await readStepOutputOrNull(planStep.outputRef!)) : null;
+
+  let testFile: ExperimentResult['testFile'] = null;
+  if (header?.artifact) {
+    const content = await readS3StringOrNull(header.artifact.s3Key);
+    if (content !== null) testFile = { path: header.artifact.path, content };
+  }
+
+  return {
+    requirementId: entry.requirementIds[0] ?? '',
+    runId: entry.runId,
+    status: header?.status ?? 'running',
+    plan,
+    testFile,
+  };
+}
+
+/** Results of a pipeline experiment (R-83); undefined when the PEXP is unknown. */
+async function pipelineExperimentResults(id: string): Promise<ExperimentResults | undefined> {
+  const pexp = await getPexp(_ddb, id);
+  if (!pexp) return undefined;
+  const runIds = pexp.runs.map((r) => r.runId);
+  const [headers, pipeline] = await Promise.all([batchGetPruns(_ddb, runIds), getPipeline(_ddb, pexp.pipelineId)]);
+  const results = await Promise.all(pexp.runs.map((r) => pipelineRunResult(r, headers.get(r.runId), pipeline)));
+  return { experiment: pipelineIndexEntry(pexp, headers), results, skipped: pexp.skipped };
+}
+
+/** Shape of the legacy experiment S3 artifact (`experiments.ts` → `runExperiment`). */
+interface LegacyExperimentArtifact {
+  manifest?: { plans?: FunctionalTestPlan[]; skipped?: SkippedRequirement[] };
+  files?: { path: string; contents: string }[];
+}
+
+/**
+ * Source-qualify a legacy plan's bare requirement id (R-57, R-83) when it maps
+ * to exactly one catalog requirement; already-qualified or ambiguous/unknown
+ * ids are returned unchanged.
+ */
+function qualifyLegacyRequirementId(id: string, catalog: { source: string; id: string }[]): string {
+  if (id.includes('/')) return id;
+  const matches = catalog.filter((r) => r.id === id);
+  return matches.length === 1 ? `${matches[0].source}/${matches[0].id}` : id;
+}
+
+/** Results of a legacy experiment (R-83); undefined when the EXPERIMENT is unknown. */
+async function legacyExperimentResults(id: string): Promise<ExperimentResults | undefined> {
+  const rec = await repository.getExperiment(id);
+  if (!rec) return undefined;
+  const artifact = (rec.status === 'succeeded'
+    ? await repository.getExperimentArtifact(id)
+    : undefined) as LegacyExperimentArtifact | undefined;
+  const plans = artifact?.manifest?.plans ?? [];
+  const files = artifact?.files ?? [];
+  // The legacy manifest has no catalog snapshot, so bare ids are qualified
+  // against the current requirements catalog.
+  const catalog = plans.length > 0 ? await repository.listRequirements() : [];
+
+  const results: ExperimentResult[] = plans.map((plan, i) => {
+    // `emitFunctionalTests` emits plans in manifest order; match by path in case
+    // the order ever differs.
+    const path = functionalTestPath(plan);
+    const file = files[i]?.path === path ? files[i] : files.find((f) => f.path === path);
+    return {
+      requirementId: qualifyLegacyRequirementId(plan.requirementIds[0] ?? '', catalog),
+      status: 'completed',
+      plan,
+      testFile: file ? { path: file.path, content: file.contents } : null,
+    };
+  });
+  const skipped: SkippedRequirement[] =
+    artifact?.manifest?.skipped ?? (rec.skips ?? []).map((requirement) => ({ requirement, reason: '' }));
+  return { experiment: legacyIndexEntry(rec), results, skipped };
+}
+
+/**
+ * GET /experiment-results/{kind}/{id} — normalised per-requirement results of
+ * one experiment of either kind (R-83). Unknown kind or id → 404.
+ */
+export async function experimentResults(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { kind, id } = event.pathParameters ?? {};
+  if (!kind || !id) return notFound();
+  let found: ExperimentResults | undefined;
+  if (kind === 'pipeline') found = await pipelineExperimentResults(id);
+  else if (kind === 'legacy') found = await legacyExperimentResults(id);
+  else return notFound(`unknown experiment kind ${kind}`);
+  if (!found) return notFound(`no ${kind} experiment ${id}`);
+  return json(200, found);
 }

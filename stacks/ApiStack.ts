@@ -195,6 +195,9 @@ export function ApiStack({ stack }: StackContext) {
       'GET /experiments': 'packages/functions/src/read.experiments',
       'GET /experiments/{experimentId}': 'packages/functions/src/read.experiment',
       'GET /experiments/{experimentId}/artifact': 'packages/functions/src/read.experimentArtifact',
+      // Unified experiments — pipeline (PEXP) + legacy, normalised (v0.6.0 · R-82, R-83). Reader access.
+      'GET /experiment-index': 'packages/functions/src/read.experimentIndex',
+      'GET /experiment-results/{kind}/{id}': 'packages/functions/src/read.experimentResults',
       // Pipeline CRUD (configurable-llm-pipeline · T-09, R-35).
       // GET handlers live in read.ts (T-05); mutation handlers in pipeline.ts (T-03, T-04).
       'GET /pipelines': 'packages/functions/src/read.getPipelinesHandler',

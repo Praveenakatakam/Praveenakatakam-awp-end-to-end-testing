@@ -16,6 +16,7 @@ import {
   ScanCommand,
   DeleteCommand,
   BatchWriteCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Table } from 'sst/node/table';
@@ -32,6 +33,7 @@ import type {
   PromptVersionItem,
   ModelAllowlist,
   StepOutputRef,
+  PipelineExperiment,
 } from '@registry/core';
 
 const TABLE = Table.Registry.tableName;
@@ -1320,4 +1322,80 @@ export async function listActiveRunsByPipelineId(
     lastKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
   } while (lastKey);
   return results;
+}
+
+// ============================================================================
+// PEXP (pipeline experiment) helpers (v0.6.0 · R-80, R-82, D-31)
+// ============================================================================
+
+/** PK/SK pair for a PEXP (pipeline experiment) record. */
+export const pexpPk = (experimentId: string): { pk: string; sk: string } => ({
+  pk: `PEXP#${experimentId}`,
+  sk: 'PEXP',
+});
+
+/** Write a pipeline experiment record (R-80). */
+export async function putPexp(ddb: DynamoDBDocumentClient, item: PipelineExperiment): Promise<void> {
+  const { pk, sk } = pexpPk(item.experimentId);
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { PK: pk, SK: sk, ...item } }));
+}
+
+/** Fetch a pipeline experiment record; undefined when not found. */
+export async function getPexp(
+  ddb: DynamoDBDocumentClient,
+  experimentId: string
+): Promise<PipelineExperiment | undefined> {
+  const { pk, sk } = pexpPk(experimentId);
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+  return res.Item as PipelineExperiment | undefined;
+}
+
+/**
+ * List pipeline experiments newest-first via the `byKind` GSI. PEXP items carry
+ * `startedAt` (= `createdAt`) precisely so the GSI indexes them (R-80).
+ */
+export async function listPexps(
+  ddb: DynamoDBDocumentClient,
+  nextToken?: string
+): Promise<{ items: PipelineExperiment[]; nextToken?: string }> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'byKind',
+      KeyConditionExpression: 'kind = :k',
+      ExpressionAttributeValues: { ':k': 'PEXP' },
+      ScanIndexForward: false,
+      ...(nextToken
+        ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
+        : {}),
+    })
+  );
+  return {
+    items: (res.Items ?? []) as PipelineExperiment[],
+    ...(res.LastEvaluatedKey
+      ? { nextToken: Buffer.from(JSON.stringify(res.LastEvaluatedKey)).toString('base64') }
+      : {}),
+  };
+}
+
+/**
+ * Fetch many PRUN headers by runId with `BatchGet` (≤ 100 keys per call,
+ * chunked; unprocessed keys are retried a bounded number of times). Missing
+ * runs are simply absent from the result map (R-82).
+ */
+export async function batchGetPruns(
+  ddb: DynamoDBDocumentClient,
+  runIds: string[]
+): Promise<Map<string, PipelineRun>> {
+  const out = new Map<string, PipelineRun>();
+  const unique = [...new Set(runIds)];
+  for (let i = 0; i < unique.length; i += 100) {
+    let keys: Record<string, unknown>[] = unique.slice(i, i + 100).map((id) => ({ PK: prunPk(id).pk, SK: 'PRUN' }));
+    for (let attempt = 0; keys.length > 0 && attempt < 5; attempt++) {
+      const res = await ddb.send(new BatchGetCommand({ RequestItems: { [TABLE]: { Keys: keys } } }));
+      for (const item of (res.Responses?.[TABLE] ?? []) as PipelineRun[]) out.set(item.runId, item);
+      keys = (res.UnprocessedKeys?.[TABLE]?.Keys ?? []) as Record<string, unknown>[];
+    }
+  }
+  return out;
 }

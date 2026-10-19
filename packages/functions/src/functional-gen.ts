@@ -30,6 +30,8 @@ import type {
   ExecutionMode,
   SkippedRequirement,
   GeneratePipelineResponse,
+  GeneratePipelineDryRunResponse,
+  PipelineExperiment,
 } from '@registry/core';
 import { selectRequirements } from '@registry/core';
 import { repository, type CatalogEntry, type RequirementRecord, type FunctionalJobRecord } from './repository.js';
@@ -72,6 +74,8 @@ export interface PipelineDispatchDeps extends FunctionalGenRepo {
   getPipelineConfig(pipelineId: string): Promise<PipelineConfig | undefined>;
   /** Persist a new pipeline run record to DDB. */
   writePrun(prun: PipelineRun): Promise<void>;
+  /** Persist the pipeline experiment (PEXP) record grouping one trigger's runs (R-80). */
+  writePexp(pexp: PipelineExperiment): Promise<void>;
 }
 
 /** Build the generator inputs from the CURRENT catalog snapshot (R-116). */
@@ -131,7 +135,8 @@ export async function createAndDispatchPrun(
   sampling: SamplingConfig,
   mode: ExecutionMode,
   runId: string,
-  startedAt: string
+  startedAt: string,
+  experimentId?: string
 ): Promise<string> {
   const prun: PipelineRun = {
     pk: `PRUN#${runId}`,
@@ -147,6 +152,7 @@ export async function createAndDispatchPrun(
     requirementIds,
     executedSteps: 0,
     warnings: [],
+    ...(experimentId !== undefined ? { experimentId } : {}),
   };
   // Write DDB record first — step worker must see the run before it begins (R-17).
   await deps.writePrun(prun);
@@ -193,8 +199,13 @@ function jsonResult(statusCode: number, body: unknown): HttpResult {
  * - `per_requirement` (R-48): N independent PRUN records, one per selected req.
  * - `batch` (R-49): one PRUN record with all selected requirements.
  *
- * Returns HTTP 202 with `{ runIds, skipped }` for per_requirement or
- * `{ runId, skipped }` for batch. HTTP 422 `{ error, skipped }` when nothing
+ * Before any PRUN is written, a `PEXP#<experimentId>` record grouping the
+ * trigger's runs is written (R-80, D-31); every PRUN carries `experimentId`.
+ *
+ * Returns HTTP 202 with `{ runIds, skipped, experimentId }` for per_requirement
+ * or `{ runId, skipped, experimentId }` for batch. With `dryRun: true` (R-81)
+ * it returns `200 { selected, skipped }` after sampling — nothing is written
+ * or dispatched. HTTP 422 `{ error, skipped }` when nothing
  * groundable is selected (R-56); HTTP 422 `{ error, candidates }` when an `ids`
  * entry is a bare ID shared by several sources (R-58).
  *
@@ -204,9 +215,16 @@ function jsonResult(statusCode: number, body: unknown): HttpResult {
 export async function handleGeneratePipeline(
   repo: PipelineDispatchDeps,
   dispatchStep: (runId: string) => Promise<void>,
-  body: { pipelineId: string; sampling?: SamplingConfig; mode?: ExecutionMode },
+  body: {
+    pipelineId: string;
+    sampling?: SamplingConfig;
+    mode?: ExecutionMode;
+    dryRun?: boolean;
+    createdBy?: string;
+  },
   makeRunId: () => string,
-  clock: { now(): string }
+  clock: { now(): string },
+  makeExperimentId: () => string = () => crypto.randomUUID()
 ): Promise<HttpResult> {
   const { pipelineId, sampling: samplingOverride, mode: modeOverride } = body;
   // 1. Fetch and validate pipeline config.
@@ -270,6 +288,12 @@ export async function handleGeneratePipeline(
     selectedIds = selectRequirements(groundable, resolvedSampling);
   }
 
+  // 4b. Dry run (R-81): grounding + sampling only — no record, no dispatch.
+  if (body.dryRun === true) {
+    const response: GeneratePipelineDryRunResponse = { selected: selectedIds, skipped };
+    return jsonResult(200, response);
+  }
+
   // 5. Nothing groundable selected → 422, no PRUN written (R-56).
   if (selectedIds.length === 0) {
     log.warn('functional.pipeline.nothing_groundable', { pipelineId, skippedCount: skipped.length });
@@ -277,57 +301,64 @@ export async function handleGeneratePipeline(
   }
 
   const startedAt = clock.now();
+  const experimentId = makeExperimentId();
 
-  if (resolvedMode === 'per_requirement') {
-    // 5a. per_requirement: one PRUN per selected requirement, N step chains (R-48, TS-30).
-    const runIds: string[] = [];
-    for (const reqId of selectedIds) {
-      const runId = makeRunId();
-      await createAndDispatchPrun(
-        repo,
-        dispatchStep,
-        pipeline,
-        [reqId],
-        resolvedSampling,
-        resolvedMode,
-        runId,
-        startedAt
-      );
-      runIds.push(runId);
-    }
-    log.info('functional.pipeline.accepted', {
-      pipelineId,
-      mode: resolvedMode,
-      samplingStrategy: resolvedSampling.strategy,
-      runCount: runIds.length,
-      skippedCount: skipped.length,
-    });
-    const response: GeneratePipelineResponse = { runIds, skipped };
-    return jsonResult(202, response);
-  } else {
-    // 5b. batch: one PRUN with all selected requirements (R-49, TS-31).
-    const runId = makeRunId();
+  // 6. Pre-compute the runs: per_requirement → one PRUN per selected requirement
+  //    (R-48, TS-30); batch → one PRUN with all selected requirements (R-49, TS-31).
+  const runs: PipelineExperiment['runs'] =
+    resolvedMode === 'per_requirement'
+      ? selectedIds.map((reqId) => ({ runId: makeRunId(), requirementIds: [reqId] }))
+      : [{ runId: makeRunId(), requirementIds: selectedIds }];
+
+  // 7. PEXP record BEFORE any PRUN write/dispatch, so the step worker can never
+  //    see a run whose experiment does not exist (R-80, design v0.6.0).
+  const pexp: PipelineExperiment = {
+    pk: `PEXP#${experimentId}`,
+    sk: 'PEXP',
+    kind: 'PEXP',
+    experimentId,
+    pipelineId: pipeline.pipelineId,
+    pipelineName: pipeline.name,
+    pipelineConfigVersion: pipeline.version,
+    sampling: resolvedSampling,
+    mode: resolvedMode,
+    runs,
+    skipped,
+    createdAt: startedAt,
+    startedAt, // = createdAt, so the byKind GSI indexes PEXP items
+    createdBy: body.createdBy ?? 'unknown',
+  };
+  await repo.writePexp(pexp);
+
+  // 8. Write + dispatch each PRUN (write before dispatch — R-17).
+  for (const run of runs) {
     await createAndDispatchPrun(
       repo,
       dispatchStep,
       pipeline,
-      selectedIds,
+      run.requirementIds,
       resolvedSampling,
       resolvedMode,
-      runId,
-      startedAt
+      run.runId,
+      startedAt,
+      experimentId
     );
-    log.info('functional.pipeline.accepted', {
-      pipelineId,
-      mode: resolvedMode,
-      samplingStrategy: resolvedSampling.strategy,
-      requirementCount: selectedIds.length,
-      skippedCount: skipped.length,
-      runId,
-    });
-    const response: GeneratePipelineResponse = { runId, skipped };
-    return jsonResult(202, response);
   }
+
+  log.info('functional.pipeline.accepted', {
+    pipelineId,
+    experimentId,
+    mode: resolvedMode,
+    samplingStrategy: resolvedSampling.strategy,
+    runCount: runs.length,
+    requirementCount: selectedIds.length,
+    skippedCount: skipped.length,
+  });
+  const response: GeneratePipelineResponse =
+    resolvedMode === 'per_requirement'
+      ? { runIds: runs.map((r) => r.runId), skipped, experimentId }
+      : { runId: runs[0].runId, skipped, experimentId };
+  return jsonResult(202, response);
 }
 
 /**
@@ -459,13 +490,17 @@ export async function handleGenerateFunctional(
 // ---- Lambda entrypoints ----------------------------------------------------
 
 /** POST entry: mint a job id and dispatch the worker asynchronously. */
-export async function handler(event: { body?: string }): Promise<HttpResult> {
+export async function handler(event: {
+  body?: string;
+  requestContext?: { authorizer?: { lambda?: { username?: string } } };
+}): Promise<HttpResult> {
   const body = event.body
     ? (JSON.parse(event.body) as {
         promptVersion?: unknown;
         pipelineId?: unknown;
         sampling?: unknown;
         mode?: unknown;
+        dryRun?: unknown;
       })
     : {};
 
@@ -473,7 +508,7 @@ export async function handler(event: { body?: string }): Promise<HttpResult> {
   if (typeof body.pipelineId === 'string') {
     const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
     const { DynamoDBDocumentClient } = await import('@aws-sdk/lib-dynamodb');
-    const { getPipeline, putPrun: putPrunFn } = await import('./repository.js');
+    const { getPipeline, putPrun: putPrunFn, putPexp: putPexpFn } = await import('./repository.js');
     const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
     // Use Object.create so prototype methods from the Repository class are
@@ -482,6 +517,7 @@ export async function handler(event: { body?: string }): Promise<HttpResult> {
     const pipelineDeps = Object.assign(Object.create(repository) as FunctionalGenRepo, {
       getPipelineConfig: async (id: string) => getPipeline(ddb, id),
       writePrun: async (prun: PipelineRun) => putPrunFn(ddb, prun),
+      writePexp: async (pexp: PipelineExperiment) => putPexpFn(ddb, pexp),
     }) as PipelineDispatchDeps;
 
     const samplingOverride =
@@ -496,7 +532,13 @@ export async function handler(event: { body?: string }): Promise<HttpResult> {
     return handleGeneratePipeline(
       pipelineDeps,
       dispatchStepZero,
-      { pipelineId: body.pipelineId, sampling: samplingOverride, mode: modeOverride },
+      {
+        pipelineId: body.pipelineId,
+        sampling: samplingOverride,
+        mode: modeOverride,
+        dryRun: body.dryRun === true,
+        createdBy: event.requestContext?.authorizer?.lambda?.username ?? 'unknown',
+      },
       () => crypto.randomUUID(),
       { now: () => new Date().toISOString() }
     );

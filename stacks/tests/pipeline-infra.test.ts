@@ -141,6 +141,12 @@ describe('ApiStack — configurable-llm-pipeline infra (T-09)', () => {
     });
   });
 
+  it('registers the unified experiment read routes with authorizer (v0.6.0 · R-82, R-83)', () => {
+    for (const RouteKey of ['GET /experiment-index', 'GET /experiment-results/{kind}/{id}']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey, AuthorizationType: 'CUSTOM' });
+    }
+  });
+
   // ── Functional-gen handler env var ────────────────────────────────────────
 
   it('functional-gen handler carries STEP_WORKER_FUNCTION_NAME for dual-path dispatch (T-08 · D-13)', () => {

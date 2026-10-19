@@ -136,6 +136,8 @@ function fakeDeps(pipeline?: PipelineConfig | null, requirements: ReqSpec[] = ['
       callOrder.push('writePrun');
       prunWrites.push(run);
     },
+    // PEXP record (v0.6.0 · R-80) — not tracked in callOrder; see functional-gen-experiment.test.ts.
+    async writePexp() {},
   } as unknown as PipelineDispatchDeps;
 
   async function dispatch(runId: string): Promise<void> {
