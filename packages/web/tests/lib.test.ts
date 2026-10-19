@@ -6,6 +6,7 @@ import {
   applyEntityDivergence,
   groupBySource,
   groupRequirementsBySection,
+  lineDiff,
   type Entry,
   type RequirementEntry,
 } from '../src/lib.js';
@@ -133,5 +134,42 @@ describe('groupRequirementsBySection (T-31 · R-113)', () => {
 
   it('returns an empty list when there are no requirements', () => {
     expect(groupRequirementsBySection([])).toEqual([]);
+  });
+});
+
+describe('lineDiff (T-23 · R-70)', () => {
+  it('returns all-equal lines for identical input', () => {
+    expect(lineDiff('a\nb', 'a\nb')).toEqual([
+      { op: 'equal', text: 'a' },
+      { op: 'equal', text: 'b' },
+    ]);
+  });
+
+  it('marks removed and added lines around a common subsequence', () => {
+    const d = lineDiff('one\ntwo\nthree\nfour', 'one\n2\nthree\nfour\nfive');
+    expect(d).toEqual([
+      { op: 'equal', text: 'one' },
+      { op: 'remove', text: 'two' },
+      { op: 'add', text: '2' },
+      { op: 'equal', text: 'three' },
+      { op: 'equal', text: 'four' },
+      { op: 'add', text: 'five' },
+    ]);
+  });
+
+  it('reconstructs both inputs from the diff', () => {
+    const a = 'x\ny\nz\nq\nw';
+    const b = 'y\nx\nz\nw\nnew';
+    const d = lineDiff(a, b);
+    expect(d.filter((l) => l.op !== 'add').map((l) => l.text).join('\n')).toBe(a);
+    expect(d.filter((l) => l.op !== 'remove').map((l) => l.text).join('\n')).toBe(b);
+    // LCS of length 3 (x|y, z, w) → 2 removes + 2 adds
+    expect(d.filter((l) => l.op === 'equal')).toHaveLength(3);
+  });
+
+  it('handles empty sides', () => {
+    expect(lineDiff('', 'a')).toEqual([{ op: 'add', text: 'a' }]);
+    expect(lineDiff('a', '')).toEqual([{ op: 'remove', text: 'a' }]);
+    expect(lineDiff('', '')).toEqual([]);
   });
 });

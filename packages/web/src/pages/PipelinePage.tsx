@@ -14,7 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
-import type { PipelineStep, SamplingConfig } from '@registry/core';
+import type { PipelineStep, SamplingConfig, SkippedRequirement } from '@registry/core';
 import {
   usePipeline,
   useUpdatePipeline,
@@ -22,6 +22,7 @@ import {
 } from '../hooks/usePipelines.js';
 import SplitPane from '../components/SplitPane.js';
 import StepEditor, { makeStep, outputTypeOf } from '../components/StepEditor.js';
+import SkippedRequirements, { type RunNavState } from '../components/SkippedRequirements.js';
 
 // ---------------------------------------------------------------------------
 // PipelinePage — main export
@@ -42,6 +43,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [saveError, setSaveError] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [runSkipped, setRunSkipped] = useState<SkippedRequirement[]>([]);
 
   const writer = isWriter(token);
 
@@ -102,12 +104,16 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
 
   async function handleRun() {
     setSaveError('');
+    setRunSkipped([]);
     try {
       const res = await runMutation.mutateAsync(pipeline!.pipelineId);
-      const runId = res.runId ?? res.runIds?.[0];
-      if (runId) navigate(`/pipelines/${pipeline!.pipelineId}/runs/${runId}`);
+      const runId = res.runIds[0];
+      // skipped (R-55, R-71) travels with the navigation; RunDetailPage lists it.
+      if (runId) navigate(`/pipelines/${pipeline!.pipelineId}/runs/${runId}`, { state: res satisfies RunNavState });
+      else setRunSkipped(res.skipped);
     } catch (err) {
-      setSaveError((err as Error).message);
+      setSaveError(err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message);
+      setRunSkipped(err instanceof ApiError ? (err.skipped ?? []) : []);
     }
   }
 
@@ -310,6 +316,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
             {saveError}
           </p>
         )}
+        <SkippedRequirements skipped={runSkipped} />
         {updateMutation.isSuccess && !saveError && (
           <p className="alert alert-info" role="status" style={{ marginBottom: 12 }}>
             Pipeline saved successfully.

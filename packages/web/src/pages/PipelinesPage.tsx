@@ -13,7 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
-import type { PipelineConfig, PipelineStep } from '@registry/core';
+import type { PipelineConfig, PipelineStep, SkippedRequirement } from '@registry/core';
 import {
   usePipelines,
   useCreatePipeline,
@@ -24,6 +24,7 @@ import {
 } from '../hooks/usePipelines.js';
 import SplitPane from '../components/SplitPane.js';
 import StepEditor, { makeStep } from '../components/StepEditor.js';
+import SkippedRequirements, { type RunNavState } from '../components/SkippedRequirements.js';
 
 // ---------------------------------------------------------------------------
 // PipelineEditorPanel — inline panel for an existing pipeline
@@ -336,6 +337,8 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [runError, setRunError] = useState('');
+  const [runSkipped, setRunSkipped] = useState<SkippedRequirement[]>([]);
 
   const writer = isWriter(token);
   const pipelines = data?.pipelines ?? [];
@@ -367,12 +370,17 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
   }
 
   async function handleRun(pipelineId: string) {
+    setRunError('');
+    setRunSkipped([]);
     try {
       const res = await runMutation.mutateAsync(pipelineId);
-      const runId = res.runId ?? res.runIds?.[0];
-      if (runId) navigate(`/pipelines/${pipelineId}/runs/${runId}`);
-    } catch {
-      // error surfaced inline in the panel
+      const runId = res.runIds[0];
+      // skipped (R-55, R-71) travels with the navigation; RunDetailPage lists it.
+      if (runId) navigate(`/pipelines/${pipelineId}/runs/${runId}`, { state: res satisfies RunNavState });
+      else setRunSkipped(res.skipped);
+    } catch (err) {
+      setRunError(err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message);
+      setRunSkipped(err instanceof ApiError ? (err.skipped ?? []) : []);
     }
   }
 
@@ -415,6 +423,12 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
             </button>
           )}
         </div>
+
+        {/* Run trigger rejected (e.g. 422 — nothing grounds, R-56) */}
+        {runError && (
+          <p className="alert alert-danger" role="alert">Run failed to start: {runError}</p>
+        )}
+        <SkippedRequirements skipped={runSkipped} />
 
         {isLoading && <p className="loading">Loading…</p>}
         {fetchError && (

@@ -428,6 +428,22 @@ input, select, textarea { font-family: var(--font); }
 }
 .step-editor-prompt { max-height: 40vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word; margin-top: 4px; }
 
+/* ── Compare runs (R-70) ─────────────────────────────────────── */
+.compare-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.compare-grid > .card + .card { margin-top: 0; }
+.compare-cell { min-width: 0; }
+.line-diff .diff-line { white-space: pre; min-height: 1.4em; }
+.line-diff .diff-add { background: rgba(74, 222, 128, .14); color: var(--success, #15803d); }
+.line-diff .diff-remove { background: rgba(248, 113, 113, .14); color: var(--danger, #e53e3e); }
+.diff-add-count { color: var(--success, #15803d); font-weight: 600; }
+.diff-remove-count { color: var(--danger, #e53e3e); font-weight: 600; }
+@media (max-width: 768px) {
+  .compare-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.skipped-requirements { margin-bottom: 12px; }
+.skipped-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; font-size: 13px; }
+
 /* ── Card ──────────────────────────────────────────────────────── */
 .card {
   background: var(--surface);

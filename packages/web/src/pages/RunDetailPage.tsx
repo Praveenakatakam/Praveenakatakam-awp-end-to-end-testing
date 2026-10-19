@@ -10,11 +10,13 @@
  *   - Warnings section when run.warnings is non-empty
  *   - Error section when run is failed
  *   - Loading skeleton on initial fetch
+ *   - Skipped requirements from the run trigger (router state, R-71)
+ *   - Emitted test artifact with Copy / Download when run.artifact is set (R-65, R-71)
  *
- * Requirements: R-54
+ * Requirements: R-54, R-71
  */
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import type { Api } from '../api.js';
 import type {
   PipelineRun,
@@ -23,7 +25,8 @@ import type {
   StepStatus,
   SamplingConfig,
 } from '@registry/core';
-import { usePipelineRun } from '../hooks/usePipelines.js';
+import { usePipelineRun, useRunArtifact } from '../hooks/usePipelines.js';
+import SkippedRequirements, { type RunNavState } from '../components/SkippedRequirements.js';
 
 // ---------------------------------------------------------------------------
 // Badge helpers
@@ -428,11 +431,71 @@ function RunHeader({ run }: { run: PipelineRun }) {
 }
 
 // ---------------------------------------------------------------------------
+// ArtifactView — the emitted test file (R-65, R-71)
+// ---------------------------------------------------------------------------
+
+function ArtifactView({ api, run }: { api: Api; run: PipelineRun }) {
+  const { data, isLoading, error } = useRunArtifact(api, run.runId, Boolean(run.artifact));
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
+  if (!run.artifact) return null;
+
+  const path = data?.path ?? run.artifact.path;
+  const fileName = path.split('/').pop() || 'test.generated.ts';
+
+  async function copy() {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(data.content);
+      setCopied('copied');
+    } catch {
+      setCopied('failed');
+    }
+  }
+
+  function download() {
+    if (!data) return;
+    const url = URL.createObjectURL(new Blob([data.content], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }} aria-label="emitted test">
+      <div className="cluster" style={{ marginBottom: 8, gap: 8 }}>
+        <p className="card-title" style={{ marginBottom: 0, flex: 1 }}>Emitted test</p>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={copy} disabled={!data}>
+          {copied === 'copied' ? 'Copied' : 'Copy'}
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={download} disabled={!data}>
+          Download
+        </button>
+      </div>
+      <p className="text-muted text-sm" style={{ fontFamily: 'var(--font-mono)', marginBottom: 6 }}>{path}</p>
+      {copied === 'failed' && <p className="form-error" role="alert">Copy failed — select the text manually.</p>}
+      {isLoading && <p className="loading">Loading…</p>}
+      {error && <p className="alert alert-danger" role="alert">Failed to load the emitted test.</p>}
+      {data && (
+        <pre className="code-block" aria-label="artifact content"
+          style={{ height: 'auto', maxHeight: '60vh', whiteSpace: 'pre' }}>
+          {data.content}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page component
 // ---------------------------------------------------------------------------
 
 export default function RunDetailPage({ api }: { api: Api }) {
   const { runId = '' } = useParams<{ pipelineId: string; runId: string }>();
+  const navState = useLocation().state as Partial<RunNavState> | null;
 
   const { data, isLoading, error } = usePipelineRun(api, runId, {
     refetchInterval: 2000,
@@ -465,6 +528,16 @@ export default function RunDetailPage({ api }: { api: Api }) {
 
         {/* Run header */}
         <RunHeader run={run} />
+
+        {/* Trigger response details (only present right after triggering) */}
+        <SkippedRequirements skipped={navState?.skipped} />
+        {navState?.runIds && navState.runIds.length > 1 && (
+          <p className="alert alert-info" role="status">
+            {navState.runIds.length} runs started (one per requirement) — see <Link to="/runs">Runs</Link>.
+          </p>
+        )}
+
+        <ArtifactView api={api} run={run} />
 
         {/* Warnings section — shown when optional steps failed */}
         {run.warnings.length > 0 && (

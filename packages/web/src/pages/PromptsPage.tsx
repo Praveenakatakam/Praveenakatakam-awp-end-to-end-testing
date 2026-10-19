@@ -17,6 +17,7 @@ import {
   usePrompts,
   useCreatePrompt,
   useDeletePrompt,
+  useImportLegacyPrompts,
 } from '../hooks/usePipelines.js';
 
 /** PromptItem extended with the best-effort usedByPipelines field (R-41). */
@@ -122,6 +123,21 @@ export default function PromptsPage({
   const [showNewForm, setShowNewForm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const importMutation = useImportLegacyPrompts(api);
+  const [importResult, setImportResult] = useState<{ imported: string[]; skipped: string[] } | null>(null);
+  const [importError, setImportError] = useState('');
+
+  async function handleImport() {
+    setImportError('');
+    setImportResult(null);
+    try {
+      setImportResult(await importMutation.mutateAsync());
+    } catch (err) {
+      setImportError(
+        err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message
+      );
+    }
+  }
 
   const prompts = (data?.prompts ?? []) as PromptListItem[];
 
@@ -155,7 +171,30 @@ export default function PromptsPage({
               New Prompt
             </button>
           )}
+          {writer && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={importMutation.isPending}
+              onClick={handleImport}
+              title="Copy legacy /prompt-versions records into the prompt store as legacy-<version>"
+            >
+              {importMutation.isPending ? 'Importing…' : 'Import legacy prompt versions'}
+            </button>
+          )}
         </div>
+
+        {/* Legacy import result (R-72) */}
+        {importResult && (
+          <p className="alert alert-info" role="status">
+            Imported {importResult.imported.length} legacy prompt version
+            {importResult.imported.length !== 1 ? 's' : ''}
+            {importResult.skipped.length > 0 ? `; skipped ${importResult.skipped.length} already imported` : ''}.
+          </p>
+        )}
+        {importError && (
+          <p className="alert alert-danger" role="alert">Import failed: {importError}</p>
+        )}
 
         {/* Inline new-prompt form */}
         {showNewForm && (
