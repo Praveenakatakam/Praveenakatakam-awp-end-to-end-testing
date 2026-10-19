@@ -1,6 +1,6 @@
 # Design — Configurable LLM Pipeline
 
-> **Version:** 0.2.0
+> **Version:** 0.3.0 (v0.4.0 requirements amendments)
 > **Status:** Draft
 
 ## Summary
@@ -755,6 +755,72 @@ Confirmed items not implemented in this feature (from requirements §2):
 
 ---
 
+## v0.4.0 Amendments
+
+Covers R-55 – R-72 (requirements §3.9 – §3.11) and D-22 – D-27.
+
+### Grounding-aware sampling (R-55 – R-58)
+
+`handleGeneratePipeline` (`functional-gen.ts`) builds inputs once via `buildFunctionalInputs`, then calls `ground(req, contracts, apiMap, firstStep.model, "eligibility")` for every requirement. Grounding eligibility does not depend on model or prompt version (those only feed `inputHash`), so a placeholder prompt version is fine here; the worker re-grounds with the real values. Results split into `groundable: string[]` (qualified `source/id`, sorted) and `skipped: { requirement, reason }[]`. `selectRequirements(groundable, sampling)` then runs unchanged. For `ids`, each entry is first resolved to a qualified ID (bare IDs must match exactly one source, else 422 per R-58); resolved IDs that are not groundable go into `skipped`. Empty selection → 422 `{ error: "no groundable requirements", skipped }`.
+
+Response shapes (amends §Request/Response shapes):
+- per_requirement: `202 { runIds: string[], skipped }`
+- batch: `202 { runId: string, skipped }`
+
+Worker requirement lookup (`pipeline.ts` §8): match `${r.source}/${r.id} === requirementId`; if `requirementId` has no `/`, fall back to bare matches and fail with `Ambiguous requirement id '<id>' matches: a/R-1, b/R-1` when more than one.
+
+### Step output types (R-59 – R-64)
+
+`packages/core/src/pipeline.ts`: `StepOutputType = 'plan' | 'critique' | 'freeform'`; `PipelineStep.outputType?: StepOutputType` (optional on the type for back-compat; `resolveOutputType(step)` returns `step.outputType ?? 'plan'`). Pipeline create/update validate the value (422 on unknown).
+
+`callBedrockForStep(model, region, prompt, ctx, outputType)`:
+
+| outputType | `tools` / `tool_choice` | Output |
+|---|---|---|
+| `plan` | `emit_functional_test_plan` / `PLAN_SCHEMA` (v2) | tool `input` object |
+| `critique` | `emit_critique` / `CRITIQUE_SCHEMA` | tool `input` object |
+| `freeform` | omitted | joined `text` blocks (string) |
+
+Validation (R-64) runs after a successful Bedrock call and before the output is written or cached; a failure throws a `StepValidationError` (name not in the transient set, so the existing terminal path handles it). Plans use `validatePlan(raw, { entity, sources })` from `@registry/functest`, extended to check every `assertions[].service ∈ sources`. Critique uses an Ajv validator over `CRITIQUE_SCHEMA` exported from `@registry/functest` (new `critique.ts`).
+
+`PLAN_SCHEMA` v2 lives in `packages/functest/src/plan.ts`. Model-facing schema requires `rationale`; the inbound validator used for *cached/stored* plans (legacy generator plan cache) accepts its absence (`validatePlan(raw, g, { requireRationale: false })`), satisfying D-25. The legacy generator (`generate.ts`) switches to v2 automatically, since it imports the same schema.
+
+Prior outputs (R-63): `buildPriorContext(outputs, budget = PRIOR_OUTPUT_BUDGET_CHARS)` — a pure helper in `pipeline.ts` — walks outputs newest → oldest, keeping each in full while the budget allows; the first output that does not fit is cut to the remaining budget with `\n[truncated N chars]`, and everything older is reduced to the marker alone. Returns `{ outputs, truncated }`; `truncated` is written as `priorOutputsTruncated` on the step record. `userMessageFromContext` drops its `slice(0, 2_000)`.
+
+### Run artifact (R-65, R-66)
+
+At the terminal-success point (where the worker sets `completed` / `completed_with_warnings` after the last step), the worker calls `emitRunArtifact(runId, pipeline, groundedCtx)`:
+1. `listPrunSteps` → last step whose pipeline step has `outputType === 'plan'` and status `completed | cached`.
+2. Load its output (inline or S3), parse, stamp `inputHash` from the grounded context, render with `emitFunctionalTest(plan, 0, { apiTargets })`.
+3. `PutObject pipeline-outputs/<runId>/test.generated.ts`; `updatePrun(runId, { artifact: { stepId, s3Key, path: 'functional/<slug>.generated.test.ts' } })`.
+4. None found → append warning `no plan output to emit`.
+
+Emitting is best-effort: an emit error is logged and appended to `warnings`, never flips a completed run to failed.
+
+Emitter (`emit.ts`): `emitFunctionalTest(plan, index, opts?: { apiTargets?: { source, target: { baseUrlEnv, tokenEnv } }[] })`. With `apiTargets`, env-var constants are generated per source (`<SOURCE>_BASE`, `<SOURCE>_TOKEN` from `baseUrlEnv` / `tokenEnv`), the trigger `fetch` uses the trigger source's pair, and `ready` requires every listed pair. Without `opts`, the v1 publisher/consumer header is emitted unchanged (TS for the legacy generator stays byte-identical). New optional plan fields render as comments (`rationale`, `examplePayload` as a commented body) and as `it.todo` entries (`negativeCases`, property-level assertions as `[service] field = expected — assertion`).
+
+`GET /runs/{runId}/artifact` → `read.ts` `runArtifact` handler: `getPrun` → 404 if no `artifact` → S3 `GetObject` → `200 { path, content }`. Route added in `stacks/ApiStack.ts` alongside `GET /runs/{runId}`.
+
+### Legacy prompt import (R-72)
+
+`POST /prompts/import-legacy` → `pipeline.ts` `importLegacyPrompts`: `repository.listPromptVersions()` (legacy store) → for each, `getPrmpt('legacy-<pv>')`; absent → write `PRMPT` + `PRMPTVER#…#00001` via the existing `createPrompt` path (reusing 64 KB / S3 logic); present → `skipped`. Writer-only via the existing authorizer route list.
+
+### SPA (R-67 – R-71)
+
+New shared components in `packages/web/src/components/`:
+- `SplitPane.tsx` — `{ id, children: [main, side], defaultWidth, min=320, maxVw=70 }`. Divider is a `<div role="separator" aria-orientation="vertical" tabIndex={0}>` with a 10 px transparent hit area over a 1 px visible rule; `onPointerDown` + `setPointerCapture`; initial width from `sideRef.current.getBoundingClientRect().width`; arrow keys ±16 px (Shift ±64); width persisted at `localStorage['pane:'+id]`. Replaces the inline `startResize` in `PipelinesPage` and the `.app-panel` width rules for that page.
+- `StepEditor.tsx` — the single step editor (label, model, prompt select / new-prompt sub-form, `outputType` select, includeContext/optional toggles, "View prompt body"). `PipelinesPage` and `PipelinePage` both import it; their local step-editor copies are deleted.
+
+`PipelinePage` body becomes `<SplitPane id="pipeline-page">` with the configuration + ordered step list on the left and the selected step's `StepEditor` + prompt preview on the right.
+
+`Sidebar.tsx`: areas **Catalog** and **Experiments** (Pipelines, Prompts, Runs, Compare runs) plus a collapsed `<details>` **Legacy (deprecated)** with the three `/experiments/*` links. Routes are unchanged except the new `/runs/compare`.
+
+`RunsComparePage.tsx` (`/runs/compare?a&b`): run pickers (from `GET /runs`), two columns of step cards aligned by step index, artifact diff via a small LCS line diff in `lib.ts` (no new dependency).
+
+Run trigger (`PipelinesPage` / `PipelinePage` `handleRun`): when the 202 has `skipped.length > 0`, show an inline "N requirements skipped" disclosure listing requirement + reason, then navigate as today. `RunDetailPage`: `useRunArtifact(runId)` when `run.artifact` is set → `<pre>` with Copy / Download buttons.
+
+`PromptsPage`: writer-only "Import legacy prompt versions" button → `POST /prompts/import-legacy` → toast with counts, invalidates the prompts query.
+
 ## Decisions Log
 
 **D-1 through D-8** are carried forward from `requirements.md` decisions log. Design-phase additions:
@@ -849,3 +915,5 @@ Confirmed items not implemented in this feature (from requirements §2):
 - **Decision:** `SYSCONFIG / MODEL_ALLOWLIST` item gains a `pricing` map `{ [modelId]: { inputPricePerMillionTokens, outputPricePerMillionTokens } }`. The step Lambda reads this at execution time and writes `costEstimateUsd` to the step record.
 - **Reason:** Avoids hardcoded prices in Lambda code; Bedrock pricing changes without a code release. The price table is in the same DDB item as the allowlist, so no extra read is needed — both are fetched together at the start of each step execution. Per-step storage (rather than per-run aggregation only) enables cost attribution at the step level in the RunDetailPage.
 - **Affects:** R-51
+
+**D-22 – D-27** — see requirements.md §8 (v0.4.0 amendments).

@@ -105,8 +105,18 @@ export type SamplingConfig =
 // ---------------------------------------------------------------------------
 
 /**
+ * Output contract a step's Bedrock call is shaped by (R-59, R-60, D-22):
+ * - `plan`     — forced `emit_functional_test_plan` tool (PLAN_SCHEMA v2)
+ * - `critique` — forced `emit_critique` tool (CRITIQUE_SCHEMA)
+ * - `freeform` — no tools; the response text is the output
+ */
+export type StepOutputType = 'plan' | 'critique' | 'freeform';
+
+export const STEP_OUTPUT_TYPES: readonly StepOutputType[] = ['plan', 'critique', 'freeform'];
+
+/**
  * A single step in an ordered pipeline step list (R-02).
- * Steps are generic units — no predefined roles or typed I/O contracts (R-11).
+ * Steps have no predefined roles; `outputType` selects the output contract (R-11, R-59).
  * `sampling` and `mode` are pipeline-level fields, not step-level.
  */
 export interface PipelineStep {
@@ -137,6 +147,17 @@ export interface PipelineStep {
    * Default: `true`.
    */
   includeContext: boolean;
+  /**
+   * Output contract for this step (R-59). Optional on the type because steps
+   * persisted before v0.4.0 lack it — read via `resolveOutputType()`.
+   * Default: `'plan'`.
+   */
+  outputType?: StepOutputType;
+}
+
+/** A step's effective output type — `'plan'` when unset (R-59, TS-45). */
+export function resolveOutputType(step: Pick<PipelineStep, 'outputType'>): StepOutputType {
+  return step.outputType ?? 'plan';
 }
 
 /**
@@ -254,7 +275,34 @@ export interface PipelineRun {
   executedSteps: number;
   /** Collected warning messages from optional steps that failed (R-15). */
   warnings: string[];
+  /**
+   * The emitted functional test rendered from the last completed `plan` step,
+   * set when the run completes (R-65, D-26). Absent if no plan step produced output.
+   */
+  artifact?: RunArtifact;
 }
+
+/** Pointer to a run's emitted test file (R-65). */
+export interface RunArtifact {
+  /** The pipeline step whose plan was rendered. */
+  stepId: string;
+  /** S3 key — `pipeline-outputs/<runId>/test.generated.ts`. */
+  s3Key: string;
+  /** Suggested repo-relative path, e.g. `functional/<slug>.generated.test.ts`. */
+  path: string;
+}
+
+/** A requirement excluded from sampling because it could not be grounded (R-55). */
+export interface SkippedRequirement {
+  /** Source-qualified requirement ID, `<source>/<id>` (R-57). */
+  requirement: string;
+  reason: string;
+}
+
+/** `202` body of `POST /generate-functional-tests` on the pipeline path (R-48, R-49, R-55). */
+export type GeneratePipelineResponse =
+  | { runIds: string[]; skipped: SkippedRequirement[] }
+  | { runId: string; skipped: SkippedRequirement[] };
 
 // ---------------------------------------------------------------------------
 // Step record — PRUN#<runId> / STEP#<stepIndex> (R-18, R-19, R-51)
@@ -341,6 +389,8 @@ export interface StepRecord {
    * Sanitized stack trace if the step failed; same redaction applied (R-51).
    */
   errorStack?: string;
+  /** `true` when prior outputs were cut to fit `PRIOR_OUTPUT_BUDGET_CHARS` (R-63). */
+  priorOutputsTruncated?: boolean;
 
   /** ISO-8601 timestamp when this step began execution. */
   startedAt: string;

@@ -36,8 +36,8 @@ active:
       of chained steps (generate, adversarial, refine, review) stored in DynamoDB;
       each step has its own model, prompt, and cache key; supports linear chain now,
       DAG (parallel independent steps) as follow-on.
-    spec_version: "0.1.0"
-    status: draft
+    spec_version: "0.4.0"
+    status: in-progress
     depends_on:
       - odcs-contract-registry
       - prompt-versioning-experiments

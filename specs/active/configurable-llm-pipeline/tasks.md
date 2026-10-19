@@ -559,3 +559,56 @@
 - Navigating to `/pipelines/abc/runs/xyz` renders `RunDetailPage`
 - Sidebar renders "Pipelines" and "Prompts" links when authenticated
 **Review checkpoint:** Pause after this task.
+
+---
+
+## Phase 7 — v0.4.0 amendments (R-55 – R-72)
+
+Two streams run in parallel after T-16: **backend** (T-17 → T-18 → T-19 → T-20, sequential — they share `pipeline.ts` / `functional-gen.ts`) and **web** (T-21 → T-22 → T-23, sequential — they share `Sidebar.tsx` / `api.ts` / page files). Each implementation task ships with its tests in the same task (paired-test convention collapsed for this amendment to keep each stream to one agent).
+
+### T-16: Core types for v0.4.0
+**Subagent:** none — single-file type additions
+**Files:** `packages/core/src/pipeline.ts`
+**Requirements:** R-57, R-59, R-63, R-65, R-55
+**Description:** Add `StepOutputType`, `resolveOutputType()`, optional `PipelineStep.outputType`, `PipelineRun.artifact?`, `StepRecord.priorOutputsTruncated?`, `SkippedRequirement`, and `GeneratePipelineResponse`.
+**Acceptance criteria:** types exported from `@registry/core`; offline suite still passes.
+
+### T-17: Grounding-aware sampling + qualified requirement IDs
+**Subagent:** implementer (backend stream)
+**Files:** `packages/functions/src/functional-gen.ts`, `packages/functions/src/pipeline.ts` (worker requirement lookup), tests in `packages/functions/tests/functional-gen-pipeline.test.ts`, `packages/functions/tests/step-worker.test.ts`
+**Requirements:** R-55, R-56, R-57, R-58 · **Tests:** TS-39, TS-40, TS-41, TS-42 (+ existing TS-30/TS-31 updated for `skipped` and qualified IDs)
+**Design:** v0.4.0 Amendments › Grounding-aware sampling
+
+### T-18: Step output types, plan schema v2, validation, prior-output budget
+**Subagent:** implementer (backend stream)
+**Files:** `packages/functest/src/plan.ts`, `packages/functest/src/critique.ts` (create), `packages/functest/src/index.ts`, `packages/functions/src/pipeline.ts`, tests in `packages/functest/tests/`, `packages/functions/tests/step-worker.test.ts`, `packages/functions/tests/pipeline-crud.test.ts`
+**Requirements:** R-59, R-60, R-61, R-62, R-63, R-64 · **Tests:** TS-43 – TS-47
+**Design:** v0.4.0 Amendments › Step output types
+**Acceptance criteria (in addition to TS):** legacy generator tests (`packages/functest/tests/generate.test.ts`) pass unchanged or with fixture updates limited to the new `rationale` field; create/update pipeline returns 422 for an unknown `outputType`.
+
+### T-19: Run artifact emission + emitter v2 + artifact read route
+**Subagent:** implementer (backend stream)
+**Files:** `packages/functest/src/emit.ts`, `packages/functions/src/pipeline.ts`, `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, tests in `packages/functest/tests/`, `packages/functions/tests/step-worker.test.ts`, `packages/functions/tests/read-pipeline.test.ts`, `stacks/tests/pipeline-infra.test.ts`
+**Requirements:** R-65, R-66 · **Tests:** TS-48, TS-49, TS-50
+**Design:** v0.4.0 Amendments › Run artifact
+**Acceptance criteria:** legacy emitter output for existing fixtures is byte-identical.
+
+### T-20: Legacy prompt import endpoint
+**Subagent:** implementer (backend stream)
+**Files:** `packages/functions/src/pipeline.ts`, `packages/functions/src/authorizer.ts` (if writer routes are listed), `stacks/ApiStack.ts`, tests in `packages/functions/tests/pipeline-prompt-crud.test.ts`
+**Requirements:** R-72 · **Tests:** TS-57
+
+### T-21: Shared SplitPane + StepEditor
+**Subagent:** implementer (web stream)
+**Files:** `packages/web/src/components/SplitPane.tsx` (create), `packages/web/src/components/StepEditor.tsx` (create), `packages/web/src/pages/PipelinesPage.tsx`, `packages/web/src/pages/PipelinePage.tsx`, `packages/web/src/styles.css`, tests in `packages/web/tests/`
+**Requirements:** R-67, R-68 · **Tests:** TS-51, TS-52, TS-53
+
+### T-22: Sidebar regroup (Catalog / Experiments / Legacy)
+**Subagent:** implementer (web stream)
+**Files:** `packages/web/src/Sidebar.tsx`, `packages/web/src/AppRoutes.tsx`, existing routing/sidebar tests
+**Requirements:** R-69 · **Tests:** TS-54
+
+### T-23: Compare runs, skipped display, artifact view, legacy import button
+**Subagent:** implementer (web stream)
+**Files:** `packages/web/src/pages/RunsComparePage.tsx` (create), `packages/web/src/pages/RunDetailPage.tsx`, `packages/web/src/pages/PromptsPage.tsx`, `packages/web/src/pages/PipelinesPage.tsx`, `packages/web/src/pages/PipelinePage.tsx`, `packages/web/src/api.ts`, `packages/web/src/hooks/usePipelines.ts`, `packages/web/src/lib.ts`, `packages/web/src/AppRoutes.tsx`, tests in `packages/web/tests/`
+**Requirements:** R-70, R-71, R-72 (UI) · **Tests:** TS-55, TS-56, TS-57 (UI half)
