@@ -227,6 +227,13 @@ export function ApiStack({ stack }: StackContext) {
           timeout: '30 seconds',
         },
       },
+      // Writer-only legacy prompt-version import (v0.4.0 · R-72, D-27).
+      'POST /prompts/import-legacy': {
+        function: {
+          handler: 'packages/functions/src/pipeline.importLegacyPrompts',
+          timeout: '30 seconds',
+        },
+      },
       'PUT /prompts/{key}': {
         function: {
           handler: 'packages/functions/src/pipeline.updatePrompt',

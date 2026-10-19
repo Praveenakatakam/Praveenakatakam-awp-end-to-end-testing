@@ -587,6 +587,18 @@ export async function createPrompt(
   }
 
   const now = new Date().toISOString();
+  await writeNewPrompt(promptKey, promptBody, now);
+
+  log.info('pipeline.createPrompt', { promptKey, version: 1 });
+  return json(201, { promptKey, currentVersion: 1, createdAt: now });
+}
+
+/**
+ * Write a new prompt: PRMPT header (currentVersion 1, active) + immutable
+ * PRMPTVER#key#00001, storing bodies > 64 KB in S3 (R-31, R-34). Shared by
+ * `createPrompt` and `importLegacyPrompts` (R-72).
+ */
+async function writeNewPrompt(promptKey: string, promptBody: string, now: string): Promise<void> {
   const version = 1;
   const { inlineBody, s3Ref } = await resolveBodyStorage(promptKey, version, promptBody);
 
@@ -616,9 +628,43 @@ export async function createPrompt(
 
   await putPrmpt(_ddb, promptItem);
   await putPrmptVer(_ddb, versionItem);
+}
 
-  log.info('pipeline.createPrompt', { promptKey, version });
-  return json(201, { promptKey, currentVersion: version, createdAt: now });
+// ── v0.4.0: POST /prompts/import-legacy (R-72, D-27) ─────────────────────────
+
+/** Prompt key a legacy prompt version is imported under (R-72). */
+export function legacyPromptKey(promptVersion: string): string {
+  return `legacy-${promptVersion}`;
+}
+
+/**
+ * Copy every legacy prompt-version record (`/prompt-versions`, `PROMPT#<pv>`)
+ * into the prompt store as `legacy-<promptVersion>` (version 1, body = legacy
+ * `text`). Keys that already exist — active or soft-deleted — are skipped, so
+ * the import is idempotent. Legacy records are left untouched (D-27).
+ * Returns HTTP 200 `{ imported, skipped }` (prompt keys, sorted).
+ */
+export async function importLegacyPrompts(
+  _event?: APIGatewayProxyEventV2
+): Promise<APIGatewayProxyStructuredResultV2> {
+  const legacy = await repository.listPromptVersions();
+  const imported: string[] = [];
+  const skipped: string[] = [];
+  const now = new Date().toISOString();
+
+  for (const record of [...legacy].sort((a, b) => a.promptVersion.localeCompare(b.promptVersion))) {
+    const promptKey = legacyPromptKey(record.promptVersion);
+    if (imported.includes(promptKey) || skipped.includes(promptKey)) continue;
+    if (await getPrmpt(_ddb, promptKey)) {
+      skipped.push(promptKey);
+      continue;
+    }
+    await writeNewPrompt(promptKey, record.text ?? '', now);
+    imported.push(promptKey);
+  }
+
+  log.info('pipeline.importLegacyPrompts', { imported: imported.length, skipped: skipped.length });
+  return json(200, { imported, skipped });
 }
 
 // ── T-04: GET /prompts/{key} — get current prompt with body (R-34) ───────────

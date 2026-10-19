@@ -35,6 +35,8 @@ vi.mock('../src/repository.js', () => ({
   getSysconfig: vi.fn(),
   pipelinePk: vi.fn(),
   prunPk: vi.fn(),
+  // Legacy prompt-version store (v0.4.0 import, R-72)
+  repository: { listPromptVersions: vi.fn() },
 }));
 
 vi.mock('@aws-sdk/client-s3', async () => {
@@ -57,6 +59,7 @@ import {
   updatePrompt,
   deletePrompt,
   listPromptVersions,
+  importLegacyPrompts,
 } from '../src/pipeline.js';
 
 import {
@@ -67,6 +70,7 @@ import {
   putPrmptVer,
   listPrmptVers,
   listPipelines as listPipelinesRepo,
+  repository,
 } from '../src/repository.js';
 
 // ---------------------------------------------------------------------------
@@ -656,5 +660,84 @@ describe('listPromptVersions (GET /prompts/{key}/versions)', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body!);
     expect(body.versions).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.4.0: POST /prompts/import-legacy (R-72, TS-57)
+// ---------------------------------------------------------------------------
+
+describe('importLegacyPrompts (POST /prompts/import-legacy)', () => {
+  function legacy(promptVersion: string, text: string) {
+    return {
+      promptVersion,
+      text,
+      modelId: 'us.anthropic.claude-sonnet-4-6',
+      createdAt: '2026-01-01T00:00:00Z',
+      startedAt: '2026-01-01T00:00:00Z',
+      createdBy: 'alice',
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(repository.listPromptVersions).mockResolvedValue([
+      legacy('v1', 'legacy prompt one'),
+      legacy('v2', 'legacy prompt two'),
+    ]);
+    vi.mocked(putPrmpt).mockResolvedValue(undefined);
+    vi.mocked(putPrmptVer).mockResolvedValue(undefined);
+  });
+
+  it('TS-57: 2 legacy versions, one already imported → imported 1, skipped 1; repeat → imported []', async () => {
+    // GIVEN legacy-v1 already exists in the prompt store
+    const store = new Map<string, unknown>([['legacy-v1', activePromptItem('legacy-v1')]]);
+    vi.mocked(getPrmpt).mockImplementation(async (_ddb, key) => store.get(key) as any);
+    vi.mocked(putPrmpt).mockImplementation(async (_ddb, item) => {
+      store.set(item.promptKey, item);
+    });
+
+    // WHEN
+    const first = await importLegacyPrompts(ev());
+
+    // THEN
+    expect(first.statusCode).toBe(200);
+    expect(JSON.parse(first.body as string)).toEqual({ imported: ['legacy-v2'], skipped: ['legacy-v1'] });
+
+    // AND the imported prompt is version 1 with the legacy text as body
+    const header = vi.mocked(putPrmpt).mock.calls[0][1];
+    expect(header).toMatchObject({ pk: 'PRMPT#legacy-v2', promptKey: 'legacy-v2', currentVersion: 1, active: true, body: 'legacy prompt two' });
+    const ver = vi.mocked(putPrmptVer).mock.calls[0][1];
+    expect(ver).toMatchObject({ pk: 'PRMPTVER#legacy-v2#00001', version: 1, body: 'legacy prompt two' });
+
+    // WHEN repeated → idempotent
+    const second = await importLegacyPrompts(ev());
+    expect(JSON.parse(second.body as string)).toEqual({ imported: [], skipped: ['legacy-v1', 'legacy-v2'] });
+    expect(putPrmpt).toHaveBeenCalledTimes(1);
+  });
+
+  it('a soft-deleted existing key is skipped, not resurrected', async () => {
+    vi.mocked(getPrmpt).mockImplementation(async (_ddb, key) =>
+      key === 'legacy-v1' ? (activePromptItem('legacy-v1', { active: false }) as any) : undefined
+    );
+    const res = await importLegacyPrompts(ev());
+    expect(JSON.parse(res.body as string)).toEqual({ imported: ['legacy-v2'], skipped: ['legacy-v1'] });
+  });
+
+  it('a legacy text > 64 KB is stored in S3 via the shared create path (R-34)', async () => {
+    vi.mocked(repository.listPromptVersions).mockResolvedValue([legacy('big', 'x'.repeat(65 * 1024))]);
+    vi.mocked(getPrmpt).mockResolvedValue(undefined);
+    mockS3Send.mockResolvedValue({});
+
+    const res = await importLegacyPrompts(ev());
+
+    expect(JSON.parse(res.body as string).imported).toEqual(['legacy-big']);
+    expect(mockS3Send).toHaveBeenCalledOnce();
+    expect(vi.mocked(putPrmpt).mock.calls[0][1]).toMatchObject({ s3Ref: 'prompts/legacy-big/00001.txt' });
+  });
+
+  it('no legacy versions → empty lists', async () => {
+    vi.mocked(repository.listPromptVersions).mockResolvedValue([]);
+    const res = await importLegacyPrompts(ev());
+    expect(JSON.parse(res.body as string)).toEqual({ imported: [], skipped: [] });
   });
 });

@@ -14,6 +14,15 @@ import { WRITER_ROUTES, requiredGroup, isAuthorized, handleAuthorization } from 
 // WRITER_ROUTES membership — static data checks (no mocks required)
 // ---------------------------------------------------------------------------
 
+describe('WRITER_ROUTES — legacy prompt import (v0.4.0 · R-72)', () => {
+  it('POST /prompts/import-legacy requires writer', () => {
+    expect(WRITER_ROUTES.has('POST /prompts/import-legacy')).toBe(true);
+    expect(requiredGroup('POST /prompts/import-legacy')).toBe('writer');
+    expect(isAuthorized('POST /prompts/import-legacy', ['reader'])).toBe(false);
+    expect(isAuthorized('POST /prompts/import-legacy', ['writer'])).toBe(true);
+  });
+});
+
 describe('WRITER_ROUTES — pipeline mutation routes (T-05 · R-25)', () => {
   it('POST /pipelines is in WRITER_ROUTES', () => {
     expect(WRITER_ROUTES.has('POST /pipelines')).toBe(true);
