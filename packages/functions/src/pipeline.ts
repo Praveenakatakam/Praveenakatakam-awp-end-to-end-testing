@@ -745,6 +745,27 @@ export async function listPromptVersions(
 
 // ── T-06: Helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Find a run's requirement in the catalog by its source-qualified ID (R-57).
+ * Bare IDs (runs created before v0.4.0) resolve only when unambiguous.
+ */
+export function resolveRunRequirement<R extends { source: string; id: string }>(
+  requirementId: string,
+  requirements: R[]
+): { ok: true; requirement: R } | { ok: false; error: string } {
+  const qualified = requirements.find((r) => `${r.source}/${r.id}` === requirementId);
+  if (qualified) return { ok: true, requirement: qualified };
+  if (!requirementId.includes('/')) {
+    const bare = requirements.filter((r) => r.id === requirementId);
+    if (bare.length === 1) return { ok: true, requirement: bare[0] };
+    if (bare.length > 1) {
+      const candidates = bare.map((r) => `${r.source}/${r.id}`).sort();
+      return { ok: false, error: `Ambiguous requirement id '${requirementId}' matches: ${candidates.join(', ')}` };
+    }
+  }
+  return { ok: false, error: `Requirement '${requirementId}' not found in catalog` };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1105,14 +1126,15 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
     String(promptVersion)
   );
 
-  // Resolve the requirement for this run (per_requirement mode: single entry)
+  // Resolve the requirement for this run (per_requirement mode: single entry).
+  // IDs are source-qualified `<source>/<id>` (R-57); a bare ID from a pre-v0.4.0
+  // run is accepted only when it matches exactly one source's requirement.
   const requirementId = run.requirementIds[0] ?? '';
-  const reqInput = inputs.requirements.find(
-    (r) => `${r.source}/${r.id}` === requirementId || r.id === requirementId
-  );
+  const lookup = resolveRunRequirement(requirementId, inputs.requirements);
+  const reqInput = lookup.ok ? lookup.requirement : undefined;
 
   if (!reqInput) {
-    const errMsg = `Requirement '${requirementId}' not found in catalog`;
+    const errMsg = lookup.ok ? '' : lookup.error;
     await _writeStepTerminal(prunPkVal, stepSkVal, 'failed', {
       errorMessage: redact(errMsg),
       completedAt: new Date().toISOString(),

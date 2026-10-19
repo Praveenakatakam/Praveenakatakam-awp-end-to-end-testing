@@ -13,6 +13,7 @@
 import {
   generateFunctionalPlans,
   emitFunctionalTests,
+  ground,
   FUNCTIONAL_GENERATOR_ID,
   type FunctionalGenInputs,
   type FunctionalManifest,
@@ -22,7 +23,14 @@ import {
   type RequirementInput,
 } from '@registry/functest';
 import { API_MAP, type PromptVersionRecord } from '@registry/core';
-import type { PipelineConfig, PipelineRun, SamplingConfig, ExecutionMode } from '@registry/core';
+import type {
+  PipelineConfig,
+  PipelineRun,
+  SamplingConfig,
+  ExecutionMode,
+  SkippedRequirement,
+  GeneratePipelineResponse,
+} from '@registry/core';
 import { selectRequirements } from '@registry/core';
 import { repository, type CatalogEntry, type RequirementRecord, type FunctionalJobRecord } from './repository.js';
 import { log, redact } from './log.js';
@@ -147,16 +155,48 @@ export async function createAndDispatchPrun(
   return runId;
 }
 
+/** `<source>/<id>` — requirement IDs are only unique within a source (R-57, D-24). */
+export function qualifiedRequirementId(r: { source: string; id: string }): string {
+  return `${r.source}/${r.id}`;
+}
+
+/**
+ * Resolve a requirement identifier (qualified `<source>/<id>` or bare `<id>`)
+ * against a list of qualified IDs (R-57, R-58). Returns the single match, no
+ * match, or every candidate when a bare ID is ambiguous across sources.
+ */
+export function resolveRequirementId(
+  id: string,
+  qualifiedIds: string[]
+): { kind: 'found'; id: string } | { kind: 'missing' } | { kind: 'ambiguous'; candidates: string[] } {
+  if (qualifiedIds.includes(id)) return { kind: 'found', id };
+  if (id.includes('/')) return { kind: 'missing' };
+  const candidates = qualifiedIds.filter((q) => q.slice(q.indexOf('/') + 1) === id).sort();
+  if (candidates.length === 0) return { kind: 'missing' };
+  if (candidates.length > 1) return { kind: 'ambiguous', candidates };
+  return { kind: 'found', id: candidates[0] };
+}
+
+/** Placeholder prompt version for eligibility grounding — only feeds `inputHash` (design §v0.4.0). */
+const ELIGIBILITY_PROMPT_VERSION = 'eligibility';
+
+function jsonResult(statusCode: number, body: unknown): HttpResult {
+  return { statusCode, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
+}
+
 /**
  * Handle the pipeline path of `POST /generate-functional-tests` (T-08, R-17).
  *
- * Resolves sampling and mode, applies the sampling strategy to the catalog's
- * requirement IDs, then dispatches:
+ * Grounds every catalog requirement first and samples only from the groundable
+ * subset (R-55, D-23); requirement IDs are source-qualified `<source>/<id>`
+ * end to end (R-57, D-24). Then dispatches:
  * - `per_requirement` (R-48): N independent PRUN records, one per selected req.
  * - `batch` (R-49): one PRUN record with all selected requirements.
  *
- * Returns HTTP 202 with `{ runIds: string[] }` for per_requirement or
- * `{ runId: string }` for batch (R-17, TS-12, TS-30, TS-31).
+ * Returns HTTP 202 with `{ runIds, skipped }` for per_requirement or
+ * `{ runId, skipped }` for batch. HTTP 422 `{ error, skipped }` when nothing
+ * groundable is selected (R-56); HTTP 422 `{ error, candidates }` when an `ids`
+ * entry is a bare ID shared by several sources (R-58).
  *
  * Legacy path (no pipelineId): caller falls through to the existing FJOB path
  * unchanged (D-13, backward compatibility).
@@ -172,25 +212,69 @@ export async function handleGeneratePipeline(
   // 1. Fetch and validate pipeline config.
   const pipeline = await repo.getPipelineConfig(pipelineId);
   if (!pipeline || !pipeline.active) {
-    return {
-      statusCode: 422,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        error: `Pipeline '${pipelineId}' not found or inactive`,
-      }),
-    };
+    return jsonResult(422, { error: `Pipeline '${pipelineId}' not found or inactive` });
   }
 
   // 2. Resolve sampling and mode (run-request override merges over pipeline default, R-47, R-50).
   const resolvedSampling: SamplingConfig = samplingOverride ?? pipeline.defaultSampling;
   const resolvedMode: ExecutionMode = modeOverride ?? pipeline.defaultMode;
 
-  // 3. Build grounded inputs to enumerate all available requirement IDs.
+  // 3. Ground every catalog requirement BEFORE sampling (R-55, D-23). Eligibility
+  //    does not depend on model/prompt version (those only feed inputHash).
   const inputs = await buildFunctionalInputs(repo);
-  const allReqIds = inputs.requirements.map((r) => r.id);
+  const model = pipeline.steps[0]?.model ?? MODEL_ID;
+  const groundable: string[] = [];
+  const ungroundable = new Map<string, string>();
+  const allQualified: string[] = [];
+  for (const req of inputs.requirements) {
+    const qid = qualifiedRequirementId(req);
+    allQualified.push(qid);
+    const g = ground(req, inputs.contracts, inputs.apiMap, model, ELIGIBILITY_PROMPT_VERSION);
+    if (g.ok) groundable.push(qid);
+    else ungroundable.set(qid, g.reason);
+  }
+  groundable.sort();
+  const byQid = (a: SkippedRequirement, b: SkippedRequirement) => a.requirement.localeCompare(b.requirement);
 
-  // 4. Apply sampling strategy to select requirement IDs (R-48, R-49).
-  const selectedIds = selectRequirements(allReqIds, resolvedSampling);
+  // 4. Apply sampling strategy to the groundable subset (R-48, R-49, R-58).
+  let selectedIds: string[];
+  let skipped: SkippedRequirement[];
+  if (resolvedSampling.strategy === 'ids') {
+    // Each entry may be qualified or bare; a bare ID shared by several sources is
+    // rejected (R-58). Named-but-ungroundable / unknown entries go into `skipped`.
+    const resolved: string[] = [];
+    skipped = [];
+    for (const raw of resolvedSampling.ids) {
+      const r = resolveRequirementId(raw, allQualified);
+      if (r.kind === 'ambiguous') {
+        return jsonResult(422, {
+          error: `Ambiguous requirement id '${raw}' matches: ${r.candidates.join(', ')}`,
+          candidates: r.candidates,
+        });
+      }
+      if (r.kind === 'missing') {
+        skipped.push({ requirement: raw, reason: 'not found in catalog' });
+        continue;
+      }
+      const reason = ungroundable.get(r.id);
+      if (reason !== undefined) {
+        if (!skipped.some((s) => s.requirement === r.id)) skipped.push({ requirement: r.id, reason });
+        continue;
+      }
+      resolved.push(r.id);
+    }
+    skipped.sort(byQid);
+    selectedIds = selectRequirements(groundable, { strategy: 'ids', ids: resolved });
+  } else {
+    skipped = [...ungroundable.entries()].map(([requirement, reason]) => ({ requirement, reason })).sort(byQid);
+    selectedIds = selectRequirements(groundable, resolvedSampling);
+  }
+
+  // 5. Nothing groundable selected → 422, no PRUN written (R-56).
+  if (selectedIds.length === 0) {
+    log.warn('functional.pipeline.nothing_groundable', { pipelineId, skippedCount: skipped.length });
+    return jsonResult(422, { error: 'no groundable requirements', skipped });
+  }
 
   const startedAt = clock.now();
 
@@ -216,12 +300,10 @@ export async function handleGeneratePipeline(
       mode: resolvedMode,
       samplingStrategy: resolvedSampling.strategy,
       runCount: runIds.length,
+      skippedCount: skipped.length,
     });
-    return {
-      statusCode: 202,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ runIds }),
-    };
+    const response: GeneratePipelineResponse = { runIds, skipped };
+    return jsonResult(202, response);
   } else {
     // 5b. batch: one PRUN with all selected requirements (R-49, TS-31).
     const runId = makeRunId();
@@ -240,13 +322,11 @@ export async function handleGeneratePipeline(
       mode: resolvedMode,
       samplingStrategy: resolvedSampling.strategy,
       requirementCount: selectedIds.length,
+      skippedCount: skipped.length,
       runId,
     });
-    return {
-      statusCode: 202,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ runId }),
-    };
+    const response: GeneratePipelineResponse = { runId, skipped };
+    return jsonResult(202, response);
   }
 }
 
