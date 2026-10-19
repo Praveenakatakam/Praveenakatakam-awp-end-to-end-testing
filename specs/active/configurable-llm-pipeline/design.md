@@ -835,6 +835,28 @@ Covers R-73 – R-78, D-28, D-29.
 
 **SPA.** `RunDetailPage` `StepCard`: header additions per R-76 (pipeline step lookup by `stepId` from the run's pipeline config for `outputType`; `promptVersion` already on the step record; `cached` from `status === 'cached'`). On expand, `useRunStep(runId, stepIndex)` (TanStack Query, enabled on expand). New components in `packages/web/src/components/step-output/`: `PlanView`, `CritiqueView`, `StepInputView`, `PlanDiff` (pure `diffPlans(a, b)` in `lib.ts`: compares scalar fields, and list fields — setup, assertions, negativeCases — by stringified item with added/removed). Tab bar reuses existing `.tabs` / `.tab` styles.
 
+## v0.6.0 Amendments — Unified Experiments
+
+Covers R-80 – R-91, D-31 – D-33.
+
+**PEXP record.** Written by `handleGeneratePipeline` after sampling and BEFORE any `createAndDispatchPrun` call (so the step worker can never see a PRUN whose experiment does not exist), with `runs` pre-computed from the generated runIds. `createAndDispatchPrun` gains an `experimentId` argument stamped onto the PRUN. `startedAt` is set so `byKind` (kind + startedAt) indexes PEXP items — unlike PIPELINE/PRMPT items, which needed prefix scans (`9354b87`, `adc07a8`). Repository: `putPexp`, `getPexp`, `listPexps(nextToken)` via `byKind`.
+
+**Dry run.** Same handler; returns after step 4 (sampling) with `200 { selected, skipped }`.
+
+**Read endpoints** (`read.ts`):
+- `experimentIndex` → `listPexps` + legacy `repository.listExperiments()` → merge-sort by `createdAt` desc. Pipeline status aggregation uses `BatchGet` of each PEXP's PRUN headers (≤ 100 keys per call, chunked). Unpaginated in v0.6.0 (both lists are small); add `nextToken` when either exceeds one page.
+- `experimentResults` → `pipeline`: for each run, `listPrunSteps` → last step whose pipeline step resolves to `outputType: plan` (pipeline config fetched at the PEXP's `pipelineConfigVersion` if retained, else current) with status `completed|cached` → parse output; artifact via the R-65 S3 key. `legacy`: `getExperimentArtifact` → `manifest.plans[i]` paired with `files[i]` (same order — `emitFunctionalTests` maps plans in order). Qualifying legacy requirement IDs: the legacy artifact's manifest carries the catalog context; if a bare ID maps to one source use `source/id`, else leave bare.
+
+**`planSchema: "v1"` steps.** In `callBedrockForStep`, `outputType === 'plan' && step.planSchema === 'v1'` selects `PLAN_SCHEMA_V1` as `input_schema`, keeping the same tool name and description as `llm.ts`; validation uses `validatePlanV1`; `emitRunArtifact` calls `emitFunctionalTest(plan, 0)` without options. Step snapshot `tool.schemaVersion = "plan-v1"`. Pipeline create/update validates `planSchema` ∈ {v1, v2} (422) and rejects `planSchema` on non-plan steps.
+
+**Seeder.** `prompt-seed.ts` adds two `conditionalPut`s (PK-not-exists) after the existing ones: the `legacy-v1` PRMPT + PRMPTVER (body = legacy v1 record `text`, i.e. `V1_PROMPT_TEXT`), and the `baseline-legacy-v1` PIPELINE item. Existing seeded items untouched.
+
+**SPA.**
+- `Sidebar.tsx`: Experiments area = Experiments (`/experiments`), Pipelines, Prompts, Compare (`/compare`); Legacy `<details>` removed. `AppRoutes.tsx`: `/experiments` → new `ExperimentsHubPage`; `/experiments/prompt-versions` → redirect `/prompts`; `/experiments/compare` → redirect `/compare`; `/experiments/run` → redirect `/experiments`; `/runs` page kept (linked from experiment detail), not in nav. The old `ExperimentsPage.tsx` is deleted once nothing routes to it.
+- `ExperimentsHubPage`: list (index) + detail panel in the shared `SplitPane`; "New experiment" dialog (pipeline select, sampling override, mode override, dry run → count + skipped, confirm when > 20 → trigger → select the new experiment). Secondary "Run legacy experiment (deprecated)" button opens the old legacy run form (moved into a small component) — removed after Q5.
+- `PromptsPage`: merges `listPrompts` + `listPromptVersions`; per-row import (`importLegacyPrompts({ promptVersions: [pv] })`). `StepEditor` prompt `<select>` gains an `<optgroup label="Legacy (import on select)">`.
+- `ComparePage` (`/compare?a=kind:id&b=kind:id`): two experiment pickers from the index; per-requirement table from two `getExperimentResults`; expanded row reuses `PlanView`, `PlanDiff` (`diffPlans`), and `lineDiff` from v0.4.0/v0.5.0. Plan v1 objects render through `PlanView` (v2 fields simply absent).
+
 ## Decisions Log
 
 **D-1 through D-8** are carried forward from `requirements.md` decisions log. Design-phase additions:
@@ -932,3 +954,4 @@ Covers R-73 – R-78, D-28, D-29.
 
 **D-22 – D-27** — see requirements.md §8 (v0.4.0 amendments).
 **D-28 – D-29** — see requirements.md §8 (v0.5.0).
+**D-31 – D-33** — see requirements.md §8 (v0.6.0).

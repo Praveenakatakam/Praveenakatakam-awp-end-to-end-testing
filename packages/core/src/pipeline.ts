@@ -112,6 +112,9 @@ export type SamplingConfig =
  */
 export type StepOutputType = 'plan' | 'critique' | 'freeform';
 
+/** Plan schema generation a `plan` step uses (R-84, D-32). */
+export type PlanSchemaVersion = 'v1' | 'v2';
+
 export const STEP_OUTPUT_TYPES: readonly StepOutputType[] = ['plan', 'critique', 'freeform'];
 
 /**
@@ -159,6 +162,11 @@ export interface PipelineStep {
    * receive exactly the pre-v0.5.0 input.
    */
   outputInstructions?: boolean;
+  /**
+   * Plan schema for `outputType: 'plan'` steps (R-84). `'v1'` reproduces the
+   * legacy generator exactly (PLAN_SCHEMA_V1, legacy emitter). Default `'v2'`.
+   */
+  planSchema?: PlanSchemaVersion;
 }
 
 /** A step's effective output type — `'plan'` when unset (R-59, TS-45). */
@@ -281,6 +289,8 @@ export interface PipelineRun {
   executedSteps: number;
   /** Collected warning messages from optional steps that failed (R-15). */
   warnings: string[];
+  /** The pipeline experiment (one trigger) this run belongs to (R-80); absent on pre-v0.6.0 runs. */
+  experimentId?: string;
   /**
    * The emitted functional test rendered from the last completed `plan` step,
    * set when the run completes (R-65, D-26). Absent if no plan step produced output.
@@ -307,8 +317,8 @@ export interface SkippedRequirement {
 
 /** `202` body of `POST /generate-functional-tests` on the pipeline path (R-48, R-49, R-55). */
 export type GeneratePipelineResponse =
-  | { runIds: string[]; skipped: SkippedRequirement[] }
-  | { runId: string; skipped: SkippedRequirement[] };
+  | { runIds: string[]; skipped: SkippedRequirement[]; experimentId: string }
+  | { runId: string; skipped: SkippedRequirement[]; experimentId: string };
 
 // ---------------------------------------------------------------------------
 // Step record — PRUN#<runId> / STEP#<stepIndex> (R-18, R-19, R-51)
@@ -596,4 +606,67 @@ export interface RunStepDetail {
   input: StepInputSnapshot | null;
   /** Output resolved from inline or S3; `null` if the step produced none. */
   output: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Unified experiments (v0.6.0 — R-80 – R-83, D-31)
+// ---------------------------------------------------------------------------
+
+/** `PEXP#<experimentId> / PEXP` — one trigger of a pipeline, grouping its runs (R-80). */
+export interface PipelineExperiment {
+  pk: string;
+  sk: 'PEXP';
+  kind: 'PEXP';
+  experimentId: string;
+  pipelineId: string;
+  pipelineName: string;
+  pipelineConfigVersion: number;
+  sampling: SamplingConfig;
+  mode: ExecutionMode;
+  runs: { runId: string; requirementIds: string[] }[];
+  skipped: SkippedRequirement[];
+  createdAt: string;
+  /** Equal to `createdAt`; present so the `byKind` GSI indexes PEXP items. */
+  startedAt: string;
+  createdBy: string;
+}
+
+export type ExperimentKind = 'pipeline' | 'legacy';
+
+/** One row of `GET /experiment-index` (R-82). */
+export interface ExperimentIndexEntry {
+  id: string;
+  kind: ExperimentKind;
+  /** `<pipelineName> v<configVersion>` for pipeline; the prompt version for legacy. */
+  label: string;
+  createdAt: string;
+  status: PipelineRunStatus | 'pending' | 'running' | 'succeeded' | 'failed';
+  requirementCount: number;
+  resultCount: number;
+  skipCount: number;
+}
+
+/** One requirement's outcome within an experiment (R-83). */
+export interface ExperimentResult {
+  /** Source-qualified where resolvable (R-57). */
+  requirementId: string;
+  /** Pipeline experiments only. */
+  runId?: string;
+  status: string;
+  /** Parsed plan (v1 or v2 shape), or `null` if none was produced. */
+  plan: unknown | null;
+  testFile: { path: string; content: string } | null;
+}
+
+/** `GET /experiment-results/{kind}/{id}` response (R-83). */
+export interface ExperimentResults {
+  experiment: ExperimentIndexEntry;
+  results: ExperimentResult[];
+  skipped: SkippedRequirement[];
+}
+
+/** `POST /generate-functional-tests` with `dryRun: true` (R-81). */
+export interface GeneratePipelineDryRunResponse {
+  selected: string[];
+  skipped: SkippedRequirement[];
 }

@@ -1,6 +1,6 @@
 # Requirements — Configurable LLM Pipeline
 
-> **Version:** 0.5.0
+> **Version:** 0.6.0
 > **Status:** Draft
 
 ## 1. Purpose and Context
@@ -358,6 +358,49 @@ Errors (`errorMessage`, `errorStack`) remain visible above the tabs for failed /
 
 ---
 
+### 3.13 Unified Experiments (v0.6.0)
+
+> Pipelines and the legacy prompt-versioning feature are the same activity at different granularity: a legacy experiment is one prompt version applied to every groundable requirement — i.e. one trigger of a single-step pipeline with `sampling: all`. v0.4.0–v0.5.0 left them as parallel nav areas with duplicate Prompts / Run / Compare pages, and pipelines had no record grouping the runs of one trigger, so they could only be compared run-by-run.
+
+**R-80** — WHEN `POST /generate-functional-tests` is called with a `pipelineId`, THE system SHALL write a pipeline experiment record `PEXP#<experimentId> / PEXP` containing: `experimentId`, `kind: "PEXP"`, `pipelineId`, `pipelineName`, `pipelineConfigVersion`, `sampling`, `mode`, `runs: [{ runId, requirementIds }]`, `skipped`, `createdAt`, `startedAt` (= `createdAt`, so the `byKind` GSI indexes it), `createdBy`. Every PRUN created by that call SHALL carry `experimentId`. The `202` body SHALL add `experimentId`.
+
+**R-81** — WHEN the request body includes `dryRun: true`, THE system SHALL perform grounding and sampling (R-55 – R-58) and return `200 { selected: string[], skipped }` without writing any record or dispatching any step.
+
+**R-82** — `GET /experiment-index` (readers) SHALL return both pipeline experiments and legacy experiments, newest first, normalised to `{ id, kind: "pipeline" | "legacy", label, createdAt, status, requirementCount, resultCount, skipCount }`, where for pipeline experiments `label` is `<pipelineName> v<pipelineConfigVersion>` and `status` is aggregated from its runs (`running` if any run is non-terminal; else `failed` if all failed; else `completed_with_warnings` if any run failed or warned; else `completed`), and for legacy experiments `label` is the prompt version and the remaining fields map from the `EXPERIMENT` record.
+
+**R-83** — `GET /experiment-results/{kind}/{id}` (readers) SHALL return `{ experiment, results: [{ requirementId, runId?, status, plan, testFile }], skipped }` normalised across kinds: for `pipeline`, one entry per run with `plan` = the parsed output of the run's last completed `plan` step (or `null`) and `testFile` = the run artifact `{ path, content }` (or `null`); for `legacy`, one entry per manifest plan (matched to its emitted file) from the experiment artifact. `requirementId` SHALL be source-qualified (R-57); legacy plans' `requirementIds[0]` SHALL be qualified using the experiment's catalog context where the bare ID is unambiguous. Unknown kind or id → 404.
+
+**R-84** — A pipeline step MAY set `planSchema: "v1" | "v2"` (default `"v2"`), meaningful only for `outputType: "plan"`. WHEN `planSchema` is `"v1"`, THE system SHALL use `PLAN_SCHEMA_V1` for the forced tool and `validatePlanV1` for validation, and the run artifact SHALL be emitted with the legacy emitter options (no `apiTargets`), so the step reproduces the legacy generator's request and output format exactly (given `includeContext: false`, `outputInstructions` off, and the same system prompt and model).
+
+**R-85** — The seeder SHALL idempotently create (never overwrite): the prompt `legacy-v1` imported from legacy prompt version `v1` (via the R-72 import path), and a pipeline `baseline-legacy-v1` named "Baseline (legacy v1)" with one step `{ stepId: "plan", label: "Legacy v1 plan", model: <legacy v1 modelId>, promptKey: "legacy-v1", outputType: "plan", planSchema: "v1", includeContext: false, optional: false, waitForHuman: false }` (no `outputInstructions`), `defaultSampling: { strategy: "all" }`, `defaultMode: "per_requirement"`. Existing seeded prompts are untouched (R-78).
+
+**R-86** — `POST /prompts/import-legacy` SHALL accept an optional body `{ promptVersions: string[] }`; when present only those versions are imported (same idempotency and response). Absent body keeps R-72 behaviour.
+
+**R-87** — The SPA Experiments area SHALL contain, in order: **Experiments**, **Pipelines**, **Prompts**, **Compare**. The Legacy nav group (R-69) is removed; legacy routes remain reachable by URL and redirect to their unified equivalents where one exists.
+
+**R-88** — The **Experiments** page SHALL list `GET /experiment-index` entries with a kind badge (`pipeline` / `legacy`), label, created date, status, and counts; selecting a pipeline experiment shows its runs (requirement, status, link to run detail) and skipped list; selecting a legacy experiment shows its plans and skips read-only. A **New experiment** action SHALL let a writer pick a pipeline and optionally override sampling and mode, call the dry run (R-81), show the selected count and skipped list, and require explicit confirmation when the selected count exceeds 20 before triggering.
+
+**R-89** — The **Prompts** page SHALL list pipeline prompts and legacy prompt versions together; legacy entries show a `legacy` badge, their model, and an "Import" action (R-86) unless already imported (`legacy-<promptVersion>` exists). The step editor's prompt picker SHALL offer un-imported legacy versions in a separate group; choosing one imports it and selects `legacy-<promptVersion>`.
+
+**R-90** — The **Compare** page SHALL compare any two experiments of either kind (`/compare?a=<kind>:<id>&b=<kind>:<id>`) using R-83: a per-requirement table (requirement, status A, status B), with each row expandable to show the two plans side by side (rendered as in R-77), the plan field diff, and the test-file line diff; requirements present in only one experiment, or skipped in one, are listed separately. Each pipeline result links to its run detail. The v0.4.0 run-level compare (`/runs/compare`) remains, linked from expanded rows when both sides are pipeline runs.
+
+**R-91** — The legacy experiment runner (`POST /experiments`) SHALL remain deployed and functional but SHALL NOT be offered in the SPA navigation; the Experiments page MAY expose it only as a secondary "Run legacy experiment (deprecated)" action until the baseline pipeline has been verified to reproduce legacy output (see Q5), after which that action is removed.
+
+**TS-68** — Given a pipeline trigger with 3 selected requirements → one PEXP record with 3 `runs` entries; each PRUN has `experimentId`; the 202 includes `experimentId`.
+**TS-69** — Given `dryRun: true` → 200 with `selected` and `skipped`; no PutCommand and no Lambda invoke.
+**TS-70** — Given one legacy experiment and one pipeline experiment whose runs are `completed` and `failed` → `GET /experiment-index` returns both, newest first, the pipeline one with `status: "completed_with_warnings"`.
+**TS-71** — Given a pipeline experiment with a run whose last plan step completed and has an artifact → `GET /experiment-results/pipeline/<id>` returns that plan and test file; given a legacy experiment artifact with 2 plans → 2 results with matching files.
+**TS-72** — Given a step with `planSchema: "v1"`, no prior outputs, `outputInstructions` absent → the Bedrock request body's `system`, `messages`, `tools` and `tool_choice` deep-equal those produced by the legacy `createBedrockClient` for the same context, prompt text, and model.
+**TS-73** — Given a `planSchema: "v1"` step returning a plan with `propagation.kind: "eventbridge"` → terminal validation failure (v1 rejects it).
+**TS-74** — Given an empty table → seeding creates `legacy-v1` and `baseline-legacy-v1`; seeding twice writes nothing new; an existing `baseline-legacy-v1` is not overwritten.
+**TS-75** — Given `POST /prompts/import-legacy` with `{ promptVersions: ["v2"] }` and legacy versions v1, v2 → only `legacy-v2` imported.
+**TS-76** — Given the sidebar → Experiments area shows Experiments, Pipelines, Prompts, Compare; no "Legacy" group.
+**TS-77** — Given a dry run selecting 45 requirements → the New experiment flow shows 45 and the trigger button requires a confirmation step.
+**TS-78** — Given the Prompts page with pipeline prompt `p1`, legacy versions `v1` (imported) and `v2` → three rows; `v2` has an Import action, `v1` does not.
+**TS-79** — Given compare of a legacy and a pipeline experiment sharing requirement `publisher/R-1` and each with one unique requirement → one shared row and two "only in" entries; expanding the shared row shows both plans and a test-file diff.
+
+---
+
 ## 4. Non-Functional Requirements
 
 - **Performance:** Step Lambda cold start must not prevent the first LLM call from beginning within 10 seconds of the API response. The read Lambda's lazy lease-expiry check must add no more than 50 ms to a `GET /runs/{runId}` response.
@@ -404,6 +447,7 @@ All open questions from v0.1.0 have been resolved:
 - **Q1 (model allowlist format):** Closed — `step.model` is validated against a configurable allowlist stored as a system config value in DynamoDB. New models can be added without a code change. HTTP 422 on unknown model.
 - **Q3 (lease duration):** Closed — default lease duration is 5 minutes, a single value applied per step. Making it configurable per step is deferred as a follow-on.
 - **Q4 (batch-mode grounding, open — v0.4.0):** `batch` mode (R-49) still grounds only `requirementIds[0]` in the step worker. Combining several grounded contexts (possibly different entities) into one prompt needs its own design; tracked as a follow-on, not in v0.4.0 scope.
+- **Q5 (baseline verification, open — v0.6.0):** After deploy, run the `baseline-legacy-v1` pipeline and a legacy `v1` experiment against the same catalog and compare them (R-90). Expect identical inputs (TS-72) but not identical outputs — Bedrock sampling is non-deterministic. Acceptance: same groundable/skipped sets and comparable plan validity rates. Then remove the deprecated legacy run action (R-91).
 
 ## 8. Decisions Log
 
@@ -491,3 +535,18 @@ All open questions from v0.1.0 have been resolved:
 - **Decision:** The legacy generator is pinned to `PLAN_SCHEMA_V1`; runtime output instructions are off unless a step sets `outputInstructions: true`.
 - **Reason:** The seeded prompts and legacy experiments are the experiment baseline (R-78). v0.4.0 had silently moved the legacy generator to plan v2, and v0.5.0 instructions would have changed every step's input; either change makes new results incomparable with prior ones.
 - **Affects:** R-61, R-73, R-78, R-79
+
+**D-31 — A pipeline trigger is an experiment.**
+- **Decision:** One trigger of `POST /generate-functional-tests` with a `pipelineId` creates a `PEXP` record grouping its runs. Experiments, not runs, are the unit of listing and comparison; legacy `EXPERIMENT` records are presented as the same concept via normalised read endpoints.
+- **Reason:** A legacy experiment and a pipeline trigger with `sampling: all` are the same activity. Without a grouping record, pipeline results could only be compared one requirement at a time, which forced separate Run/Compare pages for each system.
+- **Affects:** R-80 – R-83, R-88, R-90
+
+**D-32 — The legacy baseline runs as a pipeline.**
+- **Decision:** A seeded one-step pipeline with `planSchema: "v1"`, the imported legacy v1 prompt, and the legacy model reproduces the legacy generator's request exactly (TS-72). The legacy runner stays deployed but is withdrawn from the UI once the baseline is verified against it (Q5).
+- **Reason:** Lets the baseline be re-run alongside new pipelines and compared on identical terms, without keeping two runners in active use. Old legacy results remain viewable and comparable.
+- **Affects:** R-84, R-85, R-91
+
+**D-33 — Legacy prompt-version text was not being used (bug fix, `dbd78bb`).**
+- **Decision:** `createBedrockClient` now uses the registry record's text; the v1 code constant is only a fallback.
+- **Reason:** Callers passed the text as a 4th argument the function did not accept, so every legacy experiment used the v1 prompt regardless of the chosen version. Results of past legacy experiments on non-v1 prompt versions therefore reflect the v1 prompt (with the version's model) and should not be read as prompt comparisons.
+- **Affects:** R-79, R-85, R-91
