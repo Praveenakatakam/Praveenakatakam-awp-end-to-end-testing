@@ -34,8 +34,8 @@ export default function StepInputView({ input }: { input: StepInputSnapshot | nu
           </dd>
         </div>
         <div style={{ display: 'contents' }}>
-          <dt className="meta-key">Instructions version</dt>
-          <dd className="meta-val">{input.instructionsVersion}</dd>
+          <dt className="meta-key">Output instructions</dt>
+          <dd className="meta-val">{input.instructionsVersion ?? 'off (baseline input)'}</dd>
         </div>
       </dl>
 

@@ -463,7 +463,7 @@ All open questions from v0.1.0 have been resolved:
 - **Affects:** R-57, R-58
 
 **D-25 — Plan schema v2 is a strict superset of v1.**
-- **Decision:** New plan fields are additive (only `rationale` is newly required for model output; validation of stored v1 plans tolerates its absence) and the enum on `assertions[].service` moves to runtime validation against grounded sources.
+- **Decision:** New plan fields are additive (only `rationale` is newly required for model output; stored plans without it still validate). Superseded for the legacy generator by D-30: it stays on `PLAN_SCHEMA_V1` and the enum on `assertions[].service` moves to runtime validation against grounded sources.
 - **Reason:** The v1 enum (`publisher | consumer`) and `cdc`-only propagation predate the TaskPublished/EventBridge contracts; a static enum cannot track catalog sources. Keeping v1 fields means cached legacy plans and the legacy generator keep working.
 - **Affects:** R-61, R-64, R-66
 
@@ -478,7 +478,7 @@ All open questions from v0.1.0 have been resolved:
 - **Affects:** R-38, R-41, R-69, R-72
 
 **D-28 — Output-format guidance is runtime-generated, not author-written.**
-- **Decision:** The runtime appends output instructions keyed by `outputType`; prompt bodies describe the task focus only.
+- **Decision:** The runtime can append output instructions keyed by `outputType` (opt-in per step — D-30), so new prompts can describe task focus only.
 - **Reason:** The output shape is already enforced in code (forced tool use), so the text describing it belongs with the code. Leaving it to authors produced contradictions (the seeded default prompt asks for TypeScript); that prompt is deliberately left unchanged as the baseline. Instructions go in the user message, not the prompt body, so prompts stay static and versioned (R-12, R-32).
 - **Affects:** R-12, R-27, R-73
 
