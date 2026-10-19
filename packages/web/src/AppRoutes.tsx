@@ -17,6 +17,8 @@
  *   /pipelines/:pipelineId/runs/:runId   → RunDetailPage (T-14, R-54)
  *   /prompts                             → PromptsPage   (T-13, R-41)
  *   /prompts/:key                        → PromptPage    (T-13, R-43)
+ *   /runs                                → RunsPage
+ *   /runs/compare?a=&b=                  → RunsComparePage (T-23, R-70)
  *   /*                                   → redirect → /source/contracts-by-entity
  *
  * Requirements: R-38, R-41, R-53, R-54
@@ -37,6 +39,7 @@ import RunDetailPage from './pages/RunDetailPage.js';
 import PromptsPage from './pages/PromptsPage.js';
 import PromptPage from './pages/PromptPage.js';
 import RunsPage from './pages/RunsPage.js';
+import RunsComparePage from './pages/RunsComparePage.js';
 
 function AuthenticatedShell({ token }: { token: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -90,14 +93,14 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
       <Route path="/" element={<AuthenticatedShell token={token} />}>
         <Route index element={<Navigate to="/source/contracts-by-entity" replace />} />
 
-        {/* Source pipeline routes */}
+        {/* Catalog routes */}
         <Route path="source" element={<ContractDataProvider api={api} />}>
           <Route path="contracts-by-entity" element={<ByEntityPage api={api} />} />
           <Route path="contracts-by-source" element={<BySourcePage api={api} />} />
           <Route path="requirements" element={<RequirementsPage api={api} />} />
         </Route>
 
-        {/* Experiments */}
+        {/* Legacy experiments (deprecated — R-69) */}
         <Route path="experiments/*" element={<ExperimentsPage api={api} token={token} />} />
 
         {/* Pipeline management (T-15, R-38, R-39) */}
@@ -111,6 +114,7 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
 
         {/* Run history (T-14, R-54) */}
         <Route path="runs" element={<RunsPage api={api} />} />
+        <Route path="runs/compare" element={<RunsComparePage api={api} />} />
 
         <Route path="*" element={<Navigate to="/source/contracts-by-entity" replace />} />
       </Route>

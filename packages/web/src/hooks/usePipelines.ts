@@ -12,6 +12,7 @@
  *   ['prompts']                            — prompt list
  *   ['prompts', promptKey]                 — single prompt
  *   ['prompts', promptKey, 'versions']     — prompt version history
+ *   ['pipelines', 'runs', runId, 'artifact'] — emitted test file for a run (R-65)
  *
  * Requirements: R-35, R-37, R-38, R-39, R-41, R-54
  */
@@ -19,7 +20,6 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
-  type UseQueryOptions,
 } from '@tanstack/react-query';
 import type { Api } from '../api.js';
 import type { PipelineConfig, PromptItem } from '@registry/core';
@@ -200,6 +200,20 @@ export function useDeletePrompt(api: Api) {
 }
 
 /**
+ * Mutation: import legacy prompt versions as `legacy-<promptVersion>` prompts (R-72).
+ * On success, invalidates the prompt list cache.
+ */
+export function useImportLegacyPrompts(api: Api) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.importLegacyPrompts(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['prompts'] });
+    },
+  });
+}
+
+/**
  * Fetches the version history for a prompt.
  * Query key: ['prompts', key, 'versions']
  */
@@ -252,7 +266,7 @@ export function usePipelineRun(
       if (status && TERMINAL_STATUSES.has(status)) return false;
       return interval;
     },
-  } satisfies UseQueryOptions);
+  });
 }
 
 /**
@@ -263,5 +277,19 @@ export function useRunsList(api: Api, nextToken?: string) {
   return useQuery({
     queryKey: ['runs', nextToken],
     queryFn: () => api.listRuns(nextToken),
+  });
+}
+
+/**
+ * Fetches a run's emitted test file (R-65, R-71). Only enable when
+ * `run.artifact` is set — the endpoint 404s otherwise.
+ * Query key: ['pipelines', 'runs', runId, 'artifact']
+ */
+export function useRunArtifact(api: Api, runId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['pipelines', 'runs', runId, 'artifact'],
+    queryFn: () => api.getRunArtifact(runId),
+    enabled: enabled && Boolean(runId),
+    staleTime: Infinity, // artifacts are immutable once written
   });
 }

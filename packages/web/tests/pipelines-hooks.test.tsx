@@ -107,7 +107,7 @@ describe('API client — listPipelines (R-35)', () => {
     const responseBody = { pipelines: [fakePipeline], nextToken: 'tok-1' };
     stubFetch(responseBody);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const result = await api.listPipelines();
 
     const fetchMock = vi.mocked(fetch);
@@ -123,7 +123,7 @@ describe('API client — listPipelines (R-35)', () => {
   it('appends nextToken as a query param when provided', async () => {
     stubFetch({ pipelines: [], nextToken: undefined });
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     await api.listPipelines('cursor-42');
 
     const [url] = vi.mocked(fetch).mock.calls[0] as [string];
@@ -138,7 +138,7 @@ describe('API client — getPipelineRun (R-54)', () => {
     const responseBody = { run: fakeRun, steps: [fakeStep] };
     stubFetch(responseBody);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const result = await api.getPipelineRun('run-abc');
 
     const [url] = vi.mocked(fetch).mock.calls[0] as [string];
@@ -163,7 +163,7 @@ describe('usePipelines (R-35)', () => {
   it('fetches /pipelines and exposes the pipelines list', async () => {
     stubFetch({ pipelines: [fakePipeline], nextToken: undefined });
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const { result } = renderHook(() => usePipelines(api), {
       wrapper: makeWrapper(client),
     });
@@ -176,7 +176,7 @@ describe('usePipelines (R-35)', () => {
   it('exposes an error state when the fetch fails', async () => {
     stubFetchError(500);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const { result } = renderHook(() => usePipelines(api), {
       wrapper: makeWrapper(client),
     });
@@ -199,7 +199,7 @@ describe('useCreatePipeline (R-37)', () => {
   it('POSTs to /pipelines and invalidates the [pipelines] cache on success', async () => {
     // Seed the pipelines list cache so we can observe invalidation.
     stubFetch({ pipelines: [fakePipeline] });
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
 
     const { result } = renderHook(() => useCreatePipeline(api), {
@@ -230,7 +230,7 @@ describe('useCreatePipeline (R-37)', () => {
   it('surfaces an ApiError with serverMessage on 422', async () => {
     stubFetchError(422, { error: 'name is required' });
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const { result } = renderHook(() => useCreatePipeline(api), {
       wrapper: makeWrapper(client),
     });
@@ -259,7 +259,7 @@ describe('useDeletePipeline (R-37)', () => {
 
   it('DELETEs /pipelines/{id} and invalidates the [pipelines] cache on success', async () => {
     stubFetch(null, 204);
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
 
     // Make the DELETE response ok (204 bodies are empty, but stubFetch json is fine here)
@@ -290,7 +290,7 @@ describe('useDeletePipeline (R-37)', () => {
 
   it('surfaces ApiError(409) when a run is active', async () => {
     stubFetchError(409);
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
 
     const { result } = renderHook(() => useDeletePipeline(api), {
       wrapper: makeWrapper(client),
@@ -330,7 +330,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     renderHook(
       () => usePipelineRun(api, 'run-abc', { refetchInterval: 100 }),
       { wrapper: makeWrapper(client) }
@@ -361,7 +361,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     renderHook(
       () => usePipelineRun(api, 'run-abc', { refetchInterval: 100 }),
       { wrapper: makeWrapper(client) }
@@ -396,7 +396,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     renderHook(
       () => usePipelineRun(api, 'run-abc', { refetchInterval: 100 }),
       { wrapper: makeWrapper(client) }
@@ -428,7 +428,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     renderHook(
       () => usePipelineRun(api, 'run-abc'),
       { wrapper: makeWrapper(client) }
@@ -465,7 +465,7 @@ describe('usePrompts (R-35)', () => {
   it('fetches /prompts and exposes the prompts list', async () => {
     stubFetch({ prompts: [fakePrompt], nextToken: undefined });
 
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const { result } = renderHook(() => usePrompts(api), {
       wrapper: makeWrapper(client),
     });
@@ -489,7 +489,7 @@ describe('useUpdatePrompt (R-37, R-41)', () => {
 
   it('PUTs to /prompts/{key} and invalidates list, item, and versions caches on success', async () => {
     stubFetch({ ...fakePrompt, version: 2 });
-    const api = createApi(FAKE_TOKEN);
+    const api = createApi(async () => FAKE_TOKEN);
     const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
 
     const { result } = renderHook(() => useUpdatePrompt(api), {

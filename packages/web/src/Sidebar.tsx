@@ -1,17 +1,18 @@
 /**
  * Sidebar — persistent left-rail navigation for the registry SPA.
  *
- * Renders three SidebarArea groups:
- *   data-area="source"      — Source Pipeline nav links + Refresh action
- *   data-area="experiments" — Experiments nav links
- *   data-area="pipelines"   — Pipeline management + Prompt management (T-15, R-38, R-41)
+ * Renders (R-69):
+ *   data-area="catalog"     — Catalog nav links + Refresh action
+ *   data-area="experiments" — Pipelines, Prompts, Runs, Compare runs
+ *   data-area="legacy"      — collapsed <details> "Legacy (deprecated)" with the
+ *                             legacy /experiments/* prompt-versioning pages
  *
  * Each area group is wrapped in its own <nav> landmark.
  * Active links carry aria-current="page".
  * Refresh button is a <button>, not a nav link.
  *
- * Requirements: R-38, R-41, R-53, R-54
- * Task: T-15
+ * Requirements: R-38, R-41, R-53, R-54, R-69
+ * Task: T-15, T-22
  */
 import { useEffect, useRef } from 'react';
 import * as NavigationMenu from '@radix-ui/react-navigation-menu';
@@ -71,11 +72,11 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
       tabIndex={-1}
       onKeyDown={handleKeyDown}
     >
-      {/* Source Pipeline area */}
-      <div className="sidebar-area" data-area="source">
-        <nav aria-label="Source Pipeline navigation">
+      {/* Catalog area (R-69) */}
+      <div className="sidebar-area" data-area="catalog">
+        <nav aria-label="Catalog navigation">
           <div className="sidebar-area-header">
-            <span className="sidebar-area-title">Source Pipeline</span>
+            <span className="sidebar-area-title">Catalog</span>
             {writer && (
               <button
                 className="btn btn-ghost btn-sm"
@@ -106,7 +107,7 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
         </nav>
       </div>
 
-      {/* Experiments area */}
+      {/* Experiments area (R-69) — pipeline experimentation */}
       <div className="sidebar-area" data-area="experiments">
         <nav aria-label="Experiments navigation">
           <div className="sidebar-area-header">
@@ -114,28 +115,31 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
           </div>
           <NavigationMenu.Root orientation="vertical">
             <NavigationMenu.List>
-              <SidebarNavItem to="/experiments/prompt-versions" label="Prompt versions" onNavigate={onNavigate} />
-              <SidebarNavItem to="/experiments/run" label="Run experiments" onNavigate={onNavigate} />
-              <SidebarNavItem to="/experiments/compare" label="Compare results" onNavigate={onNavigate} />
+              <SidebarNavItem to="/pipelines" label="Pipelines" onNavigate={onNavigate} />
+              <SidebarNavItem to="/prompts" label="Prompts" onNavigate={onNavigate} />
+              <SidebarNavItem to="/runs" label="Runs" onNavigate={onNavigate} />
+              <SidebarNavItem to="/runs/compare" label="Compare runs" onNavigate={onNavigate} />
             </NavigationMenu.List>
           </NavigationMenu.Root>
         </nav>
       </div>
 
-      {/* Pipeline management area (T-15, R-38, R-41) — visible to all authenticated users */}
-      <div className="sidebar-area" data-area="pipelines">
-        <nav aria-label="Pipeline management navigation">
-          <div className="sidebar-area-header">
-            <span className="sidebar-area-title">Pipelines</span>
-          </div>
-          <NavigationMenu.Root orientation="vertical">
-            <NavigationMenu.List>
-              <SidebarNavItem to="/pipelines" label="Pipelines" onNavigate={onNavigate} />
-              <SidebarNavItem to="/prompts" label="Prompts" onNavigate={onNavigate} />
-              <SidebarNavItem to="/runs" label="Runs" onNavigate={onNavigate} />
-            </NavigationMenu.List>
-          </NavigationMenu.Root>
-        </nav>
+      {/* Legacy prompt-versioning pages (R-69) — collapsed by default */}
+      <div className="sidebar-area" data-area="legacy">
+        <details className="sidebar-legacy">
+          <summary className="sidebar-area-header">
+            <span className="sidebar-area-title">Legacy (deprecated)</span>
+          </summary>
+          <nav aria-label="Legacy navigation">
+            <NavigationMenu.Root orientation="vertical">
+              <NavigationMenu.List>
+                <SidebarNavItem to="/experiments/prompt-versions" label="Prompt versions" onNavigate={onNavigate} />
+                <SidebarNavItem to="/experiments/run" label="Run experiments" onNavigate={onNavigate} />
+                <SidebarNavItem to="/experiments/compare" label="Compare results" onNavigate={onNavigate} />
+              </NavigationMenu.List>
+            </NavigationMenu.Root>
+          </nav>
+        </details>
       </div>
     </div>
   );

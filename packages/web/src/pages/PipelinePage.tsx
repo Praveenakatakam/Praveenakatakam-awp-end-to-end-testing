@@ -3,8 +3,9 @@
  *
  * Route: /pipelines/:pipelineId
  * - Writers can edit name, mode, sampling, steps; Run button triggers a pipeline run.
- * - "New Prompt" sub-form on each step for creating prompts inline.
- * - Optional, Wait for human, and Max steps are not exposed in the UI.
+ * - Layout: shared SplitPane (R-68) — configuration + ordered step list on the
+ *   left, the selected step's shared StepEditor (R-67) on the right.
+ * - Wait for human and Max steps are not exposed in the UI.
  *
  * Requirements: R-38, R-39, R-40, R-44
  */
@@ -13,298 +14,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
-import type { PipelineStep, SamplingConfig } from '@registry/core';
+import type { PipelineStep, SamplingConfig, SkippedRequirement } from '@registry/core';
 import {
   usePipeline,
   useUpdatePipeline,
-  usePrompts,
-  useCreatePrompt,
   useRunPipeline,
 } from '../hooks/usePipelines.js';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const KNOWN_MODELS = [
-  'us.anthropic.claude-sonnet-4-6',
-  'us.anthropic.claude-haiku-4-5',
-];
-
-function makeStep(index: number): PipelineStep {
-  return {
-    stepId: `s${index + 1}`,
-    label: `Step ${index + 1}`,
-    model: KNOWN_MODELS[0],
-    promptKey: '',
-    optional: false,
-    waitForHuman: false,
-    includeContext: true,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// StepEditor — editable (or read-only) card for one step
-// ---------------------------------------------------------------------------
-
-function StepEditor({
-  api,
-  step,
-  index,
-  total,
-  writer,
-  promptKeys,
-  onChange,
-  onMoveUp,
-  onMoveDown,
-  onRemove,
-}: {
-  api: Api;
-  step: PipelineStep;
-  index: number;
-  total: number;
-  writer: boolean;
-  promptKeys: string[];
-  onChange: (s: PipelineStep) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onRemove: () => void;
-}) {
-  const [newPromptMode, setNewPromptMode] = useState(false);
-  const [newPromptKey, setNewPromptKey] = useState('');
-  const [newPromptBody, setNewPromptBody] = useState('');
-  const [newPromptError, setNewPromptError] = useState('');
-  const createPromptMutation = useCreatePrompt(api);
-
-  const isCustomModel = step.model !== '' && !KNOWN_MODELS.includes(step.model);
-
-  return (
-    <div className="card" style={{ marginBottom: 8 }}>
-      {/* Step header */}
-      <div className="cluster" style={{ marginBottom: 8 }}>
-        <span className="badge badge-accent" style={{ fontSize: 11 }}>Step {index + 1}</span>
-        <span
-          className="text-muted text-sm"
-          style={{ fontFamily: 'var(--font-mono)' }}
-        >
-          {step.stepId}
-        </span>
-        {writer && (
-          <div className="cluster" style={{ marginLeft: 'auto', gap: 4 }}>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={onMoveUp}
-              disabled={index === 0}
-              title="Move up"
-            >
-              ↑
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={onMoveDown}
-              disabled={index === total - 1}
-              title="Move down"
-            >
-              ↓
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              style={{ color: 'var(--danger, #e53e3e)' }}
-              onClick={onRemove}
-            >
-              Remove
-            </button>
-          </div>
-        )}
-      </div>
-
-      {writer ? (
-        <div className="form-grid">
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Step ID</label>
-              <input
-                className="form-input"
-                value={step.stepId}
-                onChange={(e) => onChange({ ...step, stepId: e.target.value })}
-                placeholder="s1"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Label</label>
-              <input
-                className="form-input"
-                value={step.label}
-                onChange={(e) => onChange({ ...step, label: e.target.value })}
-                placeholder="Step label"
-              />
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Model</label>
-            <select
-              className="form-select"
-              value={isCustomModel ? '__custom__' : (step.model || KNOWN_MODELS[0])}
-              onChange={(e) => {
-                if (e.target.value !== '__custom__') {
-                  onChange({ ...step, model: e.target.value });
-                } else {
-                  onChange({ ...step, model: '' });
-                }
-              }}
-            >
-              {KNOWN_MODELS.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-              <option value="__custom__">Custom…</option>
-            </select>
-            {isCustomModel && (
-              <input
-                className="form-input"
-                style={{ marginTop: 4 }}
-                value={step.model}
-                onChange={(e) => onChange({ ...step, model: e.target.value })}
-                placeholder="us.anthropic.claude-..."
-              />
-            )}
-          </div>
-
-          {/* Prompt key + New Prompt sub-form */}
-          <div className="form-group">
-            <label className="form-label">Prompt key</label>
-            <div className="cluster" style={{ gap: 6 }}>
-              {promptKeys.length > 0 ? (
-                <select
-                  className="form-select"
-                  style={{ flex: 1 }}
-                  value={step.promptKey}
-                  onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
-                >
-                  <option value="">— select prompt —</option>
-                  {promptKeys.map((k) => (
-                    <option key={k} value={k}>{k}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="form-input"
-                  style={{ flex: 1 }}
-                  value={step.promptKey}
-                  onChange={(e) => onChange({ ...step, promptKey: e.target.value })}
-                  placeholder="functional-test-gen-default"
-                />
-              )}
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => setNewPromptMode((p) => !p)}
-              >
-                {newPromptMode ? 'Cancel' : '+ New prompt'}
-              </button>
-            </div>
-          </div>
-
-          {newPromptMode && (
-            <div style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '8px 10px',
-              background: 'var(--bg)',
-            }}>
-              <p className="text-sm" style={{ marginBottom: 6, fontWeight: 500 }}>New prompt</p>
-              <div className="form-group">
-                <label className="form-label">Prompt key</label>
-                <input
-                  className="form-input"
-                  value={newPromptKey}
-                  onChange={(e) => setNewPromptKey(e.target.value)}
-                  placeholder="my-prompt-key"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Prompt body</label>
-                <textarea
-                  className="form-textarea"
-                  value={newPromptBody}
-                  onChange={(e) => setNewPromptBody(e.target.value)}
-                  rows={4}
-                />
-              </div>
-              {newPromptError && (
-                <p className="form-error" role="alert">{newPromptError}</p>
-              )}
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                disabled={createPromptMutation.isPending || !newPromptKey || !newPromptBody}
-                onClick={async () => {
-                  setNewPromptError('');
-                  try {
-                    await createPromptMutation.mutateAsync({ promptKey: newPromptKey, body: newPromptBody });
-                    onChange({ ...step, promptKey: newPromptKey });
-                    setNewPromptMode(false);
-                    setNewPromptKey('');
-                    setNewPromptBody('');
-                  } catch (err) {
-                    const msg =
-                      err instanceof ApiError && err.serverMessage
-                        ? err.serverMessage
-                        : (err as Error).message;
-                    setNewPromptError(msg);
-                  }
-                }}
-              >
-                {createPromptMutation.isPending ? 'Creating…' : 'Create prompt'}
-              </button>
-            </div>
-          )}
-
-          {/* Include context only — Optional and Wait for human not exposed yet */}
-          <div className="cluster" style={{ gap: 16, flexWrap: 'wrap' }}>
-            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={step.includeContext}
-                onChange={(e) => onChange({ ...step, includeContext: e.target.checked })}
-              />
-              Include context
-            </label>
-          </div>
-        </div>
-      ) : (
-        /* Read-only view */
-        <dl className="meta-grid">
-          {(
-            [
-              ['Label', step.label],
-              ['Model', step.model],
-              ['Prompt key', step.promptKey || '—'],
-              ['Include context', step.includeContext ? 'Yes' : 'No'],
-            ] as [string, string][]
-          ).map(([k, v]) => (
-            <div key={k} style={{ display: 'contents' }}>
-              <dt className="meta-key">{k}</dt>
-              <dd
-                className="meta-val"
-                style={
-                  k === 'Model' || k === 'Prompt key'
-                    ? { fontFamily: 'var(--font-mono)', fontSize: 12 }
-                    : undefined
-                }
-              >
-                {v}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
-  );
-}
+import SplitPane from '../components/SplitPane.js';
+import StepEditor, { makeStep, outputTypeOf } from '../components/StepEditor.js';
+import SkippedRequirements, { type RunNavState } from '../components/SkippedRequirements.js';
 
 // ---------------------------------------------------------------------------
 // PipelinePage — main export
@@ -318,16 +36,16 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
     usePipeline(api, pipelineId ?? '');
   const updateMutation = useUpdatePipeline(api);
   const runMutation = useRunPipeline(api);
-  const { data: promptsData } = usePrompts(api);
 
   const [name, setName] = useState('');
   const [defaultMode, setDefaultMode] = useState<'per_requirement' | 'batch'>('per_requirement');
   const [sampling, setSampling] = useState<SamplingConfig>({ strategy: 'first_n', n: 3 });
   const [steps, setSteps] = useState<PipelineStep[]>([]);
   const [saveError, setSaveError] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [runSkipped, setRunSkipped] = useState<SkippedRequirement[]>([]);
 
   const writer = isWriter(token);
-  const promptKeys = (promptsData?.prompts ?? []).map((p) => p.promptKey);
 
   // Sync form state from the fetched pipeline (only when the pipeline ID changes)
   useEffect(() => {
@@ -337,6 +55,7 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
       setSampling(pipeline.defaultSampling);
       setSteps(pipeline.steps);
       setSaveError('');
+      setSelectedIndex(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline?.pipelineId]);
@@ -353,6 +72,18 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
       next.splice(to, 0, item);
       return next;
     });
+    // Selection follows the step that moved (or the one displaced by it).
+    setSelectedIndex((sel) => (sel === from ? to : sel === to ? from : sel));
+  }
+
+  function removeStep(index: number) {
+    setSteps((prev) => prev.filter((_, i) => i !== index));
+    setSelectedIndex((sel) => (sel > index ? sel - 1 : sel === index ? Math.max(0, sel - 1) : sel));
+  }
+
+  function addStep() {
+    setSteps((prev) => [...prev, makeStep(prev.length)]);
+    setSelectedIndex(steps.length);
   }
 
   async function handleSave() {
@@ -373,12 +104,16 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
 
   async function handleRun() {
     setSaveError('');
+    setRunSkipped([]);
     try {
       const res = await runMutation.mutateAsync(pipeline!.pipelineId);
-      const runId = res.runId ?? res.runIds?.[0];
-      if (runId) navigate(`/pipelines/${pipeline!.pipelineId}/runs/${runId}`);
+      const runId = res.runIds[0];
+      // skipped (R-55, R-71) travels with the navigation; RunDetailPage lists it.
+      if (runId) navigate(`/pipelines/${pipeline!.pipelineId}/runs/${runId}`, { state: res satisfies RunNavState });
+      else setRunSkipped(res.skipped);
     } catch (err) {
-      setSaveError((err as Error).message);
+      setSaveError(err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message);
+      setRunSkipped(err instanceof ApiError ? (err.skipped ?? []) : []);
     }
   }
 
@@ -420,9 +155,11 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
     );
   }
 
+  const selectedStep = steps[selectedIndex];
+
   return (
-    <div className="app-body" aria-label="pipeline-detail">
-      <div className="app-main">
+    <SplitPane id="pipeline-page" sideLabel="step-detail">
+      <div aria-label="pipeline-detail">
         {/* Breadcrumb + actions */}
         <div className="cluster" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <button
@@ -579,23 +316,20 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
             {saveError}
           </p>
         )}
+        <SkippedRequirements skipped={runSkipped} />
         {updateMutation.isSuccess && !saveError && (
           <p className="alert alert-info" role="status" style={{ marginBottom: 12 }}>
             Pipeline saved successfully.
           </p>
         )}
 
-        {/* Steps section */}
+        {/* Steps section — ordered list; the selected step is edited in the side pane */}
         <div className="cluster" style={{ marginBottom: 8 }}>
           <p className="section-heading" style={{ marginBottom: 0 }}>
             Steps ({steps.length})
           </p>
           {writer && (
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => setSteps((prev) => [...prev, makeStep(prev.length)])}
-            >
+            <button className="btn btn-ghost btn-sm" type="button" onClick={addStep}>
               + Add step
             </button>
           )}
@@ -607,21 +341,36 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
           </p>
         )}
 
-        {steps.map((step, index) => (
-          <StepEditor
-            key={step.stepId || String(index)}
-            api={api}
-            step={step}
-            index={index}
-            total={steps.length}
-            writer={writer}
-            promptKeys={promptKeys}
-            onChange={(updated) => handleStepChange(index, updated)}
-            onMoveUp={() => moveStep(index, index - 1)}
-            onMoveDown={() => moveStep(index, index + 1)}
-            onRemove={() => setSteps((prev) => prev.filter((_, i) => i !== index))}
-          />
-        ))}
+        <ol className="step-list" aria-label="steps">
+          {steps.map((step, index) => (
+            <li key={index} className="step-list-item">
+              <button
+                className="row-btn"
+                type="button"
+                aria-pressed={index === selectedIndex}
+                onClick={() => setSelectedIndex(index)}
+              >
+                <span className="badge badge-muted" style={{ fontSize: 11 }}>{index + 1}</span>
+                <span className="row-label">{step.label || step.stepId}</span>
+                <span className="badge badge-muted">{outputTypeOf(step)}</span>
+                <span className="row-meta">{step.promptKey || 'no prompt'}</span>
+              </button>
+              {writer && (
+                <div className="cluster" style={{ gap: 4, flexShrink: 0 }}>
+                  <button className="btn btn-ghost btn-sm" type="button" title="Move up"
+                    aria-label={`Move step ${index + 1} up`}
+                    disabled={index === 0} onClick={() => moveStep(index, index - 1)}>↑</button>
+                  <button className="btn btn-ghost btn-sm" type="button" title="Move down"
+                    aria-label={`Move step ${index + 1} down`}
+                    disabled={index === steps.length - 1} onClick={() => moveStep(index, index + 1)}>↓</button>
+                  <button className="btn btn-ghost btn-sm" type="button"
+                    aria-label={`Remove step ${index + 1}`}
+                    style={{ color: 'var(--danger, #e53e3e)' }} onClick={() => removeStep(index)}>✕</button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
 
         {/* Bottom save bar (writer only) */}
         {writer && (
@@ -655,6 +404,20 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
           </div>
         )}
       </div>
-    </div>
+
+      {selectedStep ? (
+        <StepEditor
+          key={selectedIndex}
+          api={api}
+          step={selectedStep}
+          index={selectedIndex}
+          total={steps.length}
+          writer={writer}
+          onChange={(updated) => handleStepChange(selectedIndex, updated)}
+        />
+      ) : (
+        <p className="text-muted text-sm">Select a step to view or edit it.</p>
+      )}
+    </SplitPane>
   );
 }

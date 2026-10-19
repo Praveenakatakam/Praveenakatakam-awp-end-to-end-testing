@@ -10,15 +10,38 @@ import type {
   PromptItem,
   PipelineRun,
   StepRecord,
+  SkippedRequirement,
 } from '@registry/core';
 
 export class ApiError extends Error {
   /** Server-provided error message from the response body (e.g. 422 validation detail). */
   serverMessage?: string;
-  constructor(public status: number, serverMessage?: string) {
+  /** Requirements excluded by grounding, when a run trigger is rejected with 422 (R-56). */
+  skipped?: SkippedRequirement[];
+  constructor(public status: number, serverMessage?: string, skipped?: SkippedRequirement[]) {
     super(`API ${status}`);
     this.serverMessage = serverMessage;
+    this.skipped = skipped;
   }
+}
+
+/** Normalised `202` body of a pipeline run trigger (R-48, R-49, R-55). */
+export interface RunTriggerResult {
+  /** One id for batch mode; one per selected requirement for per_requirement mode. */
+  runIds: string[];
+  skipped: SkippedRequirement[];
+}
+
+/** `GET /runs/{runId}/artifact` (R-65). */
+export interface RunArtifactContent {
+  path: string;
+  content: string;
+}
+
+/** `POST /prompts/import-legacy` (R-72). */
+export interface ImportLegacyResult {
+  imported: string[];
+  skipped: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -53,13 +76,15 @@ export function createApi(getToken: () => Promise<string>) {
     });
     if (!res.ok) {
       let serverMessage: string | undefined;
+      let skipped: SkippedRequirement[] | undefined;
       try {
         const body = await res.json();
         if (typeof body.error === 'string') serverMessage = body.error;
+        if (Array.isArray(body.skipped)) skipped = body.skipped;
       } catch {
         // ignore parse errors — leave serverMessage undefined
       }
-      throw new ApiError(res.status, serverMessage);
+      throw new ApiError(res.status, serverMessage, skipped);
     }
     return res;
   };
@@ -148,10 +173,15 @@ export function createApi(getToken: () => Promise<string>) {
 
     /**
      * POST /generate-functional-tests with pipelineId
-     * Starts a pipeline run. Returns { runId } for batch or { runIds } for per_requirement mode.
+     * Starts a pipeline run. Backend returns `{ runId, skipped }` (batch) or
+     * `{ runIds, skipped }` (per_requirement) — normalised to `{ runIds, skipped }`.
+     * Throws ApiError(422) with `skipped` when nothing grounds (R-56).
      */
-    runPipeline: async (pipelineId: string): Promise<{ runId?: string; runIds?: string[] }> =>
-      (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId }) })).json(),
+    runPipeline: async (pipelineId: string): Promise<RunTriggerResult> => {
+      const res = await (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId }) })).json();
+      const runIds: string[] = Array.isArray(res.runIds) ? res.runIds : res.runId ? [res.runId] : [];
+      return { runIds, skipped: Array.isArray(res.skipped) ? res.skipped : [] };
+    },
 
     // -------------------------------------------------------------------------
     // Prompt CRUD (T-11, R-31, R-35, R-37, R-41)
@@ -207,6 +237,15 @@ export function createApi(getToken: () => Promise<string>) {
     ): Promise<{ promptKey: string; versions: { version: number; createdAt: string }[] }> =>
       (await req(`/prompts/${encodeURIComponent(key)}/versions`)).json(),
 
+    /**
+     * POST /prompts/import-legacy (writer-only, R-72)
+     * Copies legacy prompt versions into the prompt store; idempotent.
+     */
+    importLegacyPrompts: async (): Promise<ImportLegacyResult> => {
+      const res = await (await reqMut('/prompts/import-legacy', { method: 'POST' })).json();
+      return { imported: res.imported ?? [], skipped: res.skipped ?? [] };
+    },
+
     // -------------------------------------------------------------------------
     // Pipeline run (T-11, R-54)
     // -------------------------------------------------------------------------
@@ -218,6 +257,12 @@ export function createApi(getToken: () => Promise<string>) {
      */
     getPipelineRun: async (runId: string): Promise<{ run: PipelineRun; steps: StepRecord[] }> =>
       (await req(`/runs/${encodeURIComponent(runId)}`)).json(),
+
+    /**
+     * GET /runs/{runId}/artifact (R-65) — the emitted test file. 404 when unset.
+     */
+    getRunArtifact: async (runId: string): Promise<RunArtifactContent> =>
+      (await req(`/runs/${encodeURIComponent(runId)}/artifact`)).json(),
 
     listRuns: async (nextToken?: string): Promise<{ items: PipelineRun[]; nextToken?: string }> => {
       const res = await (await req(`/runs${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
