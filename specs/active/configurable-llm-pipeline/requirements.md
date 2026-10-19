@@ -384,7 +384,7 @@ Errors (`errorMessage`, `errorStack`) remain visible above the tabs for failed /
 
 **R-90** — The **Compare** page SHALL compare any two experiments of either kind (`/compare?a=<kind>:<id>&b=<kind>:<id>`) using R-83: a per-requirement table (requirement, status A, status B), with each row expandable to show the two plans side by side (rendered as in R-77), the plan field diff, and the test-file line diff; requirements present in only one experiment, or skipped in one, are listed separately. Each pipeline result links to its run detail. The v0.4.0 run-level compare (`/runs/compare`) remains, linked from expanded rows when both sides are pipeline runs.
 
-**R-91** — The legacy experiment runner (`POST /experiments`) SHALL remain deployed and functional but SHALL NOT be offered in the SPA navigation; the Experiments page MAY expose it only as a secondary "Run legacy experiment (deprecated)" action until the baseline pipeline has been verified to reproduce legacy output (see Q5), after which that action is removed.
+**R-91** — The legacy experiment runner (`POST /experiments`) SHALL remain deployed (D-27) but SHALL NOT be offered anywhere in the SPA. (v0.6.0: the interim "Run legacy experiment (deprecated)" action was removed after Q5 was closed by the user.) Legacy experiments and prompt versions remain viewable, comparable, and importable.
 
 **TS-68** — Given a pipeline trigger with 3 selected requirements → one PEXP record with 3 `runs` entries; each PRUN has `experimentId`; the 202 includes `experimentId`.
 **TS-69** — Given `dryRun: true` → 200 with `selected` and `skipped`; no PutCommand and no Lambda invoke.
@@ -447,7 +447,7 @@ All open questions from v0.1.0 have been resolved:
 - **Q1 (model allowlist format):** Closed — `step.model` is validated against a configurable allowlist stored as a system config value in DynamoDB. New models can be added without a code change. HTTP 422 on unknown model.
 - **Q3 (lease duration):** Closed — default lease duration is 5 minutes, a single value applied per step. Making it configurable per step is deferred as a follow-on.
 - **Q4 (batch-mode grounding, open — v0.4.0):** `batch` mode (R-49) still grounds only `requirementIds[0]` in the step worker. Combining several grounded contexts (possibly different entities) into one prompt needs its own design; tracked as a follow-on, not in v0.4.0 scope.
-- **Q5 (baseline verification, open — v0.6.0):** After deploy, run the `baseline-legacy-v1` pipeline and a legacy `v1` experiment against the same catalog and compare them (R-90). Expect identical inputs (TS-72) but not identical outputs — Bedrock sampling is non-deterministic. Acceptance: same groundable/skipped sets and comparable plan validity rates. Then remove the deprecated legacy run action (R-91).
+- **Q5 (baseline verification) — closed 2026-10-19:** the user reviewed the legacy data in the unified views and approved removing the legacy run action. A formal baseline-vs-legacy-v1 comparison run (TS-72 already guarantees identical requests) remains optional.
 
 ## 8. Decisions Log
 

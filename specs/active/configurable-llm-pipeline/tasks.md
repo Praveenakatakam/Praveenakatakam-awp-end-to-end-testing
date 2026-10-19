@@ -658,4 +658,4 @@ Backend (T-29 → T-30 → T-31) and web (T-32 → T-33 → T-34) in parallel af
 ### T-34: Experiment-level Compare page ✅
 **Subagent:** implementer (web) · **Requirements:** R-90 · **Tests:** TS-79
 
-### Q5 follow-up (manual, after deploy): verify baseline vs legacy v1, then remove the deprecated legacy run action (R-91)
+### Q5 follow-up: remove the deprecated legacy run action (R-91) ✅ — closed by user decision

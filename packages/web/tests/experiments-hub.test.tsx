@@ -59,7 +59,6 @@ function makeApi(overrides: Record<string, unknown> = {}) {
     dryRunPipeline: vi.fn().mockResolvedValue({ selected: ['publisher/R-1'], skipped: [] }),
     runPipeline: vi.fn().mockResolvedValue({ runIds: ['run-new'], skipped: [], experimentId: 'pexp-new' }),
     listPromptVersions: vi.fn().mockResolvedValue({ promptVersions: [{ promptVersion: 'v1', modelId: 'm1', createdAt: '2026-01-01T00:00:00Z' }] }),
-    createExperiment: vi.fn().mockResolvedValue({ experimentId: 'exp-new', statusUrl: '/experiments/exp-new' }),
     ...overrides,
   } as unknown as Api & Record<string, ReturnType<typeof vi.fn>>;
 }
@@ -247,20 +246,14 @@ describe('New experiment dry-run flow (T-32 · R-81, R-88 · TS-77)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deprecated legacy run action — R-91
+// Legacy run action removed — R-91 (Q5 closed)
 // ---------------------------------------------------------------------------
 
-describe('Run legacy experiment (deprecated) action (T-32 · R-91)', () => {
-  it('starts a legacy experiment and selects it', async () => {
+describe('No legacy run action (R-91)', () => {
+  it('does not offer a way to start a legacy experiment', async () => {
     const api = makeApi();
     renderHub(api);
-    await userEvent.click(await screen.findByRole('button', { name: /run legacy experiment \(deprecated\)/i }));
-    const form = screen.getByLabelText('legacy experiment form');
-    const picker = within(form).getByLabelText('Prompt version');
-    await waitFor(() => expect(within(picker).getAllByRole('option')).toHaveLength(2));
-    await userEvent.selectOptions(picker, 'v1');
-    await userEvent.click(within(form).getByRole('button', { name: /^run legacy experiment$/i }));
-    expect(api.createExperiment).toHaveBeenCalledWith({ promptVersion: 'v1' });
-    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('selected=legacy%3Aexp-new'));
+    expect(await screen.findByRole('button', { name: /new experiment/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /legacy experiment/i })).not.toBeInTheDocument();
   });
 });

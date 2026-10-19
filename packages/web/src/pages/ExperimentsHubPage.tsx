@@ -9,11 +9,9 @@
  *   - "New experiment" (writers): pipeline, optional sampling/mode override,
  *     dry run (R-81) → selected count + skipped, explicit confirmation when
  *     more than 20 requirements are selected, then trigger and select it.
- *   - "Run legacy experiment (deprecated)" (writers) — removed after Q5.
  */
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import type {
@@ -28,7 +26,6 @@ import { asPlan, isWriter } from '../lib.js';
 import SplitPane from '../components/SplitPane.js';
 import SkippedRequirements from '../components/SkippedRequirements.js';
 import PlanView from '../components/step-output/PlanView.js';
-import LegacyExperimentRunForm from '../components/LegacyExperimentRunForm.js';
 import { KindBadge, experimentRef, parseExperimentRef, statusBadgeClass } from '../components/experiment-ref.js';
 import {
   useDryRunPipeline,
@@ -373,11 +370,10 @@ function IndexRow({ entry, selected, onSelect }: { entry: ExperimentIndexEntry; 
 export default function ExperimentsHubPage({ api, token }: { api: Api; token: string }) {
   const writer = isWriter(token);
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selected = parseExperimentRef(params.get('selected'));
   const { data: entries = [], isLoading, error } = useExperimentIndex(api);
-  const [panel, setPanel] = useState<'none' | 'new' | 'legacy'>('none');
+  const [panel, setPanel] = useState<'none' | 'new'>('none');
 
   function select(ref: { kind: ExperimentKind; id: string } | null) {
     const next = new URLSearchParams(params);
@@ -391,14 +387,9 @@ export default function ExperimentsHubPage({ api, token }: { api: Api; token: st
         <div className="cluster" style={{ marginBottom: 12 }}>
           <h3 className="section-heading" style={{ marginBottom: 0, flex: 1 }}>Experiments</h3>
           {writer && (
-            <>
-              <button className="btn btn-primary btn-sm" type="button" onClick={() => setPanel('new')}>
-                New experiment
-              </button>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPanel('legacy')}>
-                Run legacy experiment (deprecated)
-              </button>
-            </>
+            <button className="btn btn-primary btn-sm" type="button" onClick={() => setPanel('new')}>
+              New experiment
+            </button>
           )}
         </div>
 
@@ -410,17 +401,6 @@ export default function ExperimentsHubPage({ api, token }: { api: Api; token: st
               setPanel('none');
               if (res.experimentId) select({ kind: 'pipeline', id: res.experimentId });
               else if (res.runIds[0]) navigate(`/runs/${encodeURIComponent(res.runIds[0])}`);
-            }}
-          />
-        )}
-        {writer && panel === 'legacy' && (
-          <LegacyExperimentRunForm
-            api={api}
-            onCancel={() => setPanel('none')}
-            onCreated={(experimentId) => {
-              setPanel('none');
-              queryClient.invalidateQueries({ queryKey: ['experiment-index'] });
-              select({ kind: 'legacy', id: experimentId });
             }}
           />
         )}
