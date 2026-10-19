@@ -1151,22 +1151,22 @@ export async function updatePrmpt(
 }
 
 /**
- * List active prompts via the `byKind` GSI (excludes soft-deleted items).
+ * List active prompts (excludes soft-deleted items).
  * Returns a page of items and an opaque `nextToken` for the next page.
  */
 export async function listPrmpts(
   ddb: DynamoDBDocumentClient,
   nextToken?: string
 ): Promise<{ items: PromptItem[]; nextToken?: string }> {
+  // Prompt items have kind="PRMPT" but no `startedAt`, so the byKind GSI
+  // (composite key: kind + startedAt) does not index them — same as pipelines.
+  // Scan by PK prefix; `PRMPT#` does not match `PRMPTVER#` version records.
   const res = await ddb.send(
-    new QueryCommand({
+    new ScanCommand({
       TableName: TABLE,
-      IndexName: 'byKind',
-      KeyConditionExpression: 'kind = :k',
-      FilterExpression: '#active = :active',
+      FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk AND #active = :active',
       ExpressionAttributeNames: { '#active': 'active' },
-      ExpressionAttributeValues: { ':k': 'PRMPT', ':active': true },
-      ScanIndexForward: false,
+      ExpressionAttributeValues: { ':prefix': 'PRMPT#', ':sk': 'PRMPT', ':active': true },
       ...(nextToken
         ? { ExclusiveStartKey: JSON.parse(Buffer.from(nextToken, 'base64').toString('utf-8')) }
         : {}),
