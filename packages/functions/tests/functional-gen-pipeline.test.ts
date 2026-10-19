@@ -23,7 +23,7 @@ import {
   type PipelineDispatchDeps,
 } from '../src/functional-gen.js';
 import type { PipelineConfig, PipelineRun, SamplingConfig, ExecutionMode } from '@registry/core';
-import type { RequirementRecord } from '../src/repository.js';
+import type { CatalogEntry, RequirementRecord } from '../src/repository.js';
 
 // ---------------------------------------------------------------------------
 // Fake helpers
@@ -59,11 +59,12 @@ function makePipeline(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
   };
 }
 
-function makeRequirement(id: string): RequirementRecord {
+function makeRequirement(id: string, source = 'publisher', text?: string): RequirementRecord {
   return {
-    source: 'publisher',
+    source,
     id,
-    text: `WHEN a ${id} event occurs it SHALL be handled`,
+    // Mentions the cross-service, API-mapped `org` entity → groundable (R-55).
+    text: text ?? `WHEN an org ${id} event occurs it SHALL be handled`,
     section: '3.1',
     earsType: 'event',
     modality: 'SHALL',
@@ -74,26 +75,68 @@ function makeRequirement(id: string): RequirementRecord {
   };
 }
 
-/** In-memory PipelineDispatchDeps — captures all PRUN writes and dispatch calls. */
-function fakeDeps(pipeline?: PipelineConfig | null, requirementIds: string[] = ['R-001', 'R-002', 'R-003', 'R-004', 'R-005']) {
+function contractYaml(entity: string): string {
+  return [
+    'version: 1.0.0',
+    'apiVersion: v3.1.0',
+    'kind: DataContract',
+    `id: ${entity}-contract`,
+    `name: ${entity}`,
+    'schema:',
+    `  - name: ${entity}`,
+    '    properties:',
+    '      - name: sourcedId',
+    '        required: true',
+    '        logicalType: string',
+  ].join('\n');
+}
+
+function entry(source: string, entity: string): CatalogEntry {
+  return {
+    source,
+    id: `${entity}-contract`,
+    entity,
+    currentVersion: 1,
+    currentHash: `${source}-hash`,
+    validation: 'valid',
+    commitSha: 'sha',
+    filePath: 'contracts/x.yaml',
+    lastCrawledAt: '2026-07-16T00:00:00Z',
+  };
+}
+
+/** Requirements given as bare IDs (publisher source, groundable) or full records. */
+type ReqSpec = string | RequirementRecord;
+
+/**
+ * In-memory PipelineDispatchDeps — captures all PRUN writes and dispatch calls.
+ * The catalog holds an `org` contract in both `publisher` and `consumer` (the
+ * real API_MAP maps publisher/org), so requirements that mention "org" ground.
+ */
+function fakeDeps(pipeline?: PipelineConfig | null, requirements: ReqSpec[] = ['R-001', 'R-002', 'R-003', 'R-004', 'R-005']) {
   const prunWrites: PipelineRun[] = [];
   const dispatchCalls: string[] = [];
   const callOrder: string[] = [];
 
-  const deps: PipelineDispatchDeps = {
-    async getPipelineConfig(id) {
+  const deps = {
+    async getPipelineConfig(id: string) {
       if (pipeline === undefined) return makePipeline({ pipelineId: id });
       return pipeline ?? undefined;
     },
-    async listEntries() { return []; },
-    async listRequirements() {
-      return requirementIds.map(makeRequirement);
+    async listEntries() {
+      return [entry('publisher', 'org'), entry('consumer', 'org')];
     },
-    async writePrun(run) {
+    async getRaw() {
+      return contractYaml('org');
+    },
+    async listRequirements() {
+      return requirements.map((r) => (typeof r === 'string' ? makeRequirement(r) : r));
+    },
+    async writePrun(run: PipelineRun) {
       callOrder.push('writePrun');
       prunWrites.push(run);
     },
-  };
+  } as unknown as PipelineDispatchDeps;
 
   async function dispatch(runId: string): Promise<void> {
     callOrder.push('dispatch');
@@ -204,7 +247,10 @@ describe('handleGeneratePipeline — per_requirement mode (R-48)', () => {
     const body = JSON.parse(result.body);
     expect(Array.isArray(body.runIds)).toBe(true);
     expect(body.runIds).toHaveLength(2);
+    expect(body.skipped).toEqual([]);
     expect(prunWrites).toHaveLength(2);
+    // Requirement IDs are source-qualified (R-57)
+    expect(prunWrites.map((r) => r.requirementIds[0])).toEqual(['publisher/R-001', 'publisher/R-002']);
   });
 
   it('each PRUN record has exactly one requirementId in per_requirement mode', async () => {
@@ -243,7 +289,7 @@ describe('handleGeneratePipeline — per_requirement mode (R-48)', () => {
     expect(dispatchCalls).toHaveLength(3);
   });
 
-  it('returns { runIds: [] } with no PRUNs created when selection is empty (first_n: 0)', async () => {
+  it('returns HTTP 422 with no PRUNs created when selection is empty (first_n: 0) (R-56)', async () => {
     // GIVEN sampling that selects nothing
     const { deps, dispatch, prunWrites, dispatchCalls } = fakeDeps();
 
@@ -256,10 +302,11 @@ describe('handleGeneratePipeline — per_requirement mode (R-48)', () => {
       clock
     );
 
-    // THEN
-    expect(result.statusCode).toBe(202);
+    // THEN — an empty selection is rejected (design §v0.4.0 Grounding-aware sampling)
+    expect(result.statusCode).toBe(422);
     const body = JSON.parse(result.body);
-    expect(body.runIds).toEqual([]);
+    expect(body.error).toBe('no groundable requirements');
+    expect(body.skipped).toEqual([]);
     expect(prunWrites).toHaveLength(0);
     expect(dispatchCalls).toHaveLength(0);
   });
@@ -289,8 +336,9 @@ describe('handleGeneratePipeline — batch mode (R-49)', () => {
     // batch mode returns single runId, not array
     expect(typeof body.runId).toBe('string');
     expect(body.runIds).toBeUndefined();
+    expect(body.skipped).toEqual([]);
     expect(prunWrites).toHaveLength(1);
-    expect(prunWrites[0].requirementIds).toHaveLength(2);
+    expect(prunWrites[0].requirementIds).toEqual(['publisher/R-001', 'publisher/R-002']);
   });
 
   it('dispatches exactly one step Lambda in batch mode regardless of requirement count', async () => {
@@ -485,5 +533,169 @@ describe('handleGeneratePipeline — run-request overrides (R-47, R-50)', () => 
     expect(prunWrites).toHaveLength(1);
     expect(prunWrites[0].mode).toBe('batch');
     expect(prunWrites[0].sampling).toEqual({ strategy: 'first_n', n: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Grounding-aware sampling + qualified IDs (v0.4.0 · R-55 – R-58)
+// ---------------------------------------------------------------------------
+
+describe('handleGeneratePipeline — grounding-aware sampling (R-55 – R-58)', () => {
+  const ungroundable = (id: string) => makeRequirement(id, 'publisher', 'data at rest SHALL be encrypted');
+
+  it('TS-39: 5 requirements, 2 ungroundable, first_n: 3 → 3 groundable runs; skipped lists the 2 with reasons', async () => {
+    // GIVEN — R-001 and R-002 reference no cataloged entity (they sort first)
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, [
+      ungroundable('R-001'),
+      ungroundable('R-002'),
+      'R-003',
+      'R-004',
+      'R-005',
+    ]);
+
+    // WHEN
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'first_n', n: 3 }, mode: 'per_requirement' },
+      runIdMaker,
+      clock
+    );
+
+    // THEN
+    expect(result.statusCode).toBe(202);
+    const body = JSON.parse(result.body);
+    expect(body.runIds).toHaveLength(3);
+    expect(prunWrites.map((r) => r.requirementIds[0])).toEqual([
+      'publisher/R-003',
+      'publisher/R-004',
+      'publisher/R-005',
+    ]);
+    expect(body.skipped).toEqual([
+      { requirement: 'publisher/R-001', reason: 'references no cataloged entity' },
+      { requirement: 'publisher/R-002', reason: 'references no cataloged entity' },
+    ]);
+  });
+
+  it('TS-39 (batch): skipped is included in the batch 202 body', async () => {
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, [ungroundable('R-001'), 'R-002']);
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'all' }, mode: 'batch' },
+      runIdMaker,
+      clock
+    );
+    expect(result.statusCode).toBe(202);
+    const body = JSON.parse(result.body);
+    expect(typeof body.runId).toBe('string');
+    expect(body.skipped).toEqual([{ requirement: 'publisher/R-001', reason: 'references no cataloged entity' }]);
+    expect(prunWrites[0].requirementIds).toEqual(['publisher/R-002']);
+  });
+
+  it('TS-40: no requirement grounds → HTTP 422 with skipped populated; no PRUN written', async () => {
+    const { deps, dispatch, prunWrites, dispatchCalls } = fakeDeps(undefined, [
+      ungroundable('R-001'),
+      ungroundable('R-002'),
+    ]);
+
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'all' } },
+      runIdMaker,
+      clock
+    );
+
+    expect(result.statusCode).toBe(422);
+    const body = JSON.parse(result.body);
+    expect(body.error).toBe('no groundable requirements');
+    expect(body.skipped).toHaveLength(2);
+    expect(body.skipped[0]).toEqual({ requirement: 'publisher/R-001', reason: 'references no cataloged entity' });
+    expect(prunWrites).toHaveLength(0);
+    expect(dispatchCalls).toHaveLength(0);
+  });
+
+  it('TS-40 (ids): none of the named requirements ground → 422, skipped names them', async () => {
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, [ungroundable('R-001'), 'R-002']);
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'ids', ids: ['R-001'] } },
+      runIdMaker,
+      clock
+    );
+    expect(result.statusCode).toBe(422);
+    const body = JSON.parse(result.body);
+    expect(body.skipped).toEqual([{ requirement: 'publisher/R-001', reason: 'references no cataloged entity' }]);
+    expect(prunWrites).toHaveLength(0);
+  });
+
+  it('TS-41: ids ["consumer/R-01"] with publisher/R-01 and consumer/R-01 → run requirementIds is ["consumer/R-01"]', async () => {
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, [
+      makeRequirement('R-01', 'publisher'),
+      makeRequirement('R-01', 'consumer'),
+    ]);
+
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'ids', ids: ['consumer/R-01'] }, mode: 'per_requirement' },
+      runIdMaker,
+      clock
+    );
+
+    expect(result.statusCode).toBe(202);
+    expect(prunWrites).toHaveLength(1);
+    expect(prunWrites[0].requirementIds).toEqual(['consumer/R-01']);
+  });
+
+  it('TS-42: ids ["R-01"] where R-01 exists in two sources → HTTP 422 naming both candidates', async () => {
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, [
+      makeRequirement('R-01', 'publisher'),
+      makeRequirement('R-01', 'consumer'),
+    ]);
+
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'ids', ids: ['R-01'] } },
+      runIdMaker,
+      clock
+    );
+
+    expect(result.statusCode).toBe(422);
+    const body = JSON.parse(result.body);
+    expect(body.error).toContain('consumer/R-01');
+    expect(body.error).toContain('publisher/R-01');
+    expect(body.candidates).toEqual(['consumer/R-01', 'publisher/R-01']);
+    expect(prunWrites).toHaveLength(0);
+  });
+
+  it('R-58: an unambiguous bare id resolves to its qualified id', async () => {
+    const { deps, dispatch, prunWrites } = fakeDeps(undefined, ['R-001', 'R-002']);
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'ids', ids: ['R-002'] } },
+      runIdMaker,
+      clock
+    );
+    expect(result.statusCode).toBe(202);
+    expect(prunWrites[0].requirementIds).toEqual(['publisher/R-002']);
+  });
+
+  it('ids entry not in the catalog is reported in skipped', async () => {
+    const { deps, dispatch } = fakeDeps(undefined, ['R-001']);
+    const result = await handleGeneratePipeline(
+      deps,
+      dispatch,
+      { pipelineId: 'pipe-1', sampling: { strategy: 'ids', ids: ['R-001', 'nope/R-9'] } },
+      runIdMaker,
+      clock
+    );
+    expect(result.statusCode).toBe(202);
+    const body = JSON.parse(result.body);
+    expect(body.skipped).toEqual([{ requirement: 'nope/R-9', reason: 'not found in catalog' }]);
   });
 });

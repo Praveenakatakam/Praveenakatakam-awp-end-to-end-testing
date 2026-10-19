@@ -823,3 +823,63 @@ describe('error redaction (R-51, TS-33)', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// ── v0.4.0: qualified requirement IDs in the worker (R-57, TS-41) ────────────
+
+describe('requirement lookup by qualified id (R-57)', () => {
+  const pubR01 = { ...MOCK_REQUIREMENT, source: 'publisher', id: 'R-01' };
+  const conR01 = { ...MOCK_REQUIREMENT, source: 'consumer', id: 'R-01' };
+
+  it('TS-41: requirementIds ["consumer/R-01"] grounds the consumer requirement', async () => {
+    setupHappyPath();
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ requirementIds: ['consumer/R-01'] }) as any);
+    vi.mocked(buildFunctionalInputs).mockResolvedValue({
+      requirements: [pubR01, conR01],
+      contracts: [],
+      apiMap: {},
+    } as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(ground).toHaveBeenCalledOnce();
+    expect(vi.mocked(ground).mock.calls[0][0]).toEqual(conR01);
+  });
+
+  it('legacy bare id matching exactly one requirement is accepted', async () => {
+    setupHappyPath();
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ requirementIds: ['R-01'] }) as any);
+    vi.mocked(buildFunctionalInputs).mockResolvedValue({
+      requirements: [pubR01],
+      contracts: [],
+      apiMap: {},
+    } as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(vi.mocked(ground).mock.calls[0][0]).toEqual(pubR01);
+    expect(mockBedrockSend).toHaveBeenCalledOnce();
+  });
+
+  it('legacy bare id matching several sources fails the step with an ambiguity error', async () => {
+    setupHappyPath();
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ requirementIds: ['R-01'] }) as any);
+    vi.mocked(buildFunctionalInputs).mockResolvedValue({
+      requirements: [pubR01, conR01],
+      contracts: [],
+      apiMap: {},
+    } as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(ground).not.toHaveBeenCalled();
+    expect(mockBedrockSend).not.toHaveBeenCalled();
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({
+        status: 'failed',
+        errorMessage: "Ambiguous requirement id 'R-01' matches: consumer/R-01, publisher/R-01",
+      })
+    );
+  });
+});
