@@ -12,6 +12,12 @@ import type {
   StepRecord,
   SkippedRequirement,
   RunStepDetail,
+  ExecutionMode,
+  ExperimentIndexEntry,
+  ExperimentKind,
+  ExperimentResults,
+  GeneratePipelineDryRunResponse,
+  SamplingConfig,
 } from '@registry/core';
 
 export class ApiError extends Error {
@@ -31,6 +37,14 @@ export interface RunTriggerResult {
   /** One id for batch mode; one per selected requirement for per_requirement mode. */
   runIds: string[];
   skipped: SkippedRequirement[];
+  /** The pipeline experiment grouping these runs (R-80); absent from pre-v0.6.0 backends. */
+  experimentId?: string;
+}
+
+/** Optional per-trigger overrides of the pipeline's defaults (R-50, D-19). */
+export interface RunOverrides {
+  sampling?: SamplingConfig;
+  mode?: ExecutionMode;
 }
 
 /** `GET /runs/{runId}/artifact` (R-65). */
@@ -178,10 +192,44 @@ export function createApi(getToken: () => Promise<string>) {
      * `{ runIds, skipped }` (per_requirement) — normalised to `{ runIds, skipped }`.
      * Throws ApiError(422) with `skipped` when nothing grounds (R-56).
      */
-    runPipeline: async (pipelineId: string): Promise<RunTriggerResult> => {
-      const res = await (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId }) })).json();
+    runPipeline: async (pipelineId: string, overrides: RunOverrides = {}): Promise<RunTriggerResult> => {
+      const res = await (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId, ...overrides }) })).json();
       const runIds: string[] = Array.isArray(res.runIds) ? res.runIds : res.runId ? [res.runId] : [];
-      return { runIds, skipped: Array.isArray(res.skipped) ? res.skipped : [] };
+      const out: RunTriggerResult = { runIds, skipped: Array.isArray(res.skipped) ? res.skipped : [] };
+      if (typeof res.experimentId === 'string') out.experimentId = res.experimentId;
+      return out;
+    },
+
+    /**
+     * POST /generate-functional-tests with `dryRun: true` (R-81) — grounding +
+     * sampling only; nothing is written or dispatched. `200 { selected, skipped }`.
+     */
+    dryRunPipeline: async (pipelineId: string, overrides: RunOverrides = {}): Promise<GeneratePipelineDryRunResponse> => {
+      const res = await (await reqMut('/generate-functional-tests', { method: 'POST', ...jsonBody({ pipelineId, ...overrides, dryRun: true }) })).json();
+      return {
+        selected: Array.isArray(res.selected) ? res.selected : [],
+        skipped: Array.isArray(res.skipped) ? res.skipped : [],
+      };
+    },
+
+    // -------------------------------------------------------------------------
+    // Unified experiments (v0.6.0 — R-82, R-83)
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /experiment-index — pipeline + legacy experiments, newest first.
+     * Spec shape is `{ experiments }`; a bare array or `{ items }` is also accepted.
+     */
+    listExperimentIndex: async (): Promise<ExperimentIndexEntry[]> => {
+      const res = await (await req('/experiment-index')).json();
+      if (Array.isArray(res)) return res;
+      return res.experiments ?? res.items ?? [];
+    },
+
+    /** GET /experiment-results/{kind}/{id} — normalised per-requirement results (R-83). */
+    getExperimentResults: async (kind: ExperimentKind, id: string): Promise<ExperimentResults> => {
+      const res = await (await req(`/experiment-results/${kind}/${encodeURIComponent(id)}`)).json();
+      return { experiment: res.experiment, results: res.results ?? [], skipped: res.skipped ?? [] };
     },
 
     // -------------------------------------------------------------------------
@@ -239,11 +287,13 @@ export function createApi(getToken: () => Promise<string>) {
       (await req(`/prompts/${encodeURIComponent(key)}/versions`)).json(),
 
     /**
-     * POST /prompts/import-legacy (writer-only, R-72)
-     * Copies legacy prompt versions into the prompt store; idempotent.
+     * POST /prompts/import-legacy (writer-only, R-72, R-86)
+     * Copies legacy prompt versions into the prompt store; idempotent. With
+     * `{ promptVersions }` only those versions are imported.
      */
-    importLegacyPrompts: async (): Promise<ImportLegacyResult> => {
-      const res = await (await reqMut('/prompts/import-legacy', { method: 'POST' })).json();
+    importLegacyPrompts: async (body?: { promptVersions: string[] }): Promise<ImportLegacyResult> => {
+      const init: RequestInit = body ? { method: 'POST', ...jsonBody(body) } : { method: 'POST' };
+      const res = await (await reqMut('/prompts/import-legacy', init)).json();
       return { imported: res.imported ?? [], skipped: res.skipped ?? [] };
     },
 

@@ -3,14 +3,25 @@
  *
  * Used by both the /pipelines side panel and the full /pipelines/:id page.
  * Writers edit label, model, prompt (select / new-prompt sub-form), output
- * type, and the includeContext / optional toggles; everyone can "View prompt
- * body". Reorder/remove controls render only when the callbacks are supplied.
+ * type, plan schema (plan steps only, R-84), and the includeContext / optional
+ * toggles; everyone can "View prompt body". Reorder/remove controls render only
+ * when the callbacks are supplied.
+ *
+ * The prompt picker also offers un-imported legacy prompt versions in their own
+ * optgroup; choosing one imports it (R-86) and selects `legacy-<pv>` (R-89).
  */
 import { useEffect, useState } from 'react';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
-import type { PipelineStep, StepOutputType } from '@registry/core';
-import { usePrompt, usePrompts, useCreatePrompt } from '../hooks/usePipelines.js';
+import type { PipelineStep, PlanSchemaVersion, StepOutputType } from '@registry/core';
+import {
+  usePrompt,
+  usePrompts,
+  useCreatePrompt,
+  useImportLegacyPrompts,
+  useLegacyPromptVersions,
+  legacyPromptKey,
+} from '../hooks/usePipelines.js';
 
 export const KNOWN_MODELS = [
   'us.anthropic.claude-sonnet-4-6',
@@ -31,6 +42,23 @@ const OUTPUT_TYPE_LABELS: Record<StepOutputType, string> = {
   critique: 'Critique',
   freeform: 'Freeform text',
 };
+
+const PLAN_SCHEMA_LABELS: Record<PlanSchemaVersion, string> = {
+  v2: 'v2 (default)',
+  v1: 'v1 (legacy)',
+};
+
+/** `<option>` value prefix for un-imported legacy prompt versions. */
+const LEGACY_OPTION_PREFIX = '__legacy__:';
+
+/**
+ * A step with `planSchema` set to `schema`; the field is dropped for the
+ * default (v2) and for non-plan steps (the API rejects it there — R-84).
+ */
+function withPlanSchema(step: PipelineStep, schema: PlanSchemaVersion | undefined): PipelineStep {
+  const { planSchema: _drop, ...rest } = step;
+  return schema === 'v1' && outputTypeOf(step) === 'plan' ? { ...rest, planSchema: 'v1' } : rest;
+}
 
 export function makeStep(index: number): PipelineStep {
   return {
@@ -80,6 +108,28 @@ export default function StepEditor({
 
   const { data: promptsData } = usePrompts(api);
   const promptKeys = (promptsData?.prompts ?? []).map((p) => p.promptKey);
+  // Un-imported legacy versions (R-89) — writers only; failure just hides the group.
+  const { data: legacyData } = useLegacyPromptVersions(api, writer);
+  const legacyVersions = (legacyData?.promptVersions ?? [])
+    .map((v) => v.promptVersion)
+    .filter((pv) => !promptKeys.includes(legacyPromptKey(pv)) && legacyPromptKey(pv) !== step.promptKey);
+  const importMutation = useImportLegacyPrompts(api);
+  const [importError, setImportError] = useState('');
+
+  async function selectPrompt(value: string) {
+    setImportError('');
+    if (!value.startsWith(LEGACY_OPTION_PREFIX)) {
+      onChange({ ...step, promptKey: value });
+      return;
+    }
+    const pv = value.slice(LEGACY_OPTION_PREFIX.length);
+    try {
+      await importMutation.mutateAsync({ promptVersions: [pv] });
+      onChange({ ...step, promptKey: legacyPromptKey(pv) });
+    } catch (err) {
+      setImportError(`Import of legacy ${pv} failed: ${errorMessage(err)}`);
+    }
+  }
   // Keep a key that is not (yet) in the list selectable so it is never lost.
   const promptOptions =
     step.promptKey && !promptKeys.includes(step.promptKey) ? [step.promptKey, ...promptKeys] : promptKeys;
@@ -161,12 +211,20 @@ export default function StepEditor({
             <div className="form-group">
               <label className="form-label" htmlFor={fieldId('prompt')}>Prompt key</label>
               <div className="cluster" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                {promptOptions.length > 0 ? (
+                {promptOptions.length > 0 || legacyVersions.length > 0 ? (
                   <select id={fieldId('prompt')} className="form-select" style={{ flex: 1, minWidth: 0 }}
                     value={step.promptKey}
-                    onChange={(e) => onChange({ ...step, promptKey: e.target.value })}>
+                    disabled={importMutation.isPending}
+                    onChange={(e) => selectPrompt(e.target.value)}>
                     <option value="">— select prompt —</option>
                     {promptOptions.map((k) => <option key={k} value={k}>{k}</option>)}
+                    {legacyVersions.length > 0 && (
+                      <optgroup label="Legacy (import on select)">
+                        {legacyVersions.map((pv) => (
+                          <option key={pv} value={`${LEGACY_OPTION_PREFIX}${pv}`}>{pv} → {legacyPromptKey(pv)}</option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 ) : (
                   <input id={fieldId('prompt')} className="form-input" style={{ flex: 1, minWidth: 0 }}
@@ -179,14 +237,29 @@ export default function StepEditor({
                   {newPromptMode ? 'Cancel' : '+ New prompt'}
                 </button>
               </div>
+              {importMutation.isPending && <p className="text-muted text-sm" role="status">Importing legacy prompt…</p>}
+              {importError && <p className="form-error" role="alert">{importError}</p>}
             </div>
             <div className="form-group">
               <label className="form-label" htmlFor={fieldId('output-type')}>Output type</label>
               <select id={fieldId('output-type')} className="form-select" value={outputType}
-                onChange={(e) => onChange({ ...step, outputType: e.target.value as StepOutputType })}>
+                onChange={(e) => {
+                  const next = { ...step, outputType: e.target.value as StepOutputType };
+                  onChange(withPlanSchema(next, next.planSchema));
+                }}>
                 {OUTPUT_TYPES.map((t) => <option key={t} value={t}>{OUTPUT_TYPE_LABELS[t]}</option>)}
               </select>
             </div>
+            {outputType === 'plan' && (
+              <div className="form-group">
+                <label className="form-label" htmlFor={fieldId('plan-schema')}>Plan schema</label>
+                <select id={fieldId('plan-schema')} className="form-select" value={step.planSchema ?? 'v2'}
+                  title="v1 reproduces the legacy generator's tool schema and emitted file format"
+                  onChange={(e) => onChange(withPlanSchema(step, e.target.value as PlanSchemaVersion))}>
+                  {(['v2', 'v1'] as const).map((v) => <option key={v} value={v}>{PLAN_SCHEMA_LABELS[v]}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
           {newPromptMode && (
@@ -253,6 +326,7 @@ export default function StepEditor({
               ['Model', step.model],
               ['Prompt key', step.promptKey || '—'],
               ['Output type', outputType],
+              ...(outputType === 'plan' ? [['Plan schema', step.planSchema ?? 'v2']] : []),
               ['Include context', step.includeContext ? 'Yes' : 'No'],
               ['Optional', step.optional ? 'Yes' : 'No'],
               ['Output instructions', step.outputInstructions ? 'On' : 'Off'],

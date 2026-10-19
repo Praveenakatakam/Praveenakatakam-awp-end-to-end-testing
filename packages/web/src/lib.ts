@@ -239,7 +239,15 @@ function parseJson(raw: string | null | undefined): unknown {
 
 /** Parse a plan step's output string; `null` when it is not plan-shaped JSON. */
 export function parsePlan(raw: string | null | undefined): PlanView | null {
-  const v = parseJson(raw);
+  return asPlan(parseJson(raw));
+}
+
+/**
+ * An already-parsed value (or JSON string) as a plan; `null` when not
+ * plan-shaped. Used for `ExperimentResult.plan` (R-83), which may be v1 or v2.
+ */
+export function asPlan(v: unknown): PlanView | null {
+  if (typeof v === 'string') v = parseJson(v);
   if (!isObj(v) || !isObj(v.trigger) || !Array.isArray(v.assertions)) return null;
   return v as unknown as PlanView;
 }

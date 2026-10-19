@@ -11,18 +11,23 @@
  *     contracts-by-entity               → ByEntityPage
  *     contracts-by-source               → BySourcePage
  *     requirements                      → RequirementsPage
- *   /experiments/*                       → ExperimentsPage
+ *   /experiments[?selected=kind:id]      → ExperimentsHubPage (T-32, R-88)
+ *   /experiments/prompt-versions         → redirect → /prompts   (R-87)
+ *   /experiments/compare                 → redirect → /compare   (R-87)
+ *   /experiments/run                     → redirect → /experiments (R-87)
  *   /pipelines                           → PipelinesPage (T-12, R-38)
  *   /pipelines/:pipelineId               → PipelinePage  (T-12, R-39)
  *   /pipelines/:pipelineId/runs/:runId   → RunDetailPage (T-14, R-54)
  *   /prompts                             → PromptsPage   (T-13, R-41)
  *   /prompts/:key                        → PromptPage    (T-13, R-43)
- *   /runs                                → RunsPage
+ *   /runs                                → RunsPage (not in nav since v0.6.0)
+ *   /runs/:runId                         → RunDetailPage (experiment detail links)
  *   /runs/compare?a=&b=                  → RunsComparePage (T-23, R-70)
+ *   /compare?a=kind:id&b=kind:id         → ComparePage (T-34, R-90)
  *   /*                                   → redirect → /source/contracts-by-entity
  *
- * Requirements: R-38, R-41, R-53, R-54
- * Task: T-15
+ * Requirements: R-38, R-41, R-53, R-54, R-87
+ * Task: T-15, T-32
  */
 import { useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
@@ -32,7 +37,7 @@ import { ContractDataProvider } from './contexts/ContractDataContext.js';
 import ByEntityPage from './pages/ByEntityPage.js';
 import BySourcePage from './pages/BySourcePage.js';
 import RequirementsPage from './pages/RequirementsPage.js';
-import ExperimentsPage from './pages/ExperimentsPage.js';
+import ExperimentsHubPage from './pages/ExperimentsHubPage.js';
 import PipelinesPage from './pages/PipelinesPage.js';
 import PipelinePage from './pages/PipelinePage.js';
 import RunDetailPage from './pages/RunDetailPage.js';
@@ -40,6 +45,7 @@ import PromptsPage from './pages/PromptsPage.js';
 import PromptPage from './pages/PromptPage.js';
 import RunsPage from './pages/RunsPage.js';
 import RunsComparePage from './pages/RunsComparePage.js';
+import ComparePage from './pages/ComparePage.js';
 
 function AuthenticatedShell({ token }: { token: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -100,8 +106,11 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
           <Route path="requirements" element={<RequirementsPage api={api} />} />
         </Route>
 
-        {/* Legacy experiments (deprecated — R-69) */}
-        <Route path="experiments/*" element={<ExperimentsPage api={api} token={token} />} />
+        {/* Unified experiments (T-32, R-87, R-88) — legacy URLs redirect */}
+        <Route path="experiments" element={<ExperimentsHubPage api={api} token={token} />} />
+        <Route path="experiments/prompt-versions" element={<Navigate to="/prompts" replace />} />
+        <Route path="experiments/compare" element={<Navigate to="/compare" replace />} />
+        <Route path="experiments/run" element={<Navigate to="/experiments" replace />} />
 
         {/* Pipeline management (T-15, R-38, R-39) */}
         <Route path="pipelines" element={<PipelinesPage api={api} token={token} />} />
@@ -115,6 +124,10 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
         {/* Run history (T-14, R-54) */}
         <Route path="runs" element={<RunsPage api={api} />} />
         <Route path="runs/compare" element={<RunsComparePage api={api} />} />
+        <Route path="runs/:runId" element={<RunDetailPage api={api} />} />
+
+        {/* Experiment-level compare (T-34, R-90) */}
+        <Route path="compare" element={<ComparePage api={api} />} />
 
         <Route path="*" element={<Navigate to="/source/contracts-by-entity" replace />} />
       </Route>

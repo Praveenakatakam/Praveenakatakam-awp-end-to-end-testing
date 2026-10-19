@@ -1,7 +1,11 @@
 /**
- * PromptsPage — list/archive of active prompts (T-13, R-41, R-52, R-53, R-44).
+ * PromptsPage — list/archive of active prompts (T-13, R-41, R-52, R-53, R-44)
+ * merged with legacy prompt versions (T-33, R-89).
  *
- * Displays all active prompts (soft-deleted excluded server-side).
+ * Displays all active prompts (soft-deleted excluded server-side), then every
+ * legacy prompt version not yet imported. Imported versions (`legacy-<pv>`)
+ * render as their prompt row with a `legacy` badge and model; un-imported ones
+ * get a per-row "Import" action (R-86).
  * Writers see a "New Prompt" form and per-row delete controls.
  * Clicking a row navigates to PromptPage (/prompts/:key) for full edit.
  *
@@ -18,6 +22,8 @@ import {
   useCreatePrompt,
   useDeletePrompt,
   useImportLegacyPrompts,
+  useLegacyPromptVersions,
+  legacyPromptKey,
 } from '../hooks/usePipelines.js';
 
 /** PromptItem extended with the best-effort usedByPipelines field (R-41). */
@@ -141,6 +147,29 @@ export default function PromptsPage({
 
   const prompts = (data?.prompts ?? []) as PromptListItem[];
 
+  // Legacy prompt versions (R-89) — failure is non-fatal: the list just omits them.
+  const { data: legacyData } = useLegacyPromptVersions(api);
+  const legacyVersions = legacyData?.promptVersions ?? [];
+  const legacyByKey = new Map(legacyVersions.map((v) => [legacyPromptKey(v.promptVersion), v]));
+  const promptKeySet = new Set(prompts.map((p) => p.promptKey));
+  const unimported = legacyVersions.filter((v) => !promptKeySet.has(legacyPromptKey(v.promptVersion)));
+  const [rowImporting, setRowImporting] = useState<string | null>(null);
+
+  async function handleRowImport(promptVersion: string) {
+    setImportError('');
+    setImportResult(null);
+    setRowImporting(promptVersion);
+    try {
+      await importMutation.mutateAsync({ promptVersions: [promptVersion] });
+    } catch (err) {
+      setImportError(
+        err instanceof ApiError && err.serverMessage ? err.serverMessage : (err as Error).message
+      );
+    } finally {
+      setRowImporting(null);
+    }
+  }
+
   async function handleDelete(key: string) {
     setDeleteError('');
     try {
@@ -211,13 +240,16 @@ export default function PromptsPage({
         {/* Prompt list */}
         {isLoading ? (
           <p className="loading">Loading…</p>
-        ) : prompts.length === 0 ? (
+        ) : prompts.length === 0 && unimported.length === 0 ? (
           <p className="text-muted text-sm">No prompts yet.</p>
         ) : (
           <ul className="row-list" style={{ marginTop: 4 }}>
-            {prompts.map((prompt) => (
+            {prompts.map((prompt) => {
+              const legacy = legacyByKey.get(prompt.promptKey);
+              return (
               <li
                 key={prompt.promptKey}
+                data-testid="prompt-row"
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
@@ -239,6 +271,11 @@ export default function PromptsPage({
                     <div className="exp-row-ver">{prompt.promptKey}</div>
                     <div className="exp-row-id">
                       v{prompt.currentVersion}
+                      {legacy && (
+                        <span className="text-muted" style={{ marginLeft: 8 }}>
+                          · imported from legacy {legacy.promptVersion} · {legacy.modelId}
+                        </span>
+                      )}
                       {prompt.usedByPipelines &&
                         prompt.usedByPipelines.length > 0 && (
                           <span
@@ -274,6 +311,7 @@ export default function PromptsPage({
                   className="cluster"
                   style={{ flexShrink: 0, alignSelf: 'flex-start' }}
                 >
+                  {legacy && <span className="badge badge-warning">legacy</span>}
                   <span
                     className={`badge ${prompt.active ? 'badge-success' : 'badge-muted'}`}
                   >
@@ -310,6 +348,39 @@ export default function PromptsPage({
                         Delete
                       </button>
                     ))}
+                </div>
+              </li>
+              );
+            })}
+            {unimported.map((v) => (
+              <li
+                key={`legacy:${v.promptVersion}`}
+                data-testid="prompt-row"
+                aria-label={`legacy prompt version ${v.promptVersion}`}
+                style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 0' }}
+              >
+                <div className="exp-row-info" style={{ flex: 1, padding: '0 8px' }}>
+                  <div className="exp-row-ver">{v.promptVersion}</div>
+                  <div className="exp-row-id">
+                    {v.modelId}
+                    <span className="text-muted" style={{ marginLeft: 8 }}>
+                      · not imported (would become {legacyPromptKey(v.promptVersion)})
+                    </span>
+                  </div>
+                </div>
+                <div className="cluster" style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
+                  <span className="badge badge-warning">legacy</span>
+                  <span className="exp-row-time">{new Date(v.createdAt).toLocaleString()}</span>
+                  {writer && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={importMutation.isPending}
+                      onClick={() => handleRowImport(v.promptVersion)}
+                    >
+                      {rowImporting === v.promptVersion ? 'Importing…' : 'Import'}
+                    </button>
+                  )}
                 </div>
               </li>
             ))}

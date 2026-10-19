@@ -1,7 +1,7 @@
 /**
  * RunDetailPage — visual step flow for a pipeline run.
  *
- * Route: /pipelines/:pipelineId/runs/:runId
+ * Route: /pipelines/:pipelineId/runs/:runId (also /runs/:runId)
  *
  * Features:
  *   - Polls GET /runs/{runId} every 2 s while run is non-terminal (R-54, TS-38)
@@ -431,6 +431,14 @@ function RunHeader({ run }: { run: PipelineRun }) {
             {run.pipelineId}
           </dd>
         </div>
+        {run.experimentId && (
+          <div style={{ display: 'contents' }}>
+            <dt className="meta-key">Experiment</dt>
+            <dd className="meta-val" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+              <Link to={`/experiments?selected=pipeline:${encodeURIComponent(run.experimentId)}`}>{run.experimentId}</Link>
+            </dd>
+          </div>
+        )}
         <div style={{ display: 'contents' }}>
           <dt className="meta-key">Config version</dt>
           <dd className="meta-val">v{run.pipelineConfigVersion}</dd>
@@ -585,7 +593,10 @@ export default function RunDetailPage({ api }: { api: Api }) {
         <SkippedRequirements skipped={navState?.skipped} />
         {navState?.runIds && navState.runIds.length > 1 && (
           <p className="alert alert-info" role="status">
-            {navState.runIds.length} runs started (one per requirement) — see <Link to="/runs">Runs</Link>.
+            {navState.runIds.length} runs started (one per requirement) — see{' '}
+            {run.experimentId
+              ? <Link to={`/experiments?selected=pipeline:${encodeURIComponent(run.experimentId)}`}>the experiment</Link>
+              : <Link to="/runs">Runs</Link>}.
           </p>
         )}
 

@@ -14,6 +14,9 @@
  *   ['prompts', promptKey, 'versions']     — prompt version history
  *   ['pipelines', 'runs', runId, 'artifact'] — emitted test file for a run (R-65)
  *   ['pipelines', 'runs', runId, 'steps', stepIndex] — step detail: input + output (R-75)
+ *   ['prompt-versions']                    — legacy prompt versions (R-89)
+ *   ['experiment-index']                   — unified experiment list (R-82)
+ *   ['experiment-results', kind, id]       — one experiment's results (R-83)
  *
  * Requirements: R-35, R-37, R-38, R-39, R-41, R-54
  */
@@ -22,8 +25,8 @@ import {
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query';
-import type { Api } from '../api.js';
-import type { PipelineConfig, PromptItem } from '@registry/core';
+import type { Api, RunOverrides } from '../api.js';
+import type { ExperimentIndexEntry, ExperimentKind, PipelineConfig } from '@registry/core';
 
 // ---------------------------------------------------------------------------
 // Pipeline hooks
@@ -120,8 +123,70 @@ export function useRestorePipeline(api: Api) {
  * Mutation: start a pipeline run (POST /generate-functional-tests with pipelineId).
  */
 export function useRunPipeline(api: Api) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (pipelineId: string) => api.runPipeline(pipelineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['experiment-index'] });
+    },
+  });
+}
+
+/** Mutation: dry-run a pipeline trigger (R-81) — returns `{ selected, skipped }`. */
+export function useDryRunPipeline(api: Api) {
+  return useMutation({
+    mutationFn: ({ pipelineId, overrides }: { pipelineId: string; overrides?: RunOverrides }) =>
+      api.dryRunPipeline(pipelineId, overrides),
+  });
+}
+
+/** Mutation: trigger a pipeline experiment with optional overrides (R-80, R-88). */
+export function useTriggerExperiment(api: Api) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pipelineId, overrides }: { pipelineId: string; overrides?: RunOverrides }) =>
+      api.runPipeline(pipelineId, overrides),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['experiment-index'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Unified experiment hooks (v0.6.0 — R-82, R-83, R-88)
+// ---------------------------------------------------------------------------
+
+const ACTIVE_EXPERIMENT_STATUSES = new Set(['pending', 'running']);
+
+/**
+ * Fetches the unified experiment index; polls every 5 s while any entry is
+ * pending/running. Query key: ['experiment-index']
+ */
+export function useExperimentIndex(api: Api) {
+  return useQuery({
+    queryKey: ['experiment-index'],
+    queryFn: () => api.listExperimentIndex(),
+    refetchInterval: (query) => {
+      const items = query.state.data as ExperimentIndexEntry[] | undefined;
+      return items?.some((e) => ACTIVE_EXPERIMENT_STATUSES.has(e.status)) ? 5000 : false;
+    },
+  });
+}
+
+/**
+ * Fetches one experiment's normalised results; polls every 5 s while the
+ * experiment is pending/running. Query key: ['experiment-results', kind, id]
+ */
+export function useExperimentResults(api: Api, kind: ExperimentKind | undefined, id: string | undefined) {
+  return useQuery({
+    queryKey: ['experiment-results', kind, id],
+    queryFn: () => api.getExperimentResults(kind!, id!),
+    enabled: Boolean(kind && id),
+    refetchInterval: (query) => {
+      const status = (query.state.data as Awaited<ReturnType<Api['getExperimentResults']>> | undefined)
+        ?.experiment?.status;
+      return status && ACTIVE_EXPERIMENT_STATUSES.has(status) ? 5000 : false;
+    },
   });
 }
 
@@ -200,17 +265,33 @@ export function useDeletePrompt(api: Api) {
   });
 }
 
+/** Prompt key a legacy prompt version is imported under (R-72). */
+export const legacyPromptKey = (promptVersion: string) => `legacy-${promptVersion}`;
+
 /**
- * Mutation: import legacy prompt versions as `legacy-<promptVersion>` prompts (R-72).
+ * Mutation: import legacy prompt versions as `legacy-<promptVersion>` prompts
+ * (R-72); pass `{ promptVersions }` to import only those (R-86).
  * On success, invalidates the prompt list cache.
  */
 export function useImportLegacyPrompts(api: Api) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.importLegacyPrompts(),
+    mutationFn: (body?: { promptVersions: string[] }) => api.importLegacyPrompts(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['prompts'] });
     },
+  });
+}
+
+/**
+ * Fetches the legacy prompt versions (`GET /prompt-versions`, R-89).
+ * Query key: ['prompt-versions']
+ */
+export function useLegacyPromptVersions(api: Api, enabled = true) {
+  return useQuery({
+    queryKey: ['prompt-versions'],
+    queryFn: () => api.listPromptVersions(),
+    enabled,
   });
 }
 

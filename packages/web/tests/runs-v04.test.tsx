@@ -58,6 +58,7 @@ function makeApi(overrides: Record<string, unknown> = {}) {
     getRunArtifact: vi.fn(),
     listRuns: vi.fn().mockResolvedValue({ items: [] }),
     importLegacyPrompts: vi.fn(),
+    listPromptVersions: vi.fn().mockResolvedValue({ promptVersions: [] }),
     ...overrides,
   } as unknown as Api;
 }
