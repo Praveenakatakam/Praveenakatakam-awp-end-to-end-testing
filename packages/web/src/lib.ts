@@ -118,3 +118,68 @@ export function groupRequirementsBySection(reqs: RequirementEntry[]): Requiremen
     }))
     .sort((a, b) => a.source.localeCompare(b.source));
 }
+
+/** One line of a line diff: unchanged, only in A (`remove`), or only in B (`add`). */
+export interface DiffLine {
+  op: 'equal' | 'remove' | 'add';
+  text: string;
+}
+
+/** Above this many LCS cells the diff degrades to "all removed, all added". */
+const LCS_CELL_LIMIT = 4_000_000;
+
+/**
+ * Line diff of `a` → `b` via longest common subsequence (R-70). No dependency;
+ * O(n·m) time/space, which is fine for emitted test files (hundreds of lines).
+ * Common prefix/suffix are trimmed first so near-identical files stay cheap.
+ */
+export function lineDiff(a: string, b: string): DiffLine[] {
+  const A = a === '' ? [] : a.split('\n');
+  const B = b === '' ? [] : b.split('\n');
+
+  let start = 0;
+  while (start < A.length && start < B.length && A[start] === B[start]) start++;
+  let endA = A.length;
+  let endB = B.length;
+  while (endA > start && endB > start && A[endA - 1] === B[endB - 1]) { endA--; endB--; }
+
+  const head: DiffLine[] = A.slice(0, start).map((text) => ({ op: 'equal', text }));
+  const tail: DiffLine[] = A.slice(endA).map((text) => ({ op: 'equal', text }));
+  const midA = A.slice(start, endA);
+  const midB = B.slice(start, endB);
+  const n = midA.length;
+  const m = midB.length;
+
+  if (n * m > LCS_CELL_LIMIT) {
+    return [
+      ...head,
+      ...midA.map((text): DiffLine => ({ op: 'remove', text })),
+      ...midB.map((text): DiffLine => ({ op: 'add', text })),
+      ...tail,
+    ];
+  }
+
+  // lcs[i][j] = LCS length of midA[i..] and midB[j..], flattened row-major.
+  const w = m + 1;
+  const lcs = new Uint32Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i * w + j] = midA[i] === midB[j]
+        ? lcs[(i + 1) * w + j + 1] + 1
+        : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+    }
+  }
+
+  const mid: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (midA[i] === midB[j]) { mid.push({ op: 'equal', text: midA[i] }); i++; j++; }
+    else if (lcs[(i + 1) * w + j] >= lcs[i * w + j + 1]) { mid.push({ op: 'remove', text: midA[i] }); i++; }
+    else { mid.push({ op: 'add', text: midB[j] }); j++; }
+  }
+  while (i < n) mid.push({ op: 'remove', text: midA[i++] });
+  while (j < m) mid.push({ op: 'add', text: midB[j++] });
+
+  return [...head, ...mid, ...tail];
+}
