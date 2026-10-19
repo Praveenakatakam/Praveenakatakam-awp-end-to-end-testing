@@ -32,9 +32,11 @@ import type {
   SamplingConfig,
   ExecutionMode,
   StepOutputRef,
+  StepOutputType,
 } from '@registry/core';
+import { STEP_OUTPUT_TYPES, resolveOutputType } from '@registry/core';
 import type { GroundedContext } from '@registry/functest';
-import { PLAN_SCHEMA } from '@registry/functest';
+import { PLAN_SCHEMA, CRITIQUE_SCHEMA, validatePlan, validateCritique } from '@registry/functest';
 import {
   getPrun,
   updatePrun,
@@ -84,6 +86,13 @@ const MAX_TRANSIENT_RETRIES = 3;
 /** Output size threshold: above this the step output is written to S3 (R-19). */
 const OUTPUT_S3_THRESHOLD = 64 * 1_024; // 64 KB
 
+/**
+ * Total character budget for prior step outputs injected into a step's context
+ * (R-63). Oldest outputs are truncated first when exceeded. Supersedes the
+ * v0.3.0 fixed 2 000-character per-output cut.
+ */
+export const PRIOR_OUTPUT_BUDGET_CHARS = 60_000;
+
 // ── T-03: Pipeline CRUD constants ────────────────────────────────────────────
 
 /** Hard cap on maxSteps per pipeline (R-04). */
@@ -122,6 +131,17 @@ interface BedrockStepResult {
   outputTokens: number;
 }
 
+/**
+ * A step output that failed its output-type contract (R-64). Its `name` is not
+ * in the transient set, so the retry loop treats it as terminal (non-retryable).
+ */
+export class StepValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StepValidationError';
+  }
+}
+
 // ── T-03: Shared event shape ──────────────────────────────────────────────────
 
 interface ApiEvent {
@@ -156,6 +176,13 @@ async function validatePipelineSteps(
   }
 
   const allowedModels = new Set(sysconfig.allowedModels);
+
+  // outputType is optional (absent → 'plan', R-59) but must be a known value.
+  for (const step of steps) {
+    if (step.outputType !== undefined && !STEP_OUTPUT_TYPES.includes(step.outputType)) {
+      return `step "${step.stepId}" has unknown outputType "${String(step.outputType)}" (expected one of: ${STEP_OUTPUT_TYPES.join(', ')})`;
+    }
+  }
 
   for (const step of steps) {
     if (!allowedModels.has(step.model)) {
@@ -798,14 +825,81 @@ function userMessageFromContext(ctx: GroundedContextWithPrior): string {
   ];
 
   if (ctx.priorOutputs && ctx.priorOutputs.length > 0) {
+    // Outputs arrive already fitted to PRIOR_OUTPUT_BUDGET_CHARS (R-63).
     parts.push('', 'Prior step outputs (use as context for this step):');
     for (const prior of ctx.priorOutputs) {
       parts.push(`  Step ${prior.stepId} — ${prior.label}:`);
-      parts.push(`    ${prior.output.slice(0, 2_000)}`);
+      parts.push(`    ${prior.output}`);
     }
   }
 
   return parts.join('\n');
+}
+
+/**
+ * Fit prior step outputs into a total character budget (R-63). Walks newest →
+ * oldest keeping each output in full while it fits; the first that does not fit
+ * is cut to the remaining budget with a `[truncated N chars]` marker, and every
+ * older output is reduced to the marker alone. Order is preserved.
+ */
+export function buildPriorContext(
+  outputs: PriorOutput[],
+  budget: number = PRIOR_OUTPUT_BUDGET_CHARS
+): { outputs: PriorOutput[]; truncated: boolean } {
+  const fitted: PriorOutput[] = new Array(outputs.length);
+  let remaining = budget;
+  let truncated = false;
+  for (let i = outputs.length - 1; i >= 0; i--) {
+    const o = outputs[i];
+    if (o.output.length <= remaining) {
+      fitted[i] = o;
+      remaining -= o.output.length;
+      continue;
+    }
+    truncated = true;
+    const keep = Math.max(0, remaining);
+    const cut = o.output.length - keep;
+    const marker = `[truncated ${cut} chars]`;
+    fitted[i] = { ...o, output: keep > 0 ? `${o.output.slice(0, keep)}\n${marker}` : marker };
+    remaining = 0;
+  }
+  return { outputs: fitted, truncated };
+}
+
+/** Bedrock tool contract per step output type (R-60). `freeform` has none. */
+const STEP_TOOLS: Record<Exclude<StepOutputType, 'freeform'>, { name: string; description: string; input_schema: unknown }> = {
+  plan: {
+    name: 'emit_functional_test_plan',
+    description: 'Return the single cross-service functional test plan for the given requirement.',
+    input_schema: PLAN_SCHEMA,
+  },
+  critique: {
+    name: 'emit_critique',
+    description: 'Return a structured critique of the prior step outputs for the given requirement.',
+    input_schema: CRITIQUE_SCHEMA,
+  },
+};
+
+/**
+ * Validate a step's raw output against its output-type contract (R-64). Plans
+ * are checked against PLAN_SCHEMA v2 and the grounding (entity, trigger source,
+ * every assertion service); critiques against CRITIQUE_SCHEMA. Throws
+ * `StepValidationError` (terminal) with the validation reason.
+ */
+export function validateStepOutput(
+  outputType: StepOutputType,
+  raw: unknown,
+  grounded: { entity: string; sources: string[] }
+): void {
+  if (outputType === 'plan') {
+    const v = validatePlan(raw, grounded);
+    if (!v.ok) throw new StepValidationError(v.reason);
+  } else if (outputType === 'critique') {
+    const v = validateCritique(raw);
+    if (!v.ok) throw new StepValidationError(v.reason);
+  } else if (typeof raw !== 'string' || raw.length === 0) {
+    throw new StepValidationError('freeform step returned no text');
+  }
 }
 
 /**
@@ -823,25 +917,26 @@ async function callBedrockForStep(
   model: string,
   region: string | undefined,
   systemPrompt: string,
-  context: GroundedContextWithPrior
+  context: GroundedContextWithPrior,
+  outputType: StepOutputType
 ): Promise<BedrockStepResult> {
   const { BedrockRuntimeClient, InvokeModelCommand } = await import('@aws-sdk/client-bedrock-runtime');
   const client = new BedrockRuntimeClient(region ? { region } : {});
 
-  const TOOL_NAME = 'emit_functional_test_plan';
+  // Shape the call by outputType (R-60): plan/critique force their tool;
+  // freeform sends no tools and the text blocks are the output.
+  const tool = outputType === 'freeform' ? undefined : STEP_TOOLS[outputType];
   const requestBody = {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 8192,
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessageFromContext(context) }],
-    tools: [
-      {
-        name: TOOL_NAME,
-        description: 'Return the single cross-service functional test plan for the given requirement.',
-        input_schema: PLAN_SCHEMA,
-      },
-    ],
-    tool_choice: { type: 'tool', name: TOOL_NAME },
+    ...(tool
+      ? {
+          tools: [tool],
+          tool_choice: { type: 'tool', name: tool.name },
+        }
+      : {}),
   };
 
   const res = await client.send(
@@ -854,17 +949,26 @@ async function callBedrockForStep(
   );
 
   const decoded = JSON.parse(new TextDecoder().decode(res.body)) as {
-    content?: { type: string; input?: unknown }[];
+    content?: { type: string; input?: unknown; text?: string }[];
     stop_reason?: string;
     usage?: { input_tokens: number; output_tokens: number };
   };
+
+  const usage = decoded.usage ?? { input_tokens: 0, output_tokens: 0 };
+
+  if (!tool) {
+    const text = (decoded.content ?? [])
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text as string)
+      .join('');
+    return { output: text, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens };
+  }
 
   const block = (decoded.content ?? []).find((b) => b.type === 'tool_use');
   if (!block) {
     throw new Error(`no tool_use block in Bedrock response (stop_reason=${decoded.stop_reason})`);
   }
 
-  const usage = decoded.usage ?? { input_tokens: 0, output_tokens: 0 };
   return {
     output: block.input,
     inputTokens: usage.input_tokens,
@@ -1181,6 +1285,12 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
     }
   }
 
+  // Fit prior outputs into the total budget, oldest truncated first (R-63).
+  const prior = buildPriorContext(priorOutputs);
+  priorOutputs = prior.outputs;
+  const priorOutputsTruncated = prior.truncated;
+  const outputType = resolveOutputType(step); // absent → 'plan' (R-59, TS-45)
+
   const contextWithPrior: GroundedContextWithPrior = { ...groundedCtx, priorOutputs };
 
   // ── 9. contextTokenEstimate heuristic (D-15, R-13) ────────────────────────
@@ -1242,12 +1352,16 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
           step.model,
           process.env.AWS_REGION,
           promptBody,
-          contextWithPrior
+          contextWithPrior,
+          outputType
         );
         bedrockLatencyMs = Date.now() - bedrockCallStart;
-        rawOutput = result.output;
         inputTokens = result.inputTokens;
         outputTokens = result.outputTokens;
+        // Validate before the output is written or cached (R-64). A failure
+        // throws StepValidationError → terminal path below (never retried).
+        validateStepOutput(outputType, result.output, groundedCtx);
+        rawOutput = result.output;
         break; // success
       } catch (err) {
         const errName = (err as { name?: string }).name ?? '';
@@ -1410,6 +1524,10 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
     if (costEstimateUsd !== undefined) {
       setExprParts.push('costEstimateUsd = :costEstimateUsd');
       exprValues[':costEstimateUsd'] = costEstimateUsd;
+    }
+    if (priorOutputsTruncated) {
+      setExprParts.push('priorOutputsTruncated = :pot');
+      exprValues[':pot'] = true;
     }
 
     await _ddb.send(

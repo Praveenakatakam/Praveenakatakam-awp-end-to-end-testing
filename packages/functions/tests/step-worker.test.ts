@@ -69,9 +69,10 @@ vi.mock('../src/functional-gen.js', () => ({
   buildFunctionalInputs: vi.fn(),
 }));
 
-vi.mock('@registry/functest', () => ({
+// Real PLAN_SCHEMA / CRITIQUE_SCHEMA / validators (R-64); only grounding is stubbed.
+vi.mock('@registry/functest', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@registry/functest')>()),
   ground: vi.fn(),
-  PLAN_SCHEMA: { type: 'object', properties: {} },
 }));
 
 vi.mock('../src/log.js', () => ({
@@ -85,7 +86,7 @@ vi.mock('../src/log.js', () => ({
 
 // ── Imports (must come after vi.mock declarations) ────────────────────────────
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { stepWorker } from '../src/pipeline.js';
+import { stepWorker, buildPriorContext, PRIOR_OUTPUT_BUDGET_CHARS } from '../src/pipeline.js';
 import {
   getPrun,
   updatePrun,
@@ -170,12 +171,32 @@ const MOCK_GROUNDED_CTX = {
   inputHash: 'hash-abc123',
 };
 
+/** A PLAN_SCHEMA v2 plan grounded in MOCK_GROUNDED_CTX (entity Order, sources svc-a/svc-b). */
+function validPlan(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    requirementIds: ['svc-a/R-01'],
+    title: 'Order written in svc-a is visible in svc-b',
+    rationale: 'R-01 requires Order to be tracked across services.',
+    setup: [{ description: 'a writer token for svc-a' }],
+    trigger: { source: 'svc-a', entity: 'Order', method: 'POST', path: '/orders', payloadShape: '{ orderId }' },
+    propagation: { kind: 'cdc', waitFor: 'svc-b read model updates' },
+    assertions: [{ service: 'svc-b', assertion: 'GET /orders includes the new order' }],
+    ...overrides,
+  };
+}
+
+function bedrockBody(content: unknown[], inputTokens = 100, outputTokens = 50): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({ content, usage: { input_tokens: inputTokens, output_tokens: outputTokens }, stop_reason: 'end_turn' })
+  );
+}
+
 function makeBedrockResponseBody(
   inputTokens = 100,
   outputTokens = 50
 ): Uint8Array {
   const body = {
-    content: [{ type: 'tool_use', input: { entity: 'Order', scenarios: [] } }],
+    content: [{ type: 'tool_use', input: validPlan() }],
     usage: { input_tokens: inputTokens, output_tokens: outputTokens },
     stop_reason: 'tool_use',
   };
@@ -183,7 +204,7 @@ function makeBedrockResponseBody(
 }
 
 function makeBedrockResponseBodyWithLargeOutput(): Uint8Array {
-  const largeInput = 'x'.repeat(65 * 1_024); // 65 KB
+  const largeInput = validPlan({ rationale: 'x'.repeat(65 * 1_024) }); // > 64 KB serialized
   const body = {
     content: [{ type: 'tool_use', input: largeInput }],
     usage: { input_tokens: 100, output_tokens: 50 },
@@ -881,5 +902,192 @@ describe('requirement lookup by qualified id (R-57)', () => {
         errorMessage: "Ambiguous requirement id 'R-01' matches: consumer/R-01, publisher/R-01",
       })
     );
+  });
+});
+
+// ── v0.4.0: step output types (R-59, R-60, R-64) ──────────────────────────────
+
+/** The metrics UpdateCommand (final step-record write). */
+function metricsUpdate(): any {
+  const call = mockDdbSend.mock.calls
+    .filter((c) => c[0]?._name === 'UpdateCommand')
+    .find((c) => c[0].input?.ExpressionAttributeValues?.[':outputRef'] !== undefined);
+  return call?.[0].input;
+}
+
+function bedrockRequest(): any {
+  return JSON.parse((mockBedrockSend.mock.calls[0][0] as any).input.body);
+}
+
+describe('outputType shapes the Bedrock call (R-60)', () => {
+  it('TS-45: a step without outputType is treated as plan — forces emit_functional_test_plan with PLAN_SCHEMA v2', async () => {
+    setupHappyPath(); // makeStep() has no outputType
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    const req = bedrockRequest();
+    expect(req.tool_choice).toEqual({ type: 'tool', name: 'emit_functional_test_plan' });
+    expect(req.tools[0].input_schema.required).toContain('rationale');
+    expect(metricsUpdate().ExpressionAttributeValues[':status']).toBe('completed');
+  });
+
+  it('TS-43: critique step forces emit_critique; stored output parses against CRITIQUE_SCHEMA', async () => {
+    setupHappyPath({ outputType: 'critique' });
+    const critique = {
+      verdict: 'revise',
+      summary: 'Assertion is vague.',
+      issues: [{ severity: 'minor', target: 'assertions[0]', problem: 'vague', suggestion: 'name the field' }],
+    };
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: critique }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    const req = bedrockRequest();
+    expect(req.tool_choice).toEqual({ type: 'tool', name: 'emit_critique' });
+    expect(req.tools).toHaveLength(1);
+    expect(req.tools[0].name).toBe('emit_critique');
+    const { validateCritique } = await vi.importActual<typeof import('@registry/functest')>('@registry/functest');
+    const stored = JSON.parse(metricsUpdate().ExpressionAttributeValues[':outputRef'].inline);
+    expect(validateCritique(stored).ok).toBe(true);
+    expect(stored).toEqual(critique);
+  });
+
+  it('TS-44: freeform step sends no tools/tool_choice; stored output is the response text', async () => {
+    setupHappyPath({ outputType: 'freeform' });
+    mockBedrockSend.mockResolvedValue({
+      body: bedrockBody([
+        { type: 'text', text: 'The plan looks fine. ' },
+        { type: 'text', text: 'Consider negative cases.' },
+      ]),
+    });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    const req = bedrockRequest();
+    expect(req).not.toHaveProperty('tools');
+    expect(req).not.toHaveProperty('tool_choice');
+    const update = metricsUpdate();
+    expect(update.ExpressionAttributeValues[':outputRef']).toEqual({
+      inline: 'The plan looks fine. Consider negative cases.',
+    });
+    expect(update.ExpressionAttributeValues[':status']).toBe('completed');
+  });
+});
+
+describe('output validation is terminal (R-64)', () => {
+  it('TS-47: plan naming an assertion service outside the grounded sources fails terminally, no retry, no cache write', async () => {
+    setupHappyPath();
+    const bad = validPlan({ assertions: [{ service: 'consumer', assertion: 'x' }] });
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: bad }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(mockBedrockSend).toHaveBeenCalledOnce(); // non-retryable
+    expect(putStepcacheConditional).not.toHaveBeenCalled();
+    const failed = mockDdbSend.mock.calls
+      .filter((c) => c[0]?._name === 'UpdateCommand')
+      .find((c) => c[0].input?.ExpressionAttributeValues?.[':status'] === 'failed');
+    expect(failed).toBeDefined();
+    expect(failed![0].input.ExpressionAttributeValues[':em']).toMatch(/hallucinated target/);
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({ status: 'failed', errorMessage: expect.stringMatching(/hallucinated target/) })
+    );
+  });
+
+  it('malformed critique fails terminally with the schema reason', async () => {
+    setupHappyPath({ outputType: 'critique' });
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: { verdict: 'maybe' } }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(mockBedrockSend).toHaveBeenCalledOnce();
+    expect(updatePrun).toHaveBeenCalledWith(
+      expect.anything(),
+      RUN_ID,
+      expect.objectContaining({ status: 'failed', errorMessage: expect.stringMatching(/malformed critique/) })
+    );
+  });
+
+  it('a validation failure on an optional step becomes a warning (R-15)', async () => {
+    const step0 = makeStep({ stepId: 's0', optional: true });
+    setupHappyPath({ optional: true });
+    vi.mocked(getPipeline).mockResolvedValue(makePipeline([step0, makeStep({ stepId: 's1' })]) as any);
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: { not: 'a plan' } }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    const warning = mockDdbSend.mock.calls
+      .filter((c) => c[0]?._name === 'UpdateCommand')
+      .find((c) => c[0].input?.ExpressionAttributeValues?.[':status'] === 'warning');
+    expect(warning![0].input.ExpressionAttributeValues[':em']).toMatch(/malformed plan/);
+    expect(mockLambdaSend).toHaveBeenCalledOnce();
+  });
+});
+
+// ── v0.4.0: prior-output budget (R-63) ────────────────────────────────────────
+
+describe('prior-output budget (R-63)', () => {
+  it('buildPriorContext keeps everything when under budget', () => {
+    const outputs = [
+      { stepId: 's0', label: 'a', output: 'x'.repeat(10) },
+      { stepId: 's1', label: 'b', output: 'y'.repeat(10) },
+    ];
+    expect(buildPriorContext(outputs, 100)).toEqual({ outputs, truncated: false });
+    expect(PRIOR_OUTPUT_BUDGET_CHARS).toBe(60_000);
+  });
+
+  it('buildPriorContext truncates oldest first; older-still collapse to the marker', () => {
+    const outputs = [
+      { stepId: 's0', label: 'a', output: 'a'.repeat(30) },
+      { stepId: 's1', label: 'b', output: 'b'.repeat(30) },
+      { stepId: 's2', label: 'c', output: 'c'.repeat(30) },
+    ];
+    const r = buildPriorContext(outputs, 40);
+    expect(r.truncated).toBe(true);
+    expect(r.outputs[2].output).toBe('c'.repeat(30));
+    expect(r.outputs[1].output).toBe(`${'b'.repeat(10)}\n[truncated 20 chars]`);
+    expect(r.outputs[0].output).toBe('[truncated 30 chars]');
+  });
+
+  it('TS-46: two 50 000-char prior outputs → oldest truncated with marker, newest intact, priorOutputsTruncated true', async () => {
+    const pipeline = makePipeline([
+      makeStep({ stepId: 's0' }),
+      makeStep({ stepId: 's1' }),
+      makeStep({ stepId: 's2', includeContext: true }),
+    ]);
+    setupHappyPath({ stepId: 's2', includeContext: true });
+    vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ executedSteps: 2 }) as any);
+    const oldest = 'O'.repeat(50_000);
+    const newest = 'N'.repeat(50_000);
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, label: 'old', status: 'completed', outputRef: { inline: oldest } },
+      { stepId: 's1', stepIndex: 1, label: 'new', status: 'completed', outputRef: { inline: newest } },
+    ] as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 2 });
+
+    const userMessage: string = bedrockRequest().messages[0].content;
+    expect(userMessage).toContain(newest);
+    expect(userMessage).not.toContain(oldest);
+    expect(userMessage).toContain(`${'O'.repeat(10_000)}\n[truncated 40000 chars]`);
+    expect(metricsUpdate().ExpressionAttributeValues[':pot']).toBe(true);
+    expect(metricsUpdate().UpdateExpression).toContain('priorOutputsTruncated = :pot');
+  });
+
+  it('prior outputs longer than the old 2 000-char cut are now passed in full', async () => {
+    const pipeline = makePipeline([makeStep({ stepId: 's0' }), makeStep({ stepId: 's1', includeContext: true })]);
+    setupHappyPath({ stepId: 's1', includeContext: true });
+    vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
+    const long = 'L'.repeat(5_000);
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, label: 'p', status: 'completed', outputRef: { inline: long } },
+    ] as any);
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    expect(bedrockRequest().messages[0].content).toContain(long);
+    expect(metricsUpdate().UpdateExpression).not.toContain('priorOutputsTruncated');
   });
 });

@@ -70,6 +70,7 @@ function orgPlanBody(): PlanBody {
   return {
     requirementIds: ['R-10'],
     title: 'publisher-created org appears to the consumer',
+    rationale: 'R-10 requires a created org to be published to consumers.',
     setup: [{ description: 'a writer access token for the publisher' }],
     trigger: {
       source: 'publisher',

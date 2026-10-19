@@ -36,6 +36,7 @@ import {
   listPipelines,
   getPipelineHandler,
   updatePipelineHandler,
+  updatePipeline,
   deletePipeline,
 } from '../src/pipeline.js';
 
@@ -401,5 +402,45 @@ describe('listPipelines (GET /pipelines)', () => {
 
     // THEN — the repo helper is called with the cursor so the second page is fetched
     expect(listPipelinesRepo).toHaveBeenCalledWith(expect.anything(), cursor);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.4.0: step outputType validation (R-59)
+// ---------------------------------------------------------------------------
+
+describe('step outputType validation (R-59)', () => {
+  beforeEach(() => {
+    vi.mocked(getSysconfig).mockResolvedValue(allowlist());
+    vi.mocked(getPrmpt).mockResolvedValue(activePrompt('my-prompt'));
+  });
+
+  it('POST accepts plan | critique | freeform and an absent outputType', async () => {
+    const steps = [
+      { ...validStep(), stepId: 's1', outputType: 'plan' },
+      { ...validStep(), stepId: 's2', outputType: 'critique' },
+      { ...validStep(), stepId: 's3', outputType: 'freeform' },
+      { ...validStep(), stepId: 's4' },
+    ];
+    const res = await createPipeline(ev({ name: 'Typed', steps }));
+    expect(res.statusCode).toBe(201);
+    const written = vi.mocked(putPipeline).mock.calls[0][1];
+    expect(written.steps.map((st) => st.outputType)).toEqual(['plan', 'critique', 'freeform', undefined]);
+  });
+
+  it('POST with an unknown outputType → HTTP 422', async () => {
+    const res = await createPipeline(ev({ name: 'Bad', steps: [{ ...validStep(), outputType: 'essay' }] }));
+    expect(res.statusCode).toBe(422);
+    expect(JSON.parse(res.body!).error).toMatch(/outputType "essay"/);
+    expect(putPipeline).not.toHaveBeenCalled();
+  });
+
+  it('PUT with an unknown outputType → HTTP 422', async () => {
+    vi.mocked(getPipelineRepo).mockResolvedValue(existingPipeline() as any);
+    const res = await updatePipeline(
+      ev({ steps: [{ ...validStep(), outputType: 'review' }] }, { id: 'pipe-1' })
+    );
+    expect(res.statusCode).toBe(422);
+    expect(updatePipelineRepo).not.toHaveBeenCalled();
   });
 });

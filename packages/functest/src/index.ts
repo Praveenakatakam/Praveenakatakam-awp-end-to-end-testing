@@ -10,3 +10,4 @@
  * CLI. Running the emitted tests is out of scope (D-56).
  */
 export * from './generate.js';
+export * from './critique.js';
