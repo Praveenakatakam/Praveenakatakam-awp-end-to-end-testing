@@ -236,6 +236,13 @@ export default function StepEditor({
                 onChange={(e) => onChange({ ...step, optional: e.target.checked })} />
               Optional
             </label>
+            <label className="cluster" style={{ gap: 4, fontSize: 13, cursor: outputType === 'freeform' ? 'default' : 'pointer' }}
+              title="Append runtime output-format instructions for this output type to the model input (off = baseline input)">
+              <input type="checkbox" checked={step.outputInstructions === true}
+                disabled={outputType === 'freeform'}
+                onChange={(e) => onChange({ ...step, outputInstructions: e.target.checked })} />
+              Output instructions
+            </label>
           </div>
         </div>
       ) : (
@@ -248,6 +255,7 @@ export default function StepEditor({
               ['Output type', outputType],
               ['Include context', step.includeContext ? 'Yes' : 'No'],
               ['Optional', step.optional ? 'Yes' : 'No'],
+              ['Output instructions', step.outputInstructions ? 'On' : 'Off'],
             ] as [string, string][]
           ).map(([k, v]) => (
             <div key={k} style={{ display: 'contents' }}>

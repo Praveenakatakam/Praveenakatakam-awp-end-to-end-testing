@@ -619,14 +619,14 @@ Two streams run in parallel after T-16: **backend** (T-17 → T-18 → T-19 → 
 
 Backend (T-25 → T-26) and web (T-27) run in parallel after T-24; tests ship inside each task.
 
-### T-24: Core types — `StepInputSnapshot`, `StepRecord.inputRef`, `RunStepDetail`
+### T-24: Core types — `StepInputSnapshot`, `StepRecord.inputRef`, `RunStepDetail` ✅
 **Subagent:** none — single-file type additions · **Files:** `packages/core/src/pipeline.ts` · **Requirements:** R-74, R-75
 
-### T-25: Output instructions + sectioned user message + input snapshot
+### T-25: Output instructions + sectioned user message + input snapshot ✅
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/output-instructions.ts` (create), `packages/functions/src/pipeline.ts`, tests in `packages/functions/tests/` · **Requirements:** R-73, R-74 (R-78 withdrawn — seeded prompts untouched) · **Tests:** TS-58 – TS-62
 
-### T-26: `GET /runs/{runId}/steps/{stepIndex}`
+### T-26: `GET /runs/{runId}/steps/{stepIndex}` ✅
 **Subagent:** implementer (backend) · **Files:** `packages/functions/src/read.ts`, `stacks/ApiStack.ts`, tests in `packages/functions/tests/read-pipeline.test.ts`, `stacks/tests/pipeline-infra.test.ts` · **Requirements:** R-75 · **Tests:** TS-63
 
-### T-27: Run detail step transparency UI
+### T-27: Run detail step transparency UI ✅
 **Subagent:** implementer (web) · **Files:** `packages/web/src/pages/RunDetailPage.tsx`, `packages/web/src/components/step-output/*` (create), `packages/web/src/api.ts`, `packages/web/src/hooks/usePipelines.ts`, `packages/web/src/lib.ts`, `packages/web/src/styles.css`, tests in `packages/web/tests/` · **Requirements:** R-76, R-77 · **Tests:** TS-64 – TS-67

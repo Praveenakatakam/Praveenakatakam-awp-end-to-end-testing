@@ -95,6 +95,20 @@ describe('PipelinePage full view (T-21 · R-67, R-68)', () => {
     expect(body.steps[0].outputType).toBe('freeform');
     expect(body.steps[1].outputType).toBe('critique');
   });
+
+  it('defaults "Output instructions" off and saves it when switched on (R-73, D-30)', async () => {
+    const api = makeApi();
+    renderAt('/pipelines/pipe-1', <PipelinePage api={api} token={writerToken} />, '/pipelines/:pipelineId');
+    const side = await screen.findByRole('complementary', { name: 'step-detail' });
+    const box = within(side).getByLabelText('Output instructions');
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(api.updatePipeline).toHaveBeenCalled());
+    const body = (api.updatePipeline as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(body.steps[0].outputInstructions).toBe(true);
+    expect(body.steps[1].outputInstructions).toBeUndefined();
+  });
 });
 
 describe('PipelinesPage side panel (T-21 · R-67)', () => {
