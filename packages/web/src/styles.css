@@ -338,15 +338,89 @@ input, select, textarea { font-family: var(--font); }
   font-weight: 600;
 }
 
-/* ── Pane resize divider ────────────────────────────────────────── */
-.pane-divider {
-  width: 4px;
-  cursor: col-resize;
-  background: var(--border);
-  flex-shrink: 0;
-  transition: background 0.1s;
+/* ── Split pane (shared resizable layout — R-68) ─────────────────
+   One set of bounds: 320px .. 70vw, matching SplitPane's JS clamp. */
+.split-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
 }
-.pane-divider:hover { background: var(--accent, #4f46e5); }
+
+.split-pane-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.split-pane-side {
+  width: 42vw;
+  min-width: 320px;
+  max-width: 70vw;
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--surface);
+  padding: 20px;
+}
+
+/* 10px transparent hit area over a 1px visible rule. */
+.split-pane-divider {
+  position: relative;
+  flex: 0 0 10px;
+  margin: 0 -5px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.split-pane-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.1s, width 0.1s;
+}
+.split-pane-divider:hover::before,
+.split-pane-divider:focus-visible::before,
+.split-pane-divider:active::before {
+  width: 3px;
+  margin-left: -1px;
+  background: var(--accent, #4f46e5);
+}
+
+/* Must follow the base rules above so it wins on narrow screens. */
+@media (max-width: 768px) {
+  .split-pane { flex-direction: column; overflow-y: auto; }
+  .split-pane-main { overflow: visible; }
+  .split-pane-divider { display: none; }
+  .split-pane-side {
+    width: auto !important; /* overrides the persisted inline width */
+    min-width: 0;
+    max-width: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+}
+
+/* Pipeline page step list */
+.step-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.step-list-item { display: flex; align-items: center; gap: 4px; }
+.step-list-item .row-btn { flex: 1; min-width: 0; }
+.step-list-item .row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.step-editor-subform {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.step-editor-prompt { max-height: 40vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word; margin-top: 4px; }
 
 /* ── Card ──────────────────────────────────────────────────────── */
 .card {
