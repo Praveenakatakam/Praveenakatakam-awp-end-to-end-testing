@@ -740,4 +740,46 @@ describe('importLegacyPrompts (POST /prompts/import-legacy)', () => {
     const res = await importLegacyPrompts(ev());
     expect(JSON.parse(res.body as string)).toEqual({ imported: [], skipped: [] });
   });
+
+  // v0.6.0 · R-86 — selective import
+  it('TS-75: { promptVersions: ["v2"] } with legacy v1, v2 → only legacy-v2 imported', async () => {
+    vi.mocked(getPrmpt).mockResolvedValue(undefined);
+    const res = await importLegacyPrompts(ev({ promptVersions: ['v2'] }));
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body as string)).toEqual({ imported: ['legacy-v2'], skipped: [] });
+    expect(putPrmpt).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(putPrmpt).mock.calls[0][1]).toMatchObject({ promptKey: 'legacy-v2', body: 'legacy prompt two' });
+  });
+
+  it('selective import keeps idempotency: an already-imported requested version is skipped', async () => {
+    vi.mocked(getPrmpt).mockImplementation(async (_ddb, key) =>
+      key === 'legacy-v2' ? (activePromptItem('legacy-v2') as any) : undefined
+    );
+    const res = await importLegacyPrompts(ev({ promptVersions: ['v2'] }));
+    expect(JSON.parse(res.body as string)).toEqual({ imported: [], skipped: ['legacy-v2'] });
+    expect(putPrmpt).not.toHaveBeenCalled();
+  });
+
+  it('requested versions with no legacy record are ignored', async () => {
+    vi.mocked(getPrmpt).mockResolvedValue(undefined);
+    const res = await importLegacyPrompts(ev({ promptVersions: ['v9', 'v1'] }));
+    expect(JSON.parse(res.body as string)).toEqual({ imported: ['legacy-v1'], skipped: [] });
+  });
+
+  it('a body without promptVersions keeps the import-all behaviour (R-72)', async () => {
+    vi.mocked(getPrmpt).mockResolvedValue(undefined);
+    const res = await importLegacyPrompts(ev({}));
+    expect(JSON.parse(res.body as string)).toEqual({ imported: ['legacy-v1', 'legacy-v2'], skipped: [] });
+  });
+
+  it('promptVersions that is not a string array → HTTP 422', async () => {
+    const res = await importLegacyPrompts(ev({ promptVersions: 'v2' }));
+    expect(res.statusCode).toBe(422);
+    expect(putPrmpt).not.toHaveBeenCalled();
+  });
+
+  it('an invalid JSON body → HTTP 400', async () => {
+    const res = await importLegacyPrompts(ev('{not json'));
+    expect(res.statusCode).toBe(400);
+  });
 });

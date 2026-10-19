@@ -77,6 +77,7 @@ import {
   repository,
 } from './repository.js';
 import { json, notFound } from './http.js';
+import { legacyPromptKey, newPromptItems } from './prompt-items.js';
 import { OUTPUT_INSTRUCTIONS_VERSION, outputInstructions } from './output-instructions.js';
 import { log, redact } from './log.js';
 
@@ -618,55 +619,47 @@ export async function createPrompt(
  * `createPrompt` and `importLegacyPrompts` (R-72).
  */
 async function writeNewPrompt(promptKey: string, promptBody: string, now: string): Promise<void> {
-  const version = 1;
-  const { inlineBody, s3Ref } = await resolveBodyStorage(promptKey, version, promptBody);
-
-  const promptItem: PromptItem = {
-    pk: `PRMPT#${promptKey}`,
-    sk: 'PRMPT',
-    kind: 'PRMPT',
-    promptKey,
-    currentVersion: version,
-    active: true,
-    createdAt: now,
-    updatedAt: now,
-    ...(inlineBody !== undefined ? { body: inlineBody } : {}),
-    ...(s3Ref !== undefined ? { s3Ref } : {}),
-  };
-
-  const versionItem: PromptVersionItem = {
-    pk: `PRMPTVER#${promptKey}#${padVersion(version)}`,
-    sk: 'PRMPTVER',
-    kind: 'PRMPTVER',
-    promptKey,
-    version,
-    createdAt: now,
-    ...(inlineBody !== undefined ? { body: inlineBody } : {}),
-    ...(s3Ref !== undefined ? { s3Ref } : {}),
-  };
-
-  await putPrmpt(_ddb, promptItem);
-  await putPrmptVer(_ddb, versionItem);
+  const storage = await resolveBodyStorage(promptKey, 1, promptBody);
+  const { header, version } = newPromptItems(promptKey, storage, now);
+  await putPrmpt(_ddb, header);
+  await putPrmptVer(_ddb, version);
 }
 
 // ── v0.4.0: POST /prompts/import-legacy (R-72, D-27) ─────────────────────────
 
-/** Prompt key a legacy prompt version is imported under (R-72). */
-export function legacyPromptKey(promptVersion: string): string {
-  return `legacy-${promptVersion}`;
-}
+export { legacyPromptKey };
 
 /**
  * Copy every legacy prompt-version record (`/prompt-versions`, `PROMPT#<pv>`)
  * into the prompt store as `legacy-<promptVersion>` (version 1, body = legacy
  * `text`). Keys that already exist — active or soft-deleted — are skipped, so
  * the import is idempotent. Legacy records are left untouched (D-27).
+ * An optional body `{ promptVersions: string[] }` restricts the import to those
+ * versions (R-86); requested versions with no legacy record are ignored.
  * Returns HTTP 200 `{ imported, skipped }` (prompt keys, sorted).
  */
 export async function importLegacyPrompts(
-  _event?: APIGatewayProxyEventV2
+  event?: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> {
-  const legacy = await repository.listPromptVersions();
+  let only: Set<string> | undefined;
+  if (event?.body) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(event.body);
+    } catch {
+      return json(400, { error: 'Invalid JSON body' });
+    }
+    const pvs = (parsed as { promptVersions?: unknown } | null)?.promptVersions;
+    if (pvs !== undefined) {
+      if (!Array.isArray(pvs) || !pvs.every((v) => typeof v === 'string')) {
+        return json(422, { error: 'promptVersions must be an array of strings' });
+      }
+      only = new Set(pvs as string[]);
+    }
+  }
+
+  const all = await repository.listPromptVersions();
+  const legacy = only ? all.filter((r) => only!.has(r.promptVersion)) : all;
   const imported: string[] = [];
   const skipped: string[] = [];
   const now = new Date().toISOString();

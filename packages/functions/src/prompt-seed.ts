@@ -9,6 +9,11 @@
  * 3. `PRMPT#functional-test-gen-default / PRMPT` — default pipeline prompt header (T-10, R-31).
  * 4. `PRMPTVER#functional-test-gen-default#00001 / PRMPTVER` — corresponding immutable
  *    version record (T-10, R-32).
+ * 5. `PRMPT#legacy-v1` + `PRMPTVER#legacy-v1#00001` — the legacy `v1` prompt version
+ *    imported into the prompt store (same items as `POST /prompts/import-legacy`;
+ *    body = the `PROMPT#v1` record's text) (v0.6.0 · R-85).
+ * 6. `PIPELINE#baseline-legacy-v1 / PIPELINE` — the one-step `planSchema: "v1"`
+ *    baseline pipeline reproducing the legacy generator (v0.6.0 · R-85, D-32).
  *
  * Every write uses `attribute_not_exists(PK)` so re-deploys are idempotent and
  * manually-updated items are never overwritten.
@@ -18,9 +23,11 @@
  * (kind="PROMPT", SK=startedAt) — see design §2 note on T-04.
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { Table } from 'sst/node/table';
+import type { PipelineConfig } from '@registry/core';
 import { log } from './log.js';
+import { legacyPromptKey, newPromptItems } from './prompt-items.js';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -77,6 +84,70 @@ async function conditionalPut(item: Record<string, unknown>, logKey: string): Pr
     }
     throw err;
   }
+}
+
+/** Legacy prompt version the baseline pipeline reproduces (R-85). */
+const BASELINE_LEGACY_PROMPT_VERSION = 'v1';
+/** Model of the seeded legacy `v1` prompt version (fallback when the record cannot be read). */
+const V1_MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
+/** Id of the seeded baseline pipeline (R-85). */
+export const BASELINE_PIPELINE_ID = 'baseline-legacy-v1';
+
+/**
+ * The seeded baseline pipeline (R-85, D-32): one `planSchema: "v1"` plan step on
+ * the imported legacy prompt and the legacy model, no context, no output
+ * instructions, sampling `all`, per requirement. `maxSteps` / `maxAgeMinutes`
+ * are the `POST /pipelines` defaults.
+ */
+export function baselinePipeline(modelId: string, promptKey: string, now: string): PipelineConfig {
+  return {
+    pk: `PIPELINE#${BASELINE_PIPELINE_ID}`,
+    sk: 'PIPELINE',
+    kind: 'PIPELINE',
+    pipelineId: BASELINE_PIPELINE_ID,
+    name: 'Baseline (legacy v1)',
+    steps: [
+      {
+        stepId: 'plan',
+        label: 'Legacy v1 plan',
+        model: modelId,
+        promptKey,
+        outputType: 'plan',
+        planSchema: 'v1',
+        includeContext: false,
+        optional: false,
+        waitForHuman: false,
+      },
+    ],
+    maxSteps: 10,
+    maxAgeMinutes: 60,
+    active: true,
+    defaultSampling: { strategy: 'all' },
+    defaultMode: 'per_requirement',
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * The legacy `v1` prompt-version record's text + model (strongly consistent
+ * read, so a record written moments ago by this run is seen); falls back to the
+ * seeded constants.
+ */
+async function legacyV1Record(): Promise<{ text: string; modelId: string }> {
+  const res = await ddb.send(
+    new GetCommand({
+      TableName: Table.Registry.tableName,
+      Key: { PK: `PROMPT#${BASELINE_LEGACY_PROMPT_VERSION}`, SK: 'PROMPT' },
+      ConsistentRead: true,
+    })
+  );
+  const item = res?.Item as { text?: unknown; modelId?: unknown } | undefined;
+  return {
+    text: typeof item?.text === 'string' ? item.text : V1_PROMPT_TEXT,
+    modelId: typeof item?.modelId === 'string' ? item.modelId : V1_MODEL_ID,
+  };
 }
 
 /** SST `Script` entry point — idempotent on re-deploy. */
@@ -150,5 +221,35 @@ export async function handler(): Promise<{ seeded: boolean }> {
     'pipeline-seed.prmptver'
   );
 
-  return { seeded: v1Seeded || allowlistSeeded || prmptSeeded || prmptVerSeeded };
+  // 5. legacy-v1 prompt — the legacy v1 prompt version imported into the prompt
+  //    store, exactly as `POST /prompts/import-legacy` writes it (R-85, R-72).
+  const legacyV1 = await legacyV1Record();
+  const legacyKey = legacyPromptKey(BASELINE_LEGACY_PROMPT_VERSION);
+  const legacyItems = newPromptItems(legacyKey, { inlineBody: legacyV1.text }, now);
+  const legacyPrmptSeeded = await conditionalPut(
+    { PK: legacyItems.header.pk, SK: legacyItems.header.sk, ...legacyItems.header },
+    'pipeline-seed.legacy-prmpt'
+  );
+  const legacyPrmptVerSeeded = await conditionalPut(
+    { PK: legacyItems.version.pk, SK: legacyItems.version.sk, ...legacyItems.version },
+    'pipeline-seed.legacy-prmptver'
+  );
+
+  // 6. baseline-legacy-v1 pipeline (R-85, D-32).
+  const baseline = baselinePipeline(legacyV1.modelId, legacyKey, now);
+  const baselineSeeded = await conditionalPut(
+    { PK: baseline.pk, SK: baseline.sk, ...baseline },
+    'pipeline-seed.baseline'
+  );
+
+  return {
+    seeded:
+      v1Seeded ||
+      allowlistSeeded ||
+      prmptSeeded ||
+      prmptVerSeeded ||
+      legacyPrmptSeeded ||
+      legacyPrmptVerSeeded ||
+      baselineSeeded,
+  };
 }
