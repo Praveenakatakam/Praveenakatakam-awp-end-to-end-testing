@@ -153,6 +153,12 @@ export interface PipelineStep {
    * Default: `'plan'`.
    */
   outputType?: StepOutputType;
+  /**
+   * When true, the runtime appends output-format instructions for this step's
+   * outputType to the user message (R-73). Default false — baseline steps
+   * receive exactly the pre-v0.5.0 input.
+   */
+  outputInstructions?: boolean;
 }
 
 /** A step's effective output type — `'plan'` when unset (R-59, TS-45). */
@@ -579,7 +585,8 @@ export interface StepInputSnapshot {
   /** Forced tool, or `null` for `freeform`. */
   tool: { name: string; schemaVersion: string } | null;
   priorOutputsTruncated: boolean;
-  instructionsVersion: string;
+  /** `OUTPUT_INSTRUCTIONS_VERSION` when the step opted in to output instructions; `null` otherwise. */
+  instructionsVersion: string | null;
 }
 
 /** `GET /runs/{runId}/steps/{stepIndex}` response (R-75). */

@@ -35,13 +35,15 @@ import type {
   StepOutputType,
   StepRecord,
   RunArtifact,
+  StepInputSnapshot,
+  UserMessageSection,
 } from '@registry/core';
 import { STEP_OUTPUT_TYPES, resolveOutputType } from '@registry/core';
 import type { GroundedContext } from '@registry/functest';
 import {
-  PLAN_SCHEMA,
+  PLAN_SCHEMA_V2,
   CRITIQUE_SCHEMA,
-  validatePlan,
+  validatePlanV2,
   validateCritique,
   emitFunctionalTest,
   functionalTestPath,
@@ -72,6 +74,7 @@ import {
   repository,
 } from './repository.js';
 import { json, notFound } from './http.js';
+import { OUTPUT_INSTRUCTIONS_VERSION, outputInstructions } from './output-instructions.js';
 import { log, redact } from './log.js';
 
 // ── Module-level AWS clients ──────────────────────────────────────────────────
@@ -191,6 +194,10 @@ async function validatePipelineSteps(
   for (const step of steps) {
     if (step.outputType !== undefined && !STEP_OUTPUT_TYPES.includes(step.outputType)) {
       return `step "${step.stepId}" has unknown outputType "${String(step.outputType)}" (expected one of: ${STEP_OUTPUT_TYPES.join(', ')})`;
+    }
+    // outputInstructions is an optional opt-in flag (R-73).
+    if (step.outputInstructions !== undefined && typeof step.outputInstructions !== 'boolean') {
+      return `step "${step.stepId}" has non-boolean outputInstructions`;
     }
   }
 
@@ -854,11 +861,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Format the user-turn message for Bedrock from a GroundedContext.
- * Mirrors the private `userPrompt` function in `llm.ts` so the step worker
- * can call Bedrock directly and capture usage metrics (TS-32).
+ * Build the user-turn message for Bedrock from a GroundedContext, split into
+ * named sections (R-73, R-74). Mirrors the private `userPrompt` function in
+ * `llm.ts` so the step worker can call Bedrock directly and capture usage
+ * metrics (TS-32). `text` is the sections joined with one blank line between,
+ * byte-identical to the pre-v0.5.0 format. The "Output instructions" section
+ * is appended only when `opts.instructions` is true (the step opted in) and
+ * the output type is not `freeform`.
  */
-function userMessageFromContext(ctx: GroundedContextWithPrior): string {
+export function buildUserMessage(
+  ctx: GroundedContextWithPrior,
+  outputType: StepOutputType,
+  opts: { instructions: boolean; hasPriorPlan: boolean } = { instructions: false, hasPriorPlan: false }
+): { text: string; sections: UserMessageSection[] } {
   const schema = ctx.schema
     .map((p) => `  - ${p.name}${p.required ? ' (required)' : ''}: ${p.logicalType ?? 'unknown'}`)
     .join('\n');
@@ -866,30 +881,44 @@ function userMessageFromContext(ctx: GroundedContextWithPrior): string {
     .map((t) => `  - ${t.source}: ${t.target.path} (records at "${t.target.recordsAt}")`)
     .join('\n');
 
-  const parts = [
-    `Requirement ${ctx.requirement.id} (${ctx.requirement.earsType}, §${ctx.requirement.section}) from the ${ctx.requirement.source} service:`,
-    `  "${ctx.requirement.text}"`,
-    ``,
-    `Entity under test: ${ctx.entity}`,
-    `Sources that handle this entity (allowed trigger.source values): ${ctx.sources.join(', ')}`,
-    ``,
-    `Contract schema for ${ctx.entity}:`,
-    schema || '  (no properties)',
-    ``,
-    `Live API targets:`,
-    targets,
+  const sections: UserMessageSection[] = [
+    {
+      name: 'Requirement',
+      text: [
+        `Requirement ${ctx.requirement.id} (${ctx.requirement.earsType}, §${ctx.requirement.section}) from the ${ctx.requirement.source} service:`,
+        `  "${ctx.requirement.text}"`,
+      ].join('\n'),
+    },
+    {
+      name: 'Entity',
+      text: [
+        `Entity under test: ${ctx.entity}`,
+        `Sources that handle this entity (allowed trigger.source values): ${ctx.sources.join(', ')}`,
+      ].join('\n'),
+    },
+    {
+      name: 'Contract schema',
+      text: [`Contract schema for ${ctx.entity}:`, schema || '  (no properties)'].join('\n'),
+    },
+    { name: 'API targets', text: [`Live API targets:`, targets].join('\n') },
   ];
 
   if (ctx.priorOutputs && ctx.priorOutputs.length > 0) {
     // Outputs arrive already fitted to PRIOR_OUTPUT_BUDGET_CHARS (R-63).
-    parts.push('', 'Prior step outputs (use as context for this step):');
+    const lines = ['Prior step outputs (use as context for this step):'];
     for (const prior of ctx.priorOutputs) {
-      parts.push(`  Step ${prior.stepId} — ${prior.label}:`);
-      parts.push(`    ${prior.output}`);
+      lines.push(`  Step ${prior.stepId} — ${prior.label}:`);
+      lines.push(`    ${prior.output}`);
     }
+    sections.push({ name: 'Prior step outputs', text: lines.join('\n') });
   }
 
-  return parts.join('\n');
+  const instructions = opts.instructions ? outputInstructions(outputType, opts) : null;
+  if (instructions !== null) {
+    sections.push({ name: 'Output instructions', text: instructions });
+  }
+
+  return { text: sections.map((s) => s.text).join('\n\n'), sections };
 }
 
 /**
@@ -923,14 +952,19 @@ export function buildPriorContext(
 }
 
 /** Bedrock tool contract per step output type (R-60). `freeform` has none. */
-const STEP_TOOLS: Record<Exclude<StepOutputType, 'freeform'>, { name: string; description: string; input_schema: unknown }> = {
+const STEP_TOOLS: Record<
+  Exclude<StepOutputType, 'freeform'>,
+  { name: string; description: string; input_schema: unknown; schemaVersion: string }
+> = {
   plan: {
     name: 'emit_functional_test_plan',
+    schemaVersion: 'plan-v2',
     description: 'Return the single cross-service functional test plan for the given requirement.',
-    input_schema: PLAN_SCHEMA,
+    input_schema: PLAN_SCHEMA_V2,
   },
   critique: {
     name: 'emit_critique',
+    schemaVersion: 'critique-v1',
     description: 'Return a structured critique of the prior step outputs for the given requirement.',
     input_schema: CRITIQUE_SCHEMA,
   },
@@ -948,7 +982,7 @@ export function validateStepOutput(
   grounded: { entity: string; sources: string[] }
 ): void {
   if (outputType === 'plan') {
-    const v = validatePlan(raw, grounded);
+    const v = validatePlanV2(raw, grounded);
     if (!v.ok) throw new StepValidationError(v.reason);
   } else if (outputType === 'critique') {
     const v = validateCritique(raw);
@@ -973,7 +1007,7 @@ async function callBedrockForStep(
   model: string,
   region: string | undefined,
   systemPrompt: string,
-  context: GroundedContextWithPrior,
+  userMessage: string,
   outputType: StepOutputType
 ): Promise<BedrockStepResult> {
   const { BedrockRuntimeClient, InvokeModelCommand } = await import('@aws-sdk/client-bedrock-runtime');
@@ -981,12 +1015,16 @@ async function callBedrockForStep(
 
   // Shape the call by outputType (R-60): plan/critique force their tool;
   // freeform sends no tools and the text blocks are the output.
-  const tool = outputType === 'freeform' ? undefined : STEP_TOOLS[outputType];
+  const toolDef = outputType === 'freeform' ? undefined : STEP_TOOLS[outputType];
+  // `schemaVersion` is snapshot metadata (R-74), not part of the Bedrock tool contract.
+  const tool = toolDef
+    ? { name: toolDef.name, description: toolDef.description, input_schema: toolDef.input_schema }
+    : undefined;
   const requestBody = {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 8192,
     system: systemPrompt,
-    messages: [{ role: 'user', content: userMessageFromContext(context) }],
+    messages: [{ role: 'user', content: userMessage }],
     ...(tool
       ? {
           tools: [tool],
@@ -1055,6 +1093,44 @@ async function dispatchNextStep(runId: string, stepIndex: number): Promise<void>
  * Write a terminal status and optional error fields to a step record.
  * Also clears `leaseExpiresAt` (R-19).
  */
+/**
+ * Write the step's exact model input to S3 and set `inputRef` on the step
+ * record (R-74, D-29). Best-effort: failures are logged, never thrown (TS-62).
+ */
+async function _writeInputSnapshot(
+  runId: string,
+  stepIndex: number,
+  pkVal: string,
+  skVal: string,
+  snapshot: StepInputSnapshot
+): Promise<void> {
+  const s3Key = `pipeline-outputs/${runId}/${String(stepIndex).padStart(2, '0')}.input.json`;
+  try {
+    await _s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: s3Key,
+        Body: JSON.stringify(snapshot),
+        ContentType: 'application/json',
+      })
+    );
+    await _ddb.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { PK: pkVal, SK: skVal },
+        UpdateExpression: 'SET inputRef = :ref',
+        ExpressionAttributeValues: { ':ref': { s3Key } },
+      })
+    );
+  } catch (err) {
+    log.warn('step.worker.snapshot_failed', {
+      runId,
+      stepIndex,
+      error: redact((err as Error).message ?? String(err)),
+    });
+  }
+}
+
 async function _writeStepTerminal(
   pkVal: string,
   skVal: string,
@@ -1152,7 +1228,7 @@ async function _emitRunArtifact(
   try {
     const raw: unknown = JSON.parse(await _readStepOutput(candidate.outputRef!));
     // Stored/cached plans may predate v2 — tolerate a missing rationale (D-25).
-    const v = validatePlan(raw, grounded, { requireRationale: false });
+    const v = validatePlanV2(raw, grounded, { requireRationale: false });
     if (!v.ok) throw new Error(v.reason);
     const plan: FunctionalTestPlan = { ...v.body, inputHash: grounded.inputHash };
     const content = emitFunctionalTest(plan, 0, { apiTargets: grounded.apiTargets });
@@ -1408,6 +1484,9 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
 
   // Build priorOutputs (R-12): if includeContext is false, stays [] (TS-08)
   let priorOutputs: PriorOutput[] = [];
+  // Whether any injected prior output came from a `plan` step — selects the
+  // "revise" output instructions for plan steps (R-73).
+  let hasPriorPlan = false;
   if (step.includeContext && stepIndex > 0) {
     const allPriorSteps = await listPrunSteps(_ddb, runId);
     const completedPriorSteps = allPriorSteps.filter(
@@ -1427,6 +1506,8 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
             : '';
         }
         priorOutputs.push({ stepId: priorStep.stepId, label: priorStep.label, output: outputStr });
+        const priorDef = pipeline.steps[priorStep.stepIndex];
+        if (priorDef && resolveOutputType(priorDef) === 'plan') hasPriorPlan = true;
       }
     }
   }
@@ -1438,11 +1519,34 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
   const outputType = resolveOutputType(step); // absent → 'plan' (R-59, TS-45)
 
   const contextWithPrior: GroundedContextWithPrior = { ...groundedCtx, priorOutputs };
+  // Output instructions are opt-in per step (R-73); off → pre-v0.5.0 message.
+  const instructionsOn = step.outputInstructions === true && outputType !== 'freeform';
+  const instructionsVersion = instructionsOn ? OUTPUT_INSTRUCTIONS_VERSION : null;
+  const userMessage = buildUserMessage(contextWithPrior, outputType, {
+    instructions: instructionsOn,
+    hasPriorPlan,
+  });
 
   // ── 9. contextTokenEstimate heuristic (D-15, R-13) ────────────────────────
   const serializedContext = JSON.stringify(contextWithPrior);
   const contextTokenEstimate = Math.ceil(serializedContext.length / 4);
   const inputCharacters = serializedContext.length;
+
+  // ── Input snapshot — before cache lookup and Bedrock (R-74, D-29, TS-61) ─
+  // Best-effort: a write failure is logged and never fails the step (TS-62).
+  await _writeInputSnapshot(runId, stepIndex, prunPkVal, stepSkVal, {
+    model: step.model,
+    outputType,
+    systemPrompt: { promptKey: step.promptKey, version: promptVersion, body: promptBody },
+    userMessage: userMessage.text,
+    sections: userMessage.sections,
+    tool:
+      outputType === 'freeform'
+        ? null
+        : { name: STEP_TOOLS[outputType].name, schemaVersion: STEP_TOOLS[outputType].schemaVersion },
+    priorOutputsTruncated,
+    instructionsVersion,
+  });
 
   // ── 6 (deferred). Compute full cache key (R-27, design §Caching) ─────────
   // Deferred until here because inputHash requires the grounded context.
@@ -1455,6 +1559,9 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
         stepId: step.stepId,
         promptKey: step.promptKey,
         promptVersion,
+        // Only when the step opted in, so baseline steps keep their pre-v0.5.0
+        // cache keys (R-73, TS-60).
+        ...(instructionsVersion !== null ? { instructionsVersion } : {}),
       })
     )
     .digest('hex');
@@ -1498,7 +1605,7 @@ async function _stepWorkerCore(runId: string, stepIndex: number): Promise<void> 
           step.model,
           process.env.AWS_REGION,
           promptBody,
-          contextWithPrior,
+          userMessage.text,
           outputType
         );
         bedrockLatencyMs = Date.now() - bedrockCallStart;

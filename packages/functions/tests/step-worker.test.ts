@@ -19,6 +19,8 @@ const mockDdbSend = vi.hoisted(() => vi.fn<any[], Promise<any>>());
 const mockS3Send = vi.hoisted(() => vi.fn<any[], Promise<any>>());
 const mockBedrockSend = vi.hoisted(() => vi.fn<any[], Promise<any>>());
 const mockLambdaSend = vi.hoisted(() => vi.fn<any[], Promise<any>>());
+/** Mutable OUTPUT_INSTRUCTIONS_VERSION so TS-60 can bump it between runs. */
+const instructionsVersionRef = vi.hoisted(() => ({ v: '1' }));
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -75,6 +77,16 @@ vi.mock('@registry/functest', async (importOriginal) => ({
   ground: vi.fn(),
 }));
 
+vi.mock('../src/output-instructions.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/output-instructions.js')>();
+  return {
+    ...actual,
+    get OUTPUT_INSTRUCTIONS_VERSION() {
+      return instructionsVersionRef.v;
+    },
+  };
+});
+
 vi.mock('../src/log.js', () => ({
   log: {
     info: vi.fn(),
@@ -85,8 +97,14 @@ vi.mock('../src/log.js', () => ({
 }));
 
 // ── Imports (must come after vi.mock declarations) ────────────────────────────
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { stepWorker, buildPriorContext, PRIOR_OUTPUT_BUDGET_CHARS } from '../src/pipeline.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
+import {
+  stepWorker,
+  buildPriorContext,
+  buildUserMessage,
+  PRIOR_OUTPUT_BUDGET_CHARS,
+} from '../src/pipeline.js';
 import {
   getPrun,
   updatePrun,
@@ -777,9 +795,10 @@ describe('output size threshold (R-19)', () => {
     // WHEN
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
 
-    // THEN — S3 PutObject called with correct key
-    expect(mockS3Send).toHaveBeenCalledOnce();
-    const s3Arg = mockS3Send.mock.calls[0][0] as any;
+    // THEN — S3 PutObject called with correct key (the input snapshot write is separate — R-74)
+    const outputPuts = mockS3Send.mock.calls.filter((c) => !c[0]?.input?.Key?.endsWith('.input.json'));
+    expect(outputPuts).toHaveLength(1);
+    const s3Arg = outputPuts[0][0] as any;
     expect(s3Arg._name).toBe('PutObjectCommand');
     expect(s3Arg.input.Key).toBe(`pipeline-outputs/${RUN_ID}/00.json`);
     expect(s3Arg.input.ContentType).toBe('application/json');
@@ -801,8 +820,9 @@ describe('output size threshold (R-19)', () => {
     // WHEN
     await stepWorker({ runId: RUN_ID, stepIndex: 0 });
 
-    // THEN — no S3 PutObject
-    expect(mockS3Send).not.toHaveBeenCalled();
+    // THEN — no S3 PutObject other than the input snapshot (R-74)
+    const outputPuts = mockS3Send.mock.calls.filter((c) => !c[0]?.input?.Key?.endsWith('.input.json'));
+    expect(outputPuts).toHaveLength(0);
 
     // AND — outputRef uses inline storage
     const metricsUpdate = mockDdbSend.mock.calls
@@ -1229,5 +1249,308 @@ describe('run artifact emission (R-65)', () => {
     expect(warningAppends().some((w) => w.startsWith('artifact emit failed:'))).toBe(true);
     expect(updatePrun).toHaveBeenCalledWith(expect.anything(), RUN_ID, expect.objectContaining({ status: 'completed' }));
     expect(updatePrun).not.toHaveBeenCalledWith(expect.anything(), RUN_ID, expect.objectContaining({ status: 'failed' }));
+  });
+});
+
+// ── v0.5.0: output instructions, sectioned user message, input snapshot ──────
+
+describe('output instructions + sectioned user message (R-73)', () => {
+  const critique = { verdict: 'revise', summary: 'needs work', issues: [] };
+
+  function snapshotPut(): any {
+    return mockS3Send.mock.calls.find(
+      (c) => c[0]?._name === 'PutObjectCommand' && c[0].input.Key.endsWith('.input.json')
+    )?.[0];
+  }
+
+  function cacheKeyWritten(): string {
+    const call = mockDdbSend.mock.calls.find(
+      (c) => c[0]?._name === 'UpdateCommand' && c[0].input?.ExpressionAttributeValues?.[':ck'] !== undefined
+    );
+    return call![0].input.ExpressionAttributeValues[':ck'];
+  }
+
+  /** Two-step run: s0 (completed) → s1 (given outputType), includeContext, instructions opted in. */
+  function setupSecondStep(
+    s1OutputType: string,
+    s0OutputType = 'plan',
+    flag: { outputInstructions?: boolean } = { outputInstructions: true }
+  ): void {
+    const s1 = { stepId: 's1', outputType: s1OutputType, includeContext: true, ...flag };
+    const pipeline = makePipeline([makeStep({ stepId: 's0', outputType: s0OutputType }), makeStep(s1)]);
+    setupHappyPath(s1);
+    vi.mocked(getPipeline).mockResolvedValue(pipeline as any);
+    vi.mocked(getPrun).mockResolvedValue(freshRun({ executedSteps: 1 }) as any);
+    vi.mocked(listPrunSteps).mockResolvedValue([
+      { stepId: 's0', stepIndex: 0, label: 'Draft', status: 'completed', outputRef: { inline: JSON.stringify(validPlan()) } },
+    ] as any);
+  }
+
+  afterEach(() => {
+    instructionsVersionRef.v = '1';
+  });
+
+  it('text is byte-identical to the pre-v0.5.0 format for freeform (no instructions section)', () => {
+    const msg = buildUserMessage(
+      { ...(MOCK_GROUNDED_CTX as any), priorOutputs: [{ stepId: 's0', label: 'Draft', output: 'OUT' }] },
+      'freeform'
+    );
+    expect(msg.text).toBe(
+      [
+        'Requirement R-01 (ubiquitous, §3.1) from the svc-a service:',
+        '  "The Order entity shall be tracked across services."',
+        '',
+        'Entity under test: Order',
+        'Sources that handle this entity (allowed trigger.source values): svc-a, svc-b',
+        '',
+        'Contract schema for Order:',
+        '  - orderId (required): string',
+        '',
+        'Live API targets:',
+        '  - svc-a: /orders (records at "data.items")',
+        '',
+        'Prior step outputs (use as context for this step):',
+        '  Step s0 — Draft:',
+        '    OUT',
+      ].join('\n')
+    );
+    expect(msg.sections.map((x) => x.name)).toEqual([
+      'Requirement',
+      'Entity',
+      'Contract schema',
+      'API targets',
+      'Prior step outputs',
+    ]);
+  });
+
+  it('a fresh plan step with outputInstructions: true appends the section describing the plan fields', async () => {
+    setupHappyPath({ outputInstructions: true });
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    const userMessage: string = bedrockRequest().messages[0].content;
+    const idx = userMessage.indexOf('\n\nOutput instructions:\n');
+    expect(idx).toBeGreaterThan(0);
+    const section = userMessage.slice(idx);
+    expect(section).toContain('Produce ONE grounded cross-service test plan');
+    expect(section).toContain('emit_functional_test_plan');
+    for (const kind of ['"cdc"', '"eventbridge"', '"sync"']) expect(section).toContain(kind);
+    expect(section).not.toContain('REVISED');
+  });
+
+  it('TS-58: an opted-in critique step after a plan step ends with instructions to review the prior plan', async () => {
+    setupSecondStep('critique');
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: critique }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const userMessage: string = bedrockRequest().messages[0].content;
+    const idx = userMessage.lastIndexOf('\n\nOutput instructions:\n');
+    expect(idx).toBeGreaterThan(userMessage.indexOf('Prior step outputs'));
+    const section = userMessage.slice(idx);
+    expect(section).toContain('Review the most recent test plan among the prior step outputs');
+    expect(section).toContain('emit_critique');
+    expect(section).toContain('severity');
+    expect(section).toContain('suggestion');
+  });
+
+  it('TS-58: a freeform step gets no "Output instructions" section even when opted in', async () => {
+    setupSecondStep('freeform');
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'text', text: 'notes' }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const userMessage: string = bedrockRequest().messages[0].content;
+    expect(userMessage).not.toContain('Output instructions');
+    expect(userMessage.endsWith(`    ${JSON.stringify(validPlan())}`)).toBe(true);
+  });
+
+  it('TS-59: an opted-in plan step whose prior outputs include a plan gets the "revise" variant', async () => {
+    setupSecondStep('plan');
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const userMessage: string = bedrockRequest().messages[0].content;
+    const section = userMessage.slice(userMessage.indexOf('\n\nOutput instructions:\n'));
+    expect(section).toContain('Produce a REVISED plan');
+    expect(section).toContain('critique');
+    expect(section).not.toContain('Produce ONE grounded');
+  });
+
+  it('a plan step whose only prior output is freeform gets the fresh variant', async () => {
+    setupSecondStep('plan', 'freeform');
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const userMessage: string = bedrockRequest().messages[0].content;
+    expect(userMessage).toContain('Produce ONE grounded cross-service test plan');
+    expect(userMessage).not.toContain('REVISED');
+  });
+
+  it('TS-60: changing OUTPUT_INSTRUCTIONS_VERSION changes the step cache key (opted-in step)', async () => {
+    setupHappyPath({ outputInstructions: true });
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    const keyV1 = cacheKeyWritten();
+
+    vi.clearAllMocks();
+    setupHappyPath({ outputInstructions: true });
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(cacheKeyWritten()).toBe(keyV1); // deterministic for identical inputs
+
+    vi.clearAllMocks();
+    instructionsVersionRef.v = '2';
+    setupHappyPath({ outputInstructions: true });
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(cacheKeyWritten()).not.toBe(keyV1);
+    expect(getStepcache).toHaveBeenCalledWith(expect.anything(), cacheKeyWritten());
+  });
+
+  it('TS-61: input snapshot is written to S3 before cache lookup and Bedrock, with all R-74 fields; step gets inputRef', async () => {
+    setupSecondStep('critique');
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'tool_use', input: critique }]) });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+    const putIdx = mockS3Send.mock.calls.findIndex(
+      (c) => c[0]?._name === 'PutObjectCommand' && c[0].input.Key.endsWith('.input.json')
+    );
+    expect(putIdx).toBeGreaterThanOrEqual(0);
+    const put = mockS3Send.mock.calls[putIdx][0] as any;
+    expect(put.input.Key).toBe(`pipeline-outputs/${RUN_ID}/01.input.json`);
+    expect(put.input.ContentType).toBe('application/json');
+
+    // Ordering: snapshot before cache lookup and before Bedrock
+    const putOrder = mockS3Send.mock.invocationCallOrder[putIdx];
+    expect(putOrder).toBeLessThan(vi.mocked(getStepcache).mock.invocationCallOrder[0]);
+    expect(putOrder).toBeLessThan(mockBedrockSend.mock.invocationCallOrder[0]);
+
+    const snap = JSON.parse(put.input.Body);
+    expect(Object.keys(snap).sort()).toEqual(
+      [
+        'instructionsVersion',
+        'model',
+        'outputType',
+        'priorOutputsTruncated',
+        'sections',
+        'systemPrompt',
+        'tool',
+        'userMessage',
+      ].sort()
+    );
+    expect(snap.model).toBe('us.anthropic.claude-sonnet-4-6');
+    expect(snap.outputType).toBe('critique');
+    expect(snap.systemPrompt).toEqual({ promptKey: 'test-prompt', version: 1, body: 'You are a helpful assistant.' });
+    expect(snap.userMessage).toBe(bedrockRequest().messages[0].content);
+    expect(snap.sections.map((x: any) => x.name)).toEqual([
+      'Requirement',
+      'Entity',
+      'Contract schema',
+      'API targets',
+      'Prior step outputs',
+      'Output instructions',
+    ]);
+    expect(snap.sections.map((x: any) => x.text).join('\n\n')).toBe(snap.userMessage);
+    expect(snap.tool).toEqual({ name: 'emit_critique', schemaVersion: 'critique-v1' });
+    expect(snap.priorOutputsTruncated).toBe(false);
+    expect(snap.instructionsVersion).toBe('1');
+
+    // Step record gets inputRef
+    const refUpdate = mockDdbSend.mock.calls.find(
+      (c) => c[0]?._name === 'UpdateCommand' && c[0].input?.UpdateExpression === 'SET inputRef = :ref'
+    );
+    expect(refUpdate![0].input.ExpressionAttributeValues[':ref']).toEqual({
+      s3Key: `pipeline-outputs/${RUN_ID}/01.input.json`,
+    });
+  });
+
+  it('freeform snapshot has tool: null; plan snapshot has plan-v2', async () => {
+    setupSecondStep('freeform');
+    mockBedrockSend.mockResolvedValue({ body: bedrockBody([{ type: 'text', text: 'notes' }]) });
+    await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+    expect(JSON.parse(snapshotPut().input.Body).tool).toBeNull();
+
+    vi.clearAllMocks();
+    setupHappyPath({ outputInstructions: true });
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(JSON.parse(snapshotPut().input.Body).tool).toEqual({
+      name: 'emit_functional_test_plan',
+      schemaVersion: 'plan-v2',
+    });
+  });
+
+  it('cached and failed steps also get snapshots', async () => {
+    setupHappyPath();
+    vi.mocked(getStepcache).mockResolvedValue({ cacheKey: 'k', outputRef: { inline: '{}' } } as any);
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(snapshotPut()).toBeDefined();
+
+    vi.clearAllMocks();
+    setupHappyPath();
+    mockBedrockSend.mockRejectedValue(new Error('terminal failure'));
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(snapshotPut()).toBeDefined();
+  });
+
+  it('flag absent → no instructions section, pre-v0.5.0 cache key, snapshot instructionsVersion null', async () => {
+    for (const flag of [{}, { outputInstructions: false }]) {
+      vi.clearAllMocks();
+      setupSecondStep('plan', 'plan', flag);
+      await stepWorker({ runId: RUN_ID, stepIndex: 1 });
+
+      const userMessage: string = bedrockRequest().messages[0].content;
+      expect(userMessage).not.toContain('Output instructions');
+      // Byte-identical to the pre-v0.5.0 message: ends with the prior output block.
+      expect(userMessage.endsWith(`    ${JSON.stringify(validPlan())}`)).toBe(true);
+
+      // Cache key tuple is exactly the pre-v0.5.0 one (no instructionsVersion).
+      const preV05Key = createHash('sha256')
+        .update(
+          JSON.stringify({
+            inputHash: MOCK_GROUNDED_CTX.inputHash,
+            pipelineId: PIPELINE_ID,
+            pipelineConfigVersion: 1,
+            stepId: 's1',
+            promptKey: 'test-prompt',
+            promptVersion: 1,
+          })
+        )
+        .digest('hex');
+      expect(cacheKeyWritten()).toBe(preV05Key);
+
+      const snap = JSON.parse(snapshotPut().input.Body);
+      expect(snap.instructionsVersion).toBeNull();
+      expect(snap.sections.map((x: any) => x.name)).not.toContain('Output instructions');
+    }
+  });
+
+  it('flag absent → bumping OUTPUT_INSTRUCTIONS_VERSION does not change the cache key', async () => {
+    setupHappyPath();
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    const before = cacheKeyWritten();
+    vi.clearAllMocks();
+    instructionsVersionRef.v = '2';
+    setupHappyPath();
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+    expect(cacheKeyWritten()).toBe(before);
+  });
+
+  it('TS-62: snapshot PutObject throwing → warning logged, no inputRef, step still completes', async () => {
+    setupHappyPath();
+    mockS3Send.mockImplementation(async (cmd: any) => {
+      if (cmd?.input?.Key?.endsWith('.input.json')) throw new Error('S3 down');
+      return {};
+    });
+
+    await stepWorker({ runId: RUN_ID, stepIndex: 0 });
+
+    expect(log.warn).toHaveBeenCalledWith('step.worker.snapshot_failed', expect.objectContaining({ runId: RUN_ID }));
+    expect(mockBedrockSend).toHaveBeenCalledOnce();
+    const refUpdate = mockDdbSend.mock.calls.find(
+      (c) => c[0]?.input?.UpdateExpression === 'SET inputRef = :ref'
+    );
+    expect(refUpdate).toBeUndefined();
+    const statusUpdate = mockDdbSend.mock.calls.find(
+      (c) => c[0]?.input?.ExpressionAttributeValues?.[':status'] === 'completed'
+    );
+    expect(statusUpdate).toBeDefined();
+    expect(updatePrun).toHaveBeenCalledWith(expect.anything(), RUN_ID, expect.objectContaining({ status: 'completed' }));
   });
 });

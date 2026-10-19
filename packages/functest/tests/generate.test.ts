@@ -5,9 +5,9 @@ import {
   emitFunctionalTests,
   buildFunctionalArtifacts,
   serializeFunctionalManifest,
-  validatePlan,
+  validatePlanV1,
   ground,
-  PLAN_SCHEMA,
+  PLAN_SCHEMA_V1,
   type LlmClient,
   type PlanCache,
   type FunctionalGenInputs,
@@ -70,7 +70,6 @@ function orgPlanBody(): PlanBody {
   return {
     requirementIds: ['R-10'],
     title: 'publisher-created org appears to the consumer',
-    rationale: 'R-10 requires a created org to be published to consumers.',
     setup: [{ description: 'a writer access token for the publisher' }],
     trigger: {
       source: 'publisher',
@@ -186,43 +185,43 @@ describe('ground / skip rules', () => {
 
 // ---- Plan validation (R-117, R-120) ---------------------------------------
 
-describe('validatePlan', () => {
+describe('validatePlanV1', () => {
   const grounded = { entity: 'org', sources: ['consumer', 'publisher'] };
 
   it('accepts a well-formed grounded plan', () => {
-    const v = validatePlan(orgPlanBody(), grounded);
+    const v = validatePlanV1(orgPlanBody(), grounded);
     expect(v.ok).toBe(true);
   });
 
   it('rejects a malformed plan (missing required field)', () => {
     const bad = { ...orgPlanBody(), trigger: undefined };
-    const v = validatePlan(bad, grounded);
+    const v = validatePlanV1(bad, grounded);
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/malformed plan/);
   });
 
   it('rejects a hallucinated trigger entity', () => {
     const bad = { ...orgPlanBody(), trigger: { ...orgPlanBody().trigger, entity: 'widget' } };
-    const v = validatePlan(bad, grounded);
+    const v = validatePlanV1(bad, grounded);
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/hallucinated target: trigger entity 'widget'/);
   });
 
   it('rejects a hallucinated trigger source', () => {
     const bad = { ...orgPlanBody(), trigger: { ...orgPlanBody().trigger, source: 'attacker' } };
-    const v = validatePlan(bad, grounded);
+    const v = validatePlanV1(bad, grounded);
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/hallucinated target: trigger source 'attacker'/);
   });
 
   it('rejects an unknown enum value for trigger method', () => {
     const bad = { ...orgPlanBody(), trigger: { ...orgPlanBody().trigger, method: 'GET' } };
-    expect(validatePlan(bad, grounded).ok).toBe(false);
+    expect(validatePlanV1(bad, grounded).ok).toBe(false);
   });
 
-  it('PLAN_SCHEMA forbids extra properties', () => {
+  it('PLAN_SCHEMA_V1 forbids extra properties', () => {
     const bad = { ...orgPlanBody(), surprise: 1 };
-    expect(validatePlan(bad, grounded).ok).toBe(false);
+    expect(validatePlanV1(bad, grounded).ok).toBe(false);
   });
 });
 
@@ -253,6 +252,43 @@ describe('generateFunctionalPlans', () => {
     };
     const second = await generateFunctionalPlans(inputs(), llm2, cache);
     expect(second.plans).toEqual(first.plans);
+  });
+
+  it('legacy path is pinned to PLAN_SCHEMA_V1: a v2-only plan from the LLM is skipped as malformed', async () => {
+    const v2 = { ...orgPlanBody(), rationale: 'why' };
+    const { plans, skipped } = await generateFunctionalPlans(inputs(), stubLlm(v2 as PlanBody), memCache());
+    expect(plans).toHaveLength(0);
+    expect(skipped[0].reason).toMatch(/malformed plan/);
+  });
+
+  it('legacy path rejects v2-widened values (eventbridge propagation, non publisher/consumer service)', async () => {
+    const eb = { ...orgPlanBody(), propagation: { kind: 'eventbridge', waitFor: 'x' } };
+    expect((await generateFunctionalPlans(inputs(), stubLlm(eb as PlanBody), memCache())).plans).toHaveLength(0);
+    expect(validatePlanV1({ ...orgPlanBody(), assertions: [{ service: 'other', assertion: 'x' }] }, { entity: 'org', sources: ['publisher', 'consumer'] }).ok).toBe(false);
+  });
+
+  it('a cache hit that is not a valid v1 plan (v2 plan cached under v0.4.0) is re-synthesized with v1', async () => {
+    const cache = memCache();
+    const first = await generateFunctionalPlans(inputs(), stubLlm(orgPlanBody()), cache);
+    const hash = first.plans[0].inputHash;
+    cache.store.set(hash, { ...first.plans[0], rationale: 'v2-era plan' });
+
+    const llm = stubLlm(orgPlanBody());
+    const second = await generateFunctionalPlans(inputs(), llm, cache);
+
+    expect(llm.calls).toBe(1);
+    expect(second.plans).toEqual(first.plans);
+    expect(cache.store.get(hash)).toEqual(first.plans[0]);
+  });
+
+  it('PLAN_SCHEMA_V1 is the exact original v1 contract', () => {
+    expect(PLAN_SCHEMA_V1.required).toEqual(['requirementIds', 'title', 'setup', 'trigger', 'propagation', 'assertions']);
+    expect(PLAN_SCHEMA_V1.properties.propagation.properties.kind).toEqual({ type: 'string', enum: ['cdc'] });
+    expect(PLAN_SCHEMA_V1.properties.assertions.items.properties.service).toEqual({
+      type: 'string',
+      enum: ['publisher', 'consumer'],
+    });
+    expect(Object.keys(PLAN_SCHEMA_V1.properties.trigger.properties)).not.toContain('examplePayload');
   });
 
   it('skips (not fails) when the LLM throws — fault isolation (NFR-4, R-120)', async () => {
@@ -357,12 +393,12 @@ describe('manifest + artifacts', () => {
   });
 });
 
-// ---- PLAN_SCHEMA is structured-output-safe --------------------------------
+// ---- PLAN_SCHEMA_V1 is structured-output-safe --------------------------------
 
-describe('PLAN_SCHEMA', () => {
+describe('PLAN_SCHEMA_V1', () => {
   it('is a closed object schema (additionalProperties:false) at the top level', () => {
-    expect(PLAN_SCHEMA.type).toBe('object');
-    expect(PLAN_SCHEMA.additionalProperties).toBe(false);
-    expect(PLAN_SCHEMA.required).toContain('trigger');
+    expect(PLAN_SCHEMA_V1.type).toBe('object');
+    expect(PLAN_SCHEMA_V1.additionalProperties).toBe(false);
+    expect(PLAN_SCHEMA_V1.required).toContain('trigger');
   });
 });
