@@ -183,3 +183,187 @@ export function lineDiff(a: string, b: string): DiffLine[] {
 
   return [...head, ...mid, ...tail];
 }
+
+// ---------------------------------------------------------------------------
+// Step output shapes (v0.5.0 step transparency — R-77)
+//
+// Local mirrors of `@registry/functest`'s `PlanBody` (PLAN_SCHEMA v2, R-61) and
+// `Critique` (CRITIQUE_SCHEMA, R-62). Mirrored rather than imported because the
+// functest modules pull in Ajv at runtime.
+// ---------------------------------------------------------------------------
+
+export interface PlanAssertionView {
+  service: string;
+  assertion: string;
+  field?: string;
+  expected?: string;
+}
+
+export interface PlanView {
+  requirementIds?: string[];
+  title?: string;
+  rationale?: string;
+  setup?: { description: string }[];
+  trigger: {
+    source?: string;
+    entity?: string;
+    method?: string;
+    path?: string;
+    payloadShape?: string;
+    examplePayload?: string;
+  };
+  propagation?: { kind?: string; waitFor?: string; channel?: string };
+  assertions: PlanAssertionView[];
+  negativeCases?: { description: string; expectedOutcome: string }[];
+}
+
+export type CritiqueVerdict = 'approve' | 'revise' | 'reject';
+
+export interface CritiqueView {
+  verdict: CritiqueVerdict | string;
+  summary: string;
+  issues: { severity: string; target: string; problem: string; suggestion: string }[];
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function parseJson(raw: string | null | undefined): unknown {
+  if (raw == null) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse a plan step's output string; `null` when it is not plan-shaped JSON. */
+export function parsePlan(raw: string | null | undefined): PlanView | null {
+  const v = parseJson(raw);
+  if (!isObj(v) || !isObj(v.trigger) || !Array.isArray(v.assertions)) return null;
+  return v as unknown as PlanView;
+}
+
+/** Parse a critique step's output string; `null` when it is not critique-shaped JSON. */
+export function parseCritique(raw: string | null | undefined): CritiqueView | null {
+  const v = parseJson(raw);
+  if (!isObj(v) || typeof v.verdict !== 'string' || !Array.isArray(v.issues)) return null;
+  return { verdict: v.verdict, summary: typeof v.summary === 'string' ? v.summary : '', issues: v.issues as CritiqueView['issues'] };
+}
+
+/** One field-level difference between two plans (R-77 Changes tab). */
+export interface PlanChange {
+  /** Dotted field path, e.g. `trigger.path` or `assertions`. */
+  field: string;
+  kind: 'added' | 'removed' | 'changed';
+  /** Previous value (scalar) or the removed list item, rendered as text. */
+  before?: string;
+  /** New value (scalar) or the added list item, rendered as text. */
+  after?: string;
+}
+
+const PLAN_SCALAR_FIELDS = [
+  'title',
+  'rationale',
+  'trigger.source',
+  'trigger.entity',
+  'trigger.method',
+  'trigger.path',
+  'trigger.payloadShape',
+  'trigger.examplePayload',
+  'propagation.kind',
+  'propagation.channel',
+  'propagation.waitFor',
+] as const;
+
+const PLAN_LIST_FIELDS = ['requirementIds', 'setup', 'assertions', 'negativeCases'] as const;
+
+function getPath(obj: unknown, path: string): unknown {
+  let cur: unknown = obj;
+  for (const part of path.split('.')) {
+    if (!isObj(cur)) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+/** Stable stringify (sorted keys) so `{a,b}` and `{b,a}` compare equal. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (isObj(v)) {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'undefined';
+}
+
+/** Human-readable rendering of a plan list item. */
+export function describePlanItem(field: string, item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (!isObj(item)) return canonical(item);
+  if (field === 'setup' && typeof item.description === 'string') return item.description;
+  if (field === 'assertions' && typeof item.assertion === 'string') {
+    let s = `[${String(item.service ?? '?')}] ${item.assertion}`;
+    if (item.field !== undefined || item.expected !== undefined) {
+      s += ` (${String(item.field ?? '?')} = ${String(item.expected ?? '?')})`;
+    }
+    return s;
+  }
+  if (field === 'negativeCases' && typeof item.description === 'string') {
+    return `${item.description} → ${String(item.expectedOutcome ?? '')}`;
+  }
+  return canonical(item);
+}
+
+const scalarText = (v: unknown): string | undefined =>
+  v === undefined || v === null || v === '' ? undefined : typeof v === 'string' ? v : canonical(v);
+
+/**
+ * Field-level diff of two plans (`a` = earlier, `b` = later) — R-77, design
+ * "v0.5.0 Amendments". Scalar fields report added / removed / changed; list
+ * fields (setup, assertions, negativeCases, requirementIds) are compared by
+ * stringified item (multiset semantics) and report added / removed items.
+ * Results are in plan field order.
+ */
+export function diffPlans(a: unknown, b: unknown): PlanChange[] {
+  const changes: PlanChange[] = [];
+
+  for (const field of PLAN_SCALAR_FIELDS) {
+    const before = scalarText(getPath(a, field));
+    const after = scalarText(getPath(b, field));
+    if (before === after) continue;
+    if (before === undefined) changes.push({ field, kind: 'added', after });
+    else if (after === undefined) changes.push({ field, kind: 'removed', before });
+    else changes.push({ field, kind: 'changed', before, after });
+  }
+
+  for (const field of PLAN_LIST_FIELDS) {
+    const listA = getPath(a, field);
+    const listB = getPath(b, field);
+    const itemsA = Array.isArray(listA) ? listA : [];
+    const itemsB = Array.isArray(listB) ? listB : [];
+    const remaining = new Map<string, number>();
+    for (const item of itemsB) {
+      const k = canonical(item);
+      remaining.set(k, (remaining.get(k) ?? 0) + 1);
+    }
+    for (const item of itemsA) {
+      const k = canonical(item);
+      const n = remaining.get(k) ?? 0;
+      if (n > 0) remaining.set(k, n - 1);
+      else changes.push({ field, kind: 'removed', before: describePlanItem(field, item) });
+    }
+    const matched = new Map<string, number>();
+    for (const item of itemsA) {
+      const k = canonical(item);
+      matched.set(k, (matched.get(k) ?? 0) + 1);
+    }
+    for (const item of itemsB) {
+      const k = canonical(item);
+      const n = matched.get(k) ?? 0;
+      if (n > 0) matched.set(k, n - 1);
+      else changes.push({ field, kind: 'added', after: describePlanItem(field, item) });
+    }
+  }
+
+  return changes;
+}

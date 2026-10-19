@@ -11,6 +11,7 @@ import type {
   PipelineRun,
   StepRecord,
   SkippedRequirement,
+  RunStepDetail,
 } from '@registry/core';
 
 export class ApiError extends Error {
@@ -263,6 +264,13 @@ export function createApi(getToken: () => Promise<string>) {
      */
     getRunArtifact: async (runId: string): Promise<RunArtifactContent> =>
       (await req(`/runs/${encodeURIComponent(runId)}/artifact`)).json(),
+
+    /**
+     * GET /runs/{runId}/steps/{stepIndex} (R-75) — one step's record, its input
+     * snapshot (`null` before v0.5.0) and its output resolved from inline or S3.
+     */
+    getRunStep: async (runId: string, stepIndex: number): Promise<RunStepDetail> =>
+      (await req(`/runs/${encodeURIComponent(runId)}/steps/${stepIndex}`)).json(),
 
     listRuns: async (nextToken?: string): Promise<{ items: PipelineRun[]; nextToken?: string }> => {
       const res = await (await req(`/runs${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
