@@ -25,6 +25,7 @@ Metadata lands in DynamoDB, raw bytes in S3. Reads (`GET /contracts`, `/entities
 
 ![ODCS Contract Registry architecture](docs/diagrams/registry-architecture.png)
 ![Test Generator architecture](docs/diagrams/testgen-architecture.png)
+![Configurable LLM pipeline architecture](docs/diagrams/pipeline-architecture.png)
 
 > Editable sources: [`docs/diagrams/*.drawio`](docs/diagrams) (draw.io / AWS symbols). Regenerate the PNGs with `node docs/diagrams/build-diagrams.mjs` then `drawio --export`. The authoritative, always-current description is [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md).
 
@@ -150,3 +151,47 @@ The CLI writes files only — review `git diff` and commit. `generated-tests/**`
 > **✅ Implemented (offline-green); deploy pending.** Code in `packages/functest` + `packages/functions/{llm,functional-gen}.ts`; specified in [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) §3.11 (R-115…R-126, D-50…D-56) and [`specs/active/odcs-contract-registry/design.md`](specs/active/odcs-contract-registry/design.md) §11. Deploy needs Bedrock model access enabled in-region; running the emitted tests stays out of scope (D-56).
 
 A planned component that turns the cataloged **ODCS contracts** *and* **EARS requirements** into **end-to-end cross-service functional tests** (publisher → CDC → consumer). Because a functional scenario lives in each service's natural-language EARS prose (which the registry doesn't control — D-3), an **LLM** (Claude on **Amazon Bedrock** via `@aws-sdk/client-bedrock-runtime` `InvokeModel`; IAM-role auth, no stored key — D-55; default **Sonnet 4.6**) synthesises a **structured test-plan** — grounded in the contract `schema[]` + the requirement + the api-map, constrained by forced tool use — which the deterministic emit layer renders to Vitest. The plan is **cached by input-hash** and committed, so re-runs are stable despite LLM nondeterminism (R-88 is scoped out of the synthesis step). It runs **asynchronously** (`POST /generate-functional-tests` → job; `GET /functional-test-jobs/*`; CLI `--functional` delivers artifacts for human review) and is **generate-and-store only** (D-56 — running stays future work).
+
+## Experiments — Configurable LLM Pipelines (spec v0.6.0)
+
+> **✅ Implemented (offline-green).** Code in `packages/core/src/pipeline.ts`, `packages/functions/src/pipeline.ts`, `packages/web/src/pages/{ExperimentsHubPage,PipelinesPage,PromptsPage,ComparePage}.tsx`. Spec: [`specs/active/configurable-llm-pipeline/requirements.md`](specs/active/configurable-llm-pipeline/requirements.md) v0.6.0.
+
+Alongside the single-step generator above (which the CLI and `POST /generate-functional-tests` without a `pipelineId` still use, unchanged), the registry has a **runtime-configurable pipeline** system — stored in DynamoDB, changeable without redeploy — that chains LLM steps (e.g. generate → critique → revise) with per-step models, prompts, and output types. A legacy prompt-version experiment is just a one-step pipeline run over every groundable requirement, so both appear together as **experiments** in the SPA. Each step's output is cached by SHA-256 hash of `{inputHash, pipelineId, configVersion, stepId, promptKey, promptVersion}` (plus the output-instructions version when that is on), so changed inputs or config re-synthesize while unchanged inputs → cache hit → no LLM call.
+
+![Configurable LLM pipeline architecture](docs/diagrams/pipeline-architecture.png)
+
+### Key features
+
+- **Pipeline configuration** — stored in DynamoDB as `PIPELINE` items: ordered steps (each with `label`, `model`, `promptKey`, `outputType`, `optional`), `maxSteps`, `maxAgeMinutes`, sampling defaults
+- **Prompt versioning** — prompts stored as `PRMPT` items with immutable `PRMPTVER` history; updating a prompt creates a new version and invalidates step cache keys
+- **Async Lambda chain execution** — step worker Lambda invokes itself with `InvocationType: 'Event'`; lease-based timeout detection, no SQS/Step Functions
+- **Step output types** — `plan` (v1 legacy or v2 extended), `critique` (structured review), `freeform` (no schema)
+- **Sampling strategies** — `first_n`, `percentage` (deterministic hash-based), `ids`, `all`; applies to grounded requirements only
+- **Execution modes** — `per_requirement` (N independent runs) or `batch` (one run with M requirements — note: batch mode grounds only the first requirement in v0.6.0, a known limitation Q4)
+- **Opt-in output instructions** — off by default so baseline steps get exactly the original input; when on, the runtime appends field-by-field guidance for the step's output type to the model input
+- **Step transparency** — every step's exact model input (system prompt, user message sections, tool) is saved to S3; the run page shows Output / Input / Changes / Raw / Metrics per step
+- **Generated test per run** — when a run completes, its last plan step is rendered to a Vitest file (`GET /runs/{runId}/artifact`)
+- **Unified experiments view** — one press of Run is one experiment (dry run first, confirmation above 20 requirements); SPA lists pipeline and legacy experiments together and compares any two requirement by requirement
+- **Baseline pipeline** — seeded `baseline-legacy-v1` pipeline reproduces the legacy generator's request exactly (plan v1, same prompt, same model) for reproducibility
+
+### SPA pages
+
+- **Experiments** (`/experiments`) — hub with dry-run + confirmation (>20 selected), run history, skipped requirements display
+- **Pipelines** (`/pipelines`) — list + editor with resizable split pane, step add/remove/reorder, prompt body preview
+- **Prompts** (`/prompts`) — list + version history + editor; import legacy prompt versions (one-way idempotent)
+- **Compare** (`/compare`) — experiment-level: per-requirement table with plan side-by-side, field diff, test-file line diff
+
+### Grounding
+
+A requirement is **grounded** if it mentions a cataloged entity name (whole-word, case-insensitive, optional plural), that entity exists in ≥2 sources, and the entity has an API target in `api-map.ts`. Ungroundable requirements (infra-only, single-service, unmapped) are returned as `skipped` with a reason. Grounding is literal name-matching; semantic similarity is out of scope.
+
+### ⚠️ Past legacy experiment results
+
+Before commit `dbd78bb`, the legacy experiment runner dropped the selected prompt version's text and always used the built-in **v1** prompt (only the version's model setting took effect). Legacy experiment results for any prompt version other than `v1` therefore **do not reflect that prompt** — don't read them as prompt comparisons. `v1` results are unaffected.
+
+### What's out of scope (follow-ons)
+
+- **DAG / parallel steps** — linear chain only; `dependsOn` reserved in schema
+- **Multi-requirement grounding in batch mode** — Q4 open; batch mode grounds only `requirementIds[0]`
+- **Human review gates** — `waitForHuman: true` reserved but treated as no-op
+- **Running the generated tests** — generate-and-store only

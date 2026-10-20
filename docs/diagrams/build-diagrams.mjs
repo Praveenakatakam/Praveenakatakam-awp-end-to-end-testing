@@ -5,8 +5,8 @@
  * then: drawio --export --format png --scale 2 --border 24 \
  *         --output docs/diagrams/<name>.png docs/diagrams/<name>.drawio
  *
- * Emits registry-architecture.drawio and testgen-architecture.drawio next to
- * this file. Edit the node/edge specs below (positions, labels, AWS resIcons)
+ * Emits registry-architecture.drawio, testgen-architecture.drawio and
+ * pipeline-architecture.drawio next to this file. Edit the node/edge specs below (positions, labels, AWS resIcons)
  * rather than hand-editing the XML.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -28,6 +28,7 @@ const AWS = {
   lambda: { icon: 'lambda', color: '#ED7100' },
   dynamodb: { icon: 'dynamodb', color: '#4D72F3' },
   s3: { icon: 's3', color: '#7AA116' },
+  bedrock: { icon: 'bedrock', color: '#01A88D' },
 };
 
 function awsCell(id, label, kind, x, y, labelTop = false) {
@@ -65,11 +66,12 @@ function subtitle(id, text, x, y, w) {
   return `<mxCell id="${id}" value="${esc(text)}" style="text;html=1;align=left;verticalAlign=top;fontSize=13;fontColor=#5A6B7B;whiteSpace=wrap;" vertex="1" parent="1"><mxGeometry x="${x}" y="${y}" width="${w}" height="44" as="geometry"/></mxCell>`;
 }
 
-// opts: { dashed, exit:[x,y], entry:[x,y], points:[[x,y]...] }
+// opts: { dashed, jump, exit:[x,y], entry:[x,y], points:[[x,y]...] }
 function edge(id, src, tgt, label = '', opts = {}) {
   let style =
     'edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;jettySize=auto;endArrow=block;endFill=1;strokeColor=#5A6B7B;fontColor=#233240;fontSize=13;labelBackgroundColor=#FFFFFF;spacingTop=2;spacingBottom=2;';
   if (opts.dashed) style += 'dashed=1;';
+  if (opts.jump) style += 'jumpStyle=arc;jumpSize=10;';
   if (opts.exit) style += `exitX=${opts.exit[0]};exitY=${opts.exit[1]};exitDx=0;exitDy=0;`;
   if (opts.entry) style += `entryX=${opts.entry[0]};entryY=${opts.entry[1]};entryDx=0;entryDy=0;`;
   const pts = opts.points?.length
@@ -298,4 +300,93 @@ const d2 = [
 ];
 writeFileSync(join(OUT, 'testgen-architecture.drawio'), doc('Test Generator Architecture', 'testgen-arch', d2, 2400, 1460));
 
-console.log('wrote both .drawio files to', OUT);
+// ---- Diagram 3: Configurable LLM pipeline + unified experiments (configurable-llm-pipeline v0.6.0) ----
+// Story: one "Run" = one experiment → N runs (one per sampled, groundable requirement) → each run is a
+// chain of step-worker invocations, one per pipeline step. Columns: SPA · API · handlers · step worker
+// (Bedrock beside it, DynamoDB below it) · S3. The legend spells out what one step does, in order.
+// `jump` edges draw an arc where they cross another edge.
+const jump = { jump: true };
+const d3 = [
+  zone('zCloud3', 'Cloud — AWS (the deployed registry)', 300, 300, 2080, 1020, 'cloud'),
+
+  title('t3', 'Configurable LLM Pipeline — Architecture (configurable-llm-pipeline v0.6.0)', 40, 24, 1600),
+  subtitle(
+    'st3',
+    'Purpose: run multi-step LLM experiments (e.g. plan → critique → revise) over grounded requirements, with models and prompts changed at runtime — no redeploy. A legacy prompt-version experiment is the same thing with one step, so both show up together as experiments.',
+    40,
+    56,
+    2300
+  ),
+
+  boxCell(
+    'functest3',
+    '@registry/functest — shared pure package (deployed nowhere)\n• ground() — requirement must name a cataloged entity, in ≥2 sources, with an API target; else skipped + reason\n• PLAN_SCHEMA_V1 (legacy / baseline) · PLAN_SCHEMA_V2 · CRITIQUE_SCHEMA + validators\n• emitFunctionalTest() — renders the last plan to a Vitest file',
+    1060,
+    104,
+    1000,
+    130,
+    'pkg'
+  ),
+
+  awsCell('user3', 'Browser — React SPA\nExperiments · Pipelines · Prompts · Compare', 'user', 100, 420, true),
+  awsCell('apigw3', 'API Gateway HTTP API\n+ Lambda authorizer (reader / writer)', 'apigw', 420, 700),
+
+  awsCell('crud3', 'pipeline.ts (writer)\nPOST/PUT/DELETE /pipelines · /prompts\nPOST /prompts/import-legacy', 'lambda', 820, 400, true),
+  awsCell('trig3', 'functional-gen.ts (writer)\nPOST /generate-functional-tests\nground → sample → dry run or start', 'lambda', 820, 700),
+  awsCell('read3', 'read.ts (reader)\nGET /runs · /runs/{id}/steps/{i} · /artifact\nGET /experiment-index · /experiment-results\n(lazy lease expiry → timed_out)', 'lambda', 820, 1060),
+
+  awsCell('worker3', 'Step worker Lambda\none invocation per step · 900 s timeout', 'lambda', 1340, 700),
+  boxCell(
+    'bedrock3',
+    'Amazon Bedrock (Claude)\nInvokeModel · forced tool use\ntool picked by step outputType',
+    1800,
+    691,
+    300,
+    96,
+    'ext'
+  ),
+  awsCell('ddb3', 'DynamoDB Registry\nPIPELINE · PRMPT / PRMPTVER · PEXP\nPRUN + STEP#nn · STEPCACHE · SYSCONFIG', 'dynamodb', 1340, 1060),
+  awsCell('s33', 'S3 bucket\npipeline-outputs/{runId}/\n  {nn}.input.json · {nn}.json · test.generated.ts\nprompts/{key}/{version}.txt (> 64 KB)', 's3', 2160, 1060),
+
+  edge('g1', 'user3', 'apigw3', 'Bearer token', { exit: [0.5, 1], entry: [0, 0.5], points: [[139, 739]] }),
+  edge('g2', 'apigw3', 'crud3', 'writer', { exit: [1, 0.2], entry: [0, 0.5], points: [[700, 716], [700, 439]] }),
+  edge('g3', 'apigw3', 'trig3', 'writer', { exit: [1, 0.5], entry: [0, 0.5] }),
+  edge('g4', 'apigw3', 'read3', 'reader', { exit: [1, 0.8], entry: [0, 0.5], points: [[700, 762], [700, 1099]] }),
+
+  edge('g5', 'trig3', 'worker3', '① write PEXP, then a PRUN per run\n② async-invoke step 0 of each run', { exit: [1, 0.5], entry: [0, 0.5], ...jump }),
+  edge('g6', 'worker3', 'worker3', 'async-invoke step n+1 — or, after the last step,\nmark the run terminal + emit the test file', {
+    exit: [1, 0.15],
+    entry: [0.75, 0],
+    points: [[1500, 712], [1500, 620], [1398, 620]],
+  }),
+  edge('g7', 'worker3', 'bedrock3', 'system = stored prompt\nuser = grounded context + prior outputs\n(+ output instructions, if opted in)', { exit: [1, 0.65], entry: [0, 0.6], ...jump }),
+  edge('g8', 'worker3', 's33', 'input snapshot · output · test file', {
+    exit: [0.85, 1],
+    entry: [0.5, 0],
+    points: [[1406, 940], [2199, 940]],
+  }),
+  edge('g9', 'worker3', 'ddb3', 'lease · step record\ncache · run status', { exit: [0.4, 1], entry: [0.4, 0], ...jump }),
+  edge('g10', 'trig3', 'functest3', 'ground()', { dashed: true, exit: [0.75, 0], entry: [0.1, 1], points: [[878, 600], [1160, 600]], ...jump }),
+  edge('g11', 'worker3', 'functest3', 'ground · validate · emit', { dashed: true, exit: [0.25, 0], entry: [0.3, 1] }),
+  edge('g12', 'crud3', 'ddb3', 'PIPELINE · PRMPT / PRMPTVER', {
+    exit: [1, 0.5],
+    entry: [0, 0.25],
+    points: [[1240, 439], [1240, 1079]],
+    ...jump,
+  }),
+  edge('g13', 'read3', 'ddb3', 'runs · steps · experiments', { exit: [1, 0.6], entry: [0, 0.6] }),
+  edge('g14', 'read3', 's33', 'inputs · outputs · artifacts', { exit: [0.5, 1], entry: [0.5, 1], points: [[859, 1270], [2199, 1270]] }),
+
+  boxCell(
+    'legend3',
+    'One step, in order (the step worker, per invocation):\n1. run too old? → timed_out  ·  2. read the run + pipeline config  ·  3. write the step lease  ·  4. resolve the prompt version\n5. ground the requirement (@registry/functest)  ·  6. build the user message: context + prior outputs (budgeted) + output instructions (opt-in)\n7. save the input snapshot to S3  ·  8. step-cache hit? → reuse the output, skip Bedrock  ·  9. call Bedrock  ·  10. validate the output against its schema + grounding\n11. store output, cache entry and metrics  ·  12. invoke the next step — or, after the last step, mark the run terminal and emit the test file\n\nOutput types: plan → emit_functional_test_plan (PLAN_SCHEMA_V2, or V1 when planSchema = "v1")  ·  critique → emit_critique  ·  freeform → no tool, plain text\nDashed arrows = in-process calls into the shared package.  An experiment (PEXP) groups the runs from one press of Run; legacy experiments are listed through the same index.',
+    40,
+    1360,
+    2340,
+    160,
+    'note'
+  ),
+];
+writeFileSync(join(OUT, 'pipeline-architecture.drawio'), doc('Pipeline Architecture', 'pipeline-arch', d3, 2420, 1560));
+
+console.log('wrote 3 .drawio files to', OUT);

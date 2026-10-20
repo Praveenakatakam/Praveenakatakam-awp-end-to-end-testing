@@ -37,7 +37,7 @@ active:
       each step has its own model, prompt, and cache key; supports linear chain now,
       DAG (parallel independent steps) as follow-on.
     spec_version: "0.6.0"
-    status: in-progress
+    status: implemented
     depends_on:
       - odcs-contract-registry
       - prompt-versioning-experiments

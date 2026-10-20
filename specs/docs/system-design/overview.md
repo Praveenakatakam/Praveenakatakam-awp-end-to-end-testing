@@ -21,7 +21,8 @@ The **ODCS Contract Registry** is a serverless AWS application that:
 | Registry core — crawl, validate, catalog, read API, SPA | R-01…R-72 | Live |
 | Test Generator — deterministic contract-driven Vitest files | R-80…R-93 | Live |
 | Requirements Catalog — EARS requirements crawl + catalog | R-100…R-114 | Live |
-| Functional Test Generator — LLM (Bedrock) plan synthesis | R-115…R-126 | Live |
+| Functional Test Generator (legacy) — LLM (Bedrock) plan synthesis, single-step | R-115…R-126 | Live |
+| Configurable LLM Pipeline — runtime-configurable multi-step synthesis chains | configurable-llm-pipeline v0.6.0 | Live |
 
 ## What it does NOT do
 
@@ -30,6 +31,8 @@ The **ODCS Contract Registry** is a serverless AWS application that:
 - Accept contract uploads (crawl-only population)
 - Run the generated tests (generate-and-store only)
 - Schedule crawls (manual `POST /refresh` only in v1)
+- Pipeline step DAG / parallel independent steps (linear chain only; DAG is a follow-on)
+- Multi-requirement grounding in batch mode (Q4 — grounds only `requirementIds[0]`)
 
 ## Deployment
 

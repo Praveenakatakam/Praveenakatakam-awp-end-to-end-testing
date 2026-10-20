@@ -321,7 +321,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     vi.useRealTimers();
   });
 
-  it('continues polling while run status is "running"', async () => {
+  it('TS-38: continues polling while run status is "running"', async () => {
     const runningBody = { run: { ...fakeRun, status: 'running' }, steps: [] };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -352,7 +352,7 @@ describe('usePipelineRun — polling (R-54)', () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirstFetch);
   });
 
-  it('stops polling when status becomes "completed"', async () => {
+  it('TS-38: stops polling when status becomes "completed"', async () => {
     const completedBody = { run: { ...fakeRun, status: 'completed' }, steps: [] };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
