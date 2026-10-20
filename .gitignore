@@ -10,9 +10,8 @@ cdk.out
 .env.*
 .DS_Store
 .idea
-.claude/*
-!.claude/skills/
-!.claude/agents/
+# Claude Code — track agents/commands/settings.json, but not local settings
+.claude/settings.local.json
 .pnpm-store
 # Adversarial review (§3.12): full reports and executed-tier scratch — never committed (R-130, R-144)
 adversarial-reports/

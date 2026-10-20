@@ -1,6 +1,6 @@
 # SDD Health Check
 
-Run after every completed feature, before merging any significant PR, and at least monthly on actively maintained projects.
+Run HC-1 + HC-2 (scoped) at the end of every implementation phase, the full set before a feature is closed out or a significant PR is merged, and at least monthly on actively maintained projects. `/start-feature` and `/health-check` run these through the `reviewer` agent.
 
 The longer you wait, the more expensive the drift is to fix.
 
@@ -84,7 +84,7 @@ to match reality, or whether the code needs to be corrected to match the design.
 ```
 Scan our spec, codebase, commit history, and inline comments for
 decisions that were made but never documented in the decisions log in
-specs/active/<slug>/requirements.md.
+specs/active/<slug>/design.md (and requirements.md).
 
 Look for:
 - Code comments that say "we decided to..." or "using X instead of Y because..."
