@@ -9,7 +9,7 @@
  * using the 19-step sequence defined in design.md §"Execution sequence within
  * the step Lambda".
  *
- * Design refs: specs/active/configurable-llm-pipeline/design.md
+ * Design refs: specs/archive/configurable-llm-pipeline/design.md
  * Requirements: R-01–R-10, R-12…R-24, R-27–R-29, R-31–R-37, R-46, R-51, R-52
  */
 import { createHash } from 'node:crypto';

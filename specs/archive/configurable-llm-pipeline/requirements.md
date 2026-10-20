@@ -1,7 +1,7 @@
 # Requirements — Configurable LLM Pipeline
 
 > **Version:** 0.6.0
-> **Status:** Draft
+> **Status:** Archived 2026-10-20 — implemented (v0.6.0); deploy verification pending
 
 ## 1. Purpose and Context
 

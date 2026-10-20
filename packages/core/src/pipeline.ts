@@ -7,7 +7,7 @@
  *
  * T-01: types only; T-08: adds sampling strategy helper functions.
  *
- * Design refs: specs/active/configurable-llm-pipeline/design.md §Data Model Changes,
+ * Design refs: specs/archive/configurable-llm-pipeline/design.md §Data Model Changes,
  *              §Sampling and Execution Mode
  * Requirements: R-01, R-02, R-11, R-17–R-21, R-27, R-31, R-32, R-45, R-47–R-50,
  *               R-51, R-52

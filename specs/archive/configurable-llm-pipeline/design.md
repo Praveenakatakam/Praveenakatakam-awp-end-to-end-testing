@@ -1,7 +1,7 @@
 # Design — Configurable LLM Pipeline
 
 > **Version:** 0.3.0 (v0.4.0 requirements amendments)
-> **Status:** Draft
+> **Status:** Archived 2026-10-20 — implemented (v0.6.0); deploy verification pending
 
 ## Summary
 

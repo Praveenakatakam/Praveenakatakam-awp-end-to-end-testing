@@ -154,7 +154,7 @@ A planned component that turns the cataloged **ODCS contracts** *and* **EARS req
 
 ## Experiments — Configurable LLM Pipelines (spec v0.6.0)
 
-> **✅ Implemented (offline-green).** Code in `packages/core/src/pipeline.ts`, `packages/functions/src/pipeline.ts`, `packages/web/src/pages/{ExperimentsHubPage,PipelinesPage,PromptsPage,ComparePage}.tsx`. Spec: [`specs/active/configurable-llm-pipeline/requirements.md`](specs/active/configurable-llm-pipeline/requirements.md) v0.6.0.
+> **✅ Implemented (offline-green).** Code in `packages/core/src/pipeline.ts`, `packages/functions/src/pipeline.ts`, `packages/web/src/pages/{ExperimentsHubPage,PipelinesPage,PromptsPage,ComparePage}.tsx`. Spec: [`specs/archive/configurable-llm-pipeline/requirements.md`](specs/archive/configurable-llm-pipeline/requirements.md) v0.6.0.
 
 Alongside the single-step generator above (which the CLI and `POST /generate-functional-tests` without a `pipelineId` still use, unchanged), the registry has a **runtime-configurable pipeline** system — stored in DynamoDB, changeable without redeploy — that chains LLM steps (e.g. generate → critique → revise) with per-step models, prompts, and output types. A legacy prompt-version experiment is just a one-step pipeline run over every groundable requirement, so both appear together as **experiments** in the SPA. Each step's output is cached by SHA-256 hash of `{inputHash, pipelineId, configVersion, stepId, promptKey, promptVersion}` (plus the output-instructions version when that is on), so changed inputs or config re-synthesize while unchanged inputs → cache hit → no LLM call.
 
