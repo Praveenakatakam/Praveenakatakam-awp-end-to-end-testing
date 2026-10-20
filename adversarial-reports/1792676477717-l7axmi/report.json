@@ -1,0 +1,69 @@
+{
+  "generator": "testgen",
+  "verdict": "PASS",
+  "counts": {
+    "grounding": {
+      "Critical": 0,
+      "Major": 0,
+      "Minor": 0
+    },
+    "vacuity": {
+      "Critical": 0,
+      "Major": 0,
+      "Minor": 0
+    },
+    "mutation": {
+      "Critical": 0,
+      "Major": 0,
+      "Minor": 0
+    },
+    "critic": {
+      "Critical": 0,
+      "Major": 0,
+      "Minor": 0
+    }
+  },
+  "withheld": [],
+  "deterministic": [],
+  "critic": {
+    "status": "skipped",
+    "droppedByPostureLint": 0,
+    "malformed": 0,
+    "findings": [],
+    "perPlan": []
+  },
+  "mutation": {
+    "tier": "executed",
+    "testgen": [
+      {
+        "entity": "ClassAssignment",
+        "applicable": true,
+        "total": 23,
+        "killed": 23,
+        "survivors": []
+      },
+      {
+        "entity": "ResultPackage",
+        "applicable": true,
+        "total": 29,
+        "killed": 29,
+        "survivors": []
+      },
+      {
+        "entity": "StudentTaskScoredEvent",
+        "applicable": true,
+        "total": 14,
+        "killed": 14,
+        "survivors": []
+      },
+      {
+        "entity": "TaskPublished",
+        "applicable": true,
+        "total": 17,
+        "killed": 17,
+        "survivors": []
+      }
+    ]
+  },
+  "notes": []
+}

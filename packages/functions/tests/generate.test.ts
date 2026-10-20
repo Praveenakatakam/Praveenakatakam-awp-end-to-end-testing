@@ -136,3 +136,59 @@ describe('performGeneration (T-21 · R-80, R-81, R-89)', () => {
     expect(runs[0].skipped.length).toBe(summary.counts.skipped);
   });
 });
+
+// ---- Adversarial stage wiring (T-46a · R-127, R-129, R-131, R-143) ---------
+
+describe('performGeneration — adversarial review (T-46a)', () => {
+  function orgCatalog() {
+    const entries = [entry('publisher', 'org', 'org-p'), entry('consumer', 'org', 'org-c')];
+    const rawByKey = {
+      'publisher/org-p': raw('org', [
+        { name: 'sourcedId', required: true },
+        { name: 'name', required: true },
+      ]),
+      'consumer/org-c': raw('org', [{ name: 'sourcedId', required: true }]),
+    };
+    return fakeRepo(entries, rawByKey);
+  }
+
+  it('reviews BEFORE persisting: the stored manifest already carries the deterministic adversarial block (R-127, R-131)', async () => {
+    const { repo, puts } = orgCatalog();
+    await performGeneration(repo, 'run-a', '2026-10-07T00:00:00Z');
+    const stored = puts[0].artifacts;
+    expect(stored.manifest.adversarial).toBeDefined();
+    expect(Array.isArray(stored.manifest.adversarial.findings)).toBe(true);
+    // the emitted conformance test fails on zero records, so R-134h no longer appears in the committed block
+    expect(stored.manifest.adversarial.findings.filter((f: { rule?: string }) => f.rule === 'R-134h')).toEqual([]);
+    // the full report rides in the S3 artifact object, not in the manifest
+    expect(stored.report).toMatchObject({ generator: 'testgen', verdict: expect.any(String), mutation: { tier: 'manifest' } });
+    expect(stored.manifest.report).toBeUndefined();
+  });
+
+  it('never withholds §3.9 tests, whatever the findings (R-129)', async () => {
+    const { repo, puts } = orgCatalog();
+    const summary = await performGeneration(repo, 'run-b', '2026-10-07T00:00:00Z');
+    expect(puts[0].artifacts.manifest.tests).toHaveLength(2); // publisher/org conformance + org compat
+    expect(summary.counts.conformance + summary.counts.compat).toBe(2);
+  });
+
+  it('the run record and the summary carry {verdict, counts}; the summary also inlines the report (R-143)', async () => {
+    const { repo, runs } = orgCatalog();
+    const summary = await performGeneration(repo, 'run-c', '2026-10-07T00:00:00Z');
+    expect(runs[0].adversarial).toEqual({ verdict: expect.any(String), counts: expect.objectContaining({ vacuity: expect.any(Object) }) });
+    expect(summary.adversarial).toMatchObject({
+      verdict: runs[0].adversarial.verdict,
+      counts: runs[0].adversarial.counts,
+      report: expect.any(Object),
+    });
+  });
+
+  it('an unchanged catalog yields a byte-identical stamped manifest (R-88, R-131)', async () => {
+    const a = orgCatalog();
+    const b = orgCatalog();
+    await performGeneration(a.repo, 'run-1', '2026-10-07T00:00:00Z');
+    await performGeneration(b.repo, 'run-2', '2026-10-08T00:00:00Z');
+    const { serializeManifest } = await import('@registry/testgen');
+    expect(serializeManifest(a.puts[0].artifacts.manifest)).toBe(serializeManifest(b.puts[0].artifacts.manifest));
+  });
+});

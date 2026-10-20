@@ -127,4 +127,28 @@ describe('ApiStack', () => {
       }
     }
   });
+
+  it('configures the adversarial critic on the functional worker (T-45a · R-139, D-77, D-81)', () => {
+    const fns = template.findResources('AWS::Lambda::Function');
+    const worker = Object.values(fns).find(
+      (f: any) => (f as any).Properties?.Environment?.Variables?.BEDROCK_MODEL_ID !== undefined
+    ) as any;
+    expect(worker).toBeDefined();
+    const vars = worker.Properties.Environment.Variables;
+    // A different model from the synthesiser (independence, R-139).
+    expect(vars.CRITIC_MODEL_ID).toBe('us.anthropic.claude-opus-4-8');
+    expect(vars.CRITIC_MODEL_ID).not.toBe(vars.BEDROCK_MODEL_ID);
+    expect(vars.ADVERSARIAL_MUTATION_THRESHOLD).toBe('0.5');
+  });
+
+  it('the existing bedrock:InvokeModel grant already covers the Opus critic profile (D-58, D-81)', () => {
+    const policies = template.findResources('AWS::IAM::Policy');
+    const resources = Object.values(policies).flatMap((p: any) =>
+      (p.Properties?.PolicyDocument?.Statement ?? [])
+        .filter((s: any) => s.Action === 'bedrock:InvokeModel' || (Array.isArray(s.Action) && s.Action.includes('bedrock:InvokeModel')))
+        .flatMap((s: any) => (Array.isArray(s.Resource) ? s.Resource : [s.Resource]))
+    );
+    expect(resources).toContain('arn:aws:bedrock:*:*:inference-profile/*');
+    expect(resources).toContain('arn:aws:bedrock:*::foundation-model/anthropic.*');
+  });
 });

@@ -43,7 +43,15 @@ export function ApiStack({ stack }: StackContext) {
     // account to have Bedrock model access for this model (Anthropic use-case
     // form + model-access grant); switch to any granted model without a code
     // change, e.g. `us.anthropic.claude-haiku-4-5-20251001-v1:0` (D-55).
-    environment: { BEDROCK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6' },
+    // The adversarial critic (§3.12, R-139, D-81) runs on a DIFFERENT model from
+    // the synthesiser; the bedrock:InvokeModel grant below already covers it
+    // (D-58). ADVERSARIAL_MUTATION_THRESHOLD is the §3.11 static-mutation score
+    // below which a plan gets a Major finding (D-77).
+    environment: {
+      BEDROCK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
+      CRITIC_MODEL_ID: 'us.anthropic.claude-opus-4-8',
+      ADVERSARIAL_MUTATION_THRESHOLD: '0.5',
+    },
     permissions: [
       new PolicyStatement({
         effect: Effect.ALLOW,

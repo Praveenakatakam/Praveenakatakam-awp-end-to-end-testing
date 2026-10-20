@@ -1,0 +1,19 @@
+{
+  "_provenance": "publisher/org and get-ready/TaskPublished are verbatim from packages/core/src/api-map.ts (2026-10-07). consumer/org is FIXTURE-ONLY (the real map serves consumer/class, not org) so the clean control has both sides mapped.",
+  "map": {
+    "publisher": {
+      "org": { "path": "/orgs", "baseUrlEnv": "PUBLISHER_API_URL", "tokenEnv": "PUBLISHER_TOKEN", "recordsAt": "items" }
+    },
+    "consumer": {
+      "org": { "path": "/orgs", "baseUrlEnv": "CONSUMER_API_URL", "tokenEnv": "CONSUMER_TOKEN", "recordsAt": "items" }
+    },
+    "get-ready": {
+      "TaskPublished": {
+        "path": "/api/grdy/assignments/getTasks",
+        "baseUrlEnv": "GET_READY_API_URL",
+        "tokenEnv": "GET_READY_TOKEN",
+        "recordsAt": ""
+      }
+    }
+  }
+}

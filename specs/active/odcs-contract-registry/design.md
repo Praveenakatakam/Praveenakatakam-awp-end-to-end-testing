@@ -1,6 +1,6 @@
 # ODCS Contract Registry — Technical Design
 
-> **Phase 2 — Plan.** Derived from `docs/spec.md` (the oracle, v0.6.2) and `docs/acceptance-criteria.md`. This says _how_; the spec says _what_. Changes here are cheap; changes after implementation are not. Review the checklist at the end (§8) before approval.
+> **Phase 2 — Plan.** Derived from `docs/spec.md` (the oracle, v0.7.0; **§12 Adversarial Review** added for spec §3.12) and `docs/acceptance-criteria.md`. This says _how_; the spec says _what_. Changes here are cheap; changes after implementation are not. Review the checklist at the end (§8) before approval.
 >
 > **§1–§8 describe the registry core** (spec R-01…R-72). **§9 describes the Test Generator component** (spec R-80…R-93, D-23…D-34), added at spec v0.4.0. **§10 describes the Requirements Catalog component** (spec R-100…R-114, D-44…D-48), added at spec v0.5.0. **§11 describes the LLM Functional Test Generator component** (spec R-115…R-126, D-50…D-56), added at spec v0.6.0 — **implemented 2026-07-16 (T-33…T-39)**. All reuse the core's parse/validate/property-model and the existing single-table + S3 + HTTP-API + authorizer patterns; the Test Generator's net-new surface is one pure package (`@registry/testgen`), two endpoints, a generation-run item kind, an S3 artifact prefix, and a CLI; the Requirements Catalog's is one pure parser (`requirements.ts`), a `REQ#` item kind, three read endpoints, and a SPA view; the Functional Generator's is a pure plan-synthesis package + an injectable `LlmClient` (Bedrock SDK), a `FJOB#` item kind, an async job + two routes, and a CLI mode.
 >
@@ -297,7 +297,7 @@ Pipeline, per D-23/D-27 fault isolation (R-85):
 3. **Compat** (R-84): for each entity with **both** a `publisher` and a `consumer` valid variant → `checkCompat(consumerDoc, publisherDoc)` builds the required-property set + type map, emit a compat test + manifest entry. Skip (record reason) when the entity is single-source (R-85) or a needed variant is invalid.
 4. **Assemble** manifest (sorted deterministically) + files; return.
 
-`deriveJsonSchema` maps ODCS `logicalType` → JSON Schema `type` (`string|integer|number|boolean|date→string+format|object|array`), sets `required: [names with required===true]`, adds `enum` from a property's `validValues` quality rule, and `additionalProperties: true` (extra live fields must not fail conformance — consistent with R-84's "extra allowed"). The derived schema is **embedded in the manifest** (D-30) so the emitted test needs no app build output.
+`deriveJsonSchema` maps ODCS `logicalType` → JSON Schema `type` (`string|integer|number|boolean|date→string+format|object|array`), sets `required: [names with required===true]`, adds `enum` from a property's `validValues` quality rule, carries the enforceable subset of its `logicalTypeOptions` (`format` from the `ajv-formats` set, `pattern`, length/range bounds, `minItems`/`maxItems`/`uniqueItems`; an option Ajv cannot compile is dropped; v0.8.1), and `additionalProperties: true` (extra live fields must not fail conformance — consistent with R-84's "extra allowed"). The derived schema is **embedded in the manifest** (D-30) so the emitted test needs no app build output.
 
 `checkCompat` returns `{ compatible: boolean, violations: { path, reason }[] }` where a violation is a consumer-`required` property that is **absent** in the publisher variant or whose logical type differs (R-84, R-84a). Extra publisher properties are ignored (E-26). Both the consumer-required list and the publisher property/type map are embedded in the emitted test so it is self-contained and deterministic.
 
@@ -571,3 +571,199 @@ The **plan** is the committed source of truth. `PlanCache` stores validated plan
 22. **emit determinism** — same plan set → byte-identical files (AC-119a); wholesale subtree replace; excluded from suites (AC-123).
 23. **async job ↔ DDB/S3** — 202 + job record; worker persists artifacts + status; `GET /functional-test-jobs*` round-trips; unknown → 404; missing-secret/crash → failed (AC-115, AC-124, AC-125, E-46/E-47).
 24. **CLI ↔ job** — trigger → poll → download → write tree; no commit (AC-126).
+
+---
+
+## 12. Adversarial Review Component (spec §3.12 · R-117b, R-119b, R-127…R-145 · D-71…D-83)
+
+> **Status: designed 2026-10-06, not implemented.** The stage sits **between generation and persistence** in both generators. Net-new surface:
+> - one pure package (`@registry/adversary`, no AWS);
+> - one LLM boundary (`CriticClient`, Bedrock);
+> - a v2 plan schema + emitter in `@registry/functest`;
+> - additive fields on the GEN/FJOB records and artifact objects;
+> - CLI report writing + an executed-mutation harness;
+> - calibration fixtures.
+>
+> There are no new routes, item kinds, GSIs, or IAM actions.
+
+### 12.1 Where it runs
+
+```
+§3.9  POST /generate-tests / --local
+      catalog ─► generateArtifacts ─► reviewTestgen(artifacts, catalog, {tier})
+                                       │  vacuity(conformance/compat) + mutation(M1–M4, C1)
+                                       ▼
+                 manifest.adversarial (deterministic findings)  ─► persist S3 + GEN# record ─► CLI
+                                                                             (CLI: re-run mutation tier=executed)
+§3.11 functional worker
+      catalog ─► generateFunctionalPlans ─► {plans, contexts}
+             ─► emitFunctionalTests(plans)                       (render candidates)
+             ─► reviewFunctional(plans, contexts, files)          grounding + vacuity + static mutation
+             ─► gate: withhold plans with deterministic Critical   (R-129)
+             ─► emitFunctionalTests(kept) + manifest.adversarial
+             ─► critic(kept ∪ withheld) — report-only, cached      (R-130, R-142)
+             ─► persist S3 + FJOB# record (report incl. critic) ─► CLI writes adversarial-reports/
+```
+
+The critic runs **after** the gate and on **all** plans, withheld ones included. Its output only feeds the report, so it can never influence emission (D-73).
+
+### 12.2 Package `@registry/adversary` (pure, offline — NFR-10)
+
+| Module | Exports | Requirements |
+| --- | --- | --- |
+| `finding.ts` | `Finding`, `Severity`, `Attack`, `AdversarialReport`, `nextId()`, `sortFindings()` (by target, attack, severity, id; deterministic) | R-128, R-131 |
+| `verdict.ts` | `verdictOf(findings, withheld): Verdict` | R-132 |
+| `grounding.ts` | `groundPlan(plan, ctx, file): Finding[]`: checks (a)–(e); (d) parses `process.env.X` reads and `fetch(\`${base}…\`)` bases from the emitted text with fixed regexes and compares them to `ctx.apiTargets` | R-133 |
+| `vacuity.ts` | `lintFunctional(plan, file)`, `lintConformance(test, file)`, `lintCompat(test)`; `segmentClauses(text)` (D-76) | R-134 |
+| `mutate-testgen.ts` | `mutants(pair, roles): Mutant[]` (M1–M4, C1); `evaluateManifestTier(generate, mutant)`; `MutantEvaluator` interface for the executed tier | R-135 |
+| `mutate-functest.ts` | `scorePlan(plan, ctx, roles): {score, killed, survivors}` | R-136 |
+| `critic.ts` | `CriticClient` interface (`blind(ctx)`, `reconcile(input)`), `runCritic(plan, ctx, file, detFindings, client, cache)`, `CriticCache` | R-137, R-141, R-142 |
+| `posture-lint.ts` | `lintCriticFindings(raw): {kept, dropped}` (D-78 patterns; `unevidenced` tagging, D-79) | R-140 |
+| `prompts.ts` | `PERSONA` (the D-75 sentence, exported constant), `CRITIC_PROMPTS[version] = {blind, reconcile}`, each starting with `PERSONA`; `CRITIC_BLIND_SCHEMA`, `CRITIC_FINDINGS_SCHEMA` (forced-tool input schemas) | R-137, R-138 |
+| `review.ts` | `reviewTestgen(artifacts, catalog, opts)`, `reviewFunctional(plans, contexts, files, opts)` → `{findings, withheld, report}` | R-127, R-129 |
+
+```ts
+export type Attack = 'grounding' | 'vacuity' | 'mutation' | 'critic';
+export type Severity = 'Critical' | 'Major' | 'Minor';
+export interface Finding {
+  id: string;                 // "A-01"; assigned after sortFindings → deterministic
+  attack: Attack;
+  severity: Severity;
+  target: { kind: 'conformance' | 'compat' | 'functional' | 'generator'; ref: string; file?: string; line?: number };
+  defect: string;
+  failureScenario: string;
+  evidence?: string;          // JSON pointer / file:line / schema prop / clause quote / mutant id
+  unevidenced?: true;         // critic only (D-79)
+  mutant?: string;            // "M1:taskId@publisher/consumer"
+}
+export interface AdversarialReport {
+  verdict: 'FAIL — withheld' | 'FAIL — review findings' | 'PASS WITH NOTES' | 'PASS';
+  counts: Record<Attack, Record<Severity, number>>;
+  deterministic: Finding[];   // also in manifest.adversarial (committed)
+  critic: { status: 'ok' | 'failed' | 'unavailable' | 'skipped'; independence: 'ok' | 'degraded';
+            droppedByPostureLint: number; findings: Finding[] };   // report only (never committed)
+  mutation: { tier: 'executed' | 'manifest'; testgen: { total: number; killed: number };
+              functional: { ref: string; score: number }[] };
+}
+```
+
+**Roles (OQ-16 default).** The mutation modules take an explicit `roles: {publisher, consumer}` per entity. In the offline/CLI fixture runs, the fixture declares the roles. On the live catalog, the roles are read from the manifest's own assignment, so a role-inversion defect is caught by calibration fixtures only (spec OQ-16).
+
+### 12.3 §3.11 changes in `@registry/functest` (R-117b, R-119b, D-74)
+
+- **`PLAN_SCHEMA` v2** (`PLAN_SCHEMA_VERSION = 2`). `trigger.payloadShape` → `trigger.payload` (object, `additionalProperties: true`; the keys are checked by grounding, not by the schema). The other v2 shapes:
+
+  ```
+  propagation: { kind: 'cdc', waitFor, timeoutSeconds: integer, pollIntervalSeconds: integer,
+                 readBack: { service, path, matchOn, matchFrom? } }   // matchFrom: payload path, default matchOn
+  assertions[]: { service: 'publisher'|'consumer', fieldPath, operator: 'exists'|'equals'|'matchesType',
+                  expected?: { from: 'trigger.payload', path } | { from: 'literal', value },
+                  clause }
+  ```
+
+  The schema stays in the forced-tool subset (no numeric bounds). `validatePlan` additionally requires `expected` when `operator === 'equals'`.
+- **`ground.ts`**: `inputHash` adds `planSchemaVersion` (R-119b). `GroundedContext` gains `schemasBySource: Record<source, NormProp[]>`, so grounding (a) can check the **asserting** service's variant and not just the D-60 canonical one. The LLM prompt still receives the canonical schema plus the consumer schema.
+- **`generate.ts`**: `generateFunctionalPlans` also returns `contexts: Map<inputHash, GroundedContext>`, which the review needs. `LlmClient` is unchanged.
+- **`plan.ts` `stampPlan(body, ctx)`** _(as built, T-40)_: like `inputHash`, the core stamps `planSchemaVersion` and per-role `targets[]` (`{role, source, baseUrlEnv, tokenEnv, recordsAt, mapped}`) from the API mapping onto the stored plan. The publisher is `trigger.source`; the consumer is the first other grounded source. An unmapped source gets conventional env names (`CREATE_API_URL`) and `mapped: false` (OQ-15). This keeps `emitFunctionalTests(plans)` a pure function of the plan (no contexts argument), and the manifest carries the R-122 target coordinates.
+- **`emit.ts`**: renders each service's `baseUrlEnv`/`tokenEnv` from the plan's stamped `targets`. It renders:
+  - `body: JSON.stringify(payload)`;
+  - a `pollUntil(readBack, matchOn, timeoutSeconds, pollIntervalSeconds)` helper inlined in the file (no runtime import);
+  - one `expect` per assertion: `exists` → `toBeDefined()`; `equals` → `toEqual(<expected>)`; `matchesType` → `typeof`/`Array.isArray` against the contract `logicalType`.
+
+  There is no `it.todo` (D-70's assertion rendering is superseded). The output is still deterministic (R-119a).
+- **`llm.ts`**: prompt `v2` (asks for the v2 shape; all other rules unchanged). `PROMPT_VERSION = 'v2'`.
+
+### 12.4 Critic boundary: `packages/functions/src/critic-llm.ts`
+
+`createBedrockCritic(model = process.env.CRITIC_MODEL_ID ?? 'us.anthropic.claude-opus-4-8', region, promptVersion): CriticClient`. It uses the same `InvokeModel` + forced-tool-use pattern as `llm.ts` (D-55), with two tools: `emit_expected_behaviours` (blind) and `emit_findings` (reconcile). `max_tokens: 8192` (D-59 analog). It is imported lazily by the worker only. The offline suite injects a stub (NFR-9/NFR-10). There is no IAM change: the D-58 grant covers `anthropic.*` foundation models and all inference profiles. `ApiStack` adds the `CRITIC_MODEL_ID` env on `FunctionalWorker` (and an `ADVERSARIAL_MUTATION_THRESHOLD` env, default `0.5`). `CriticCache` is S3-backed at `adversarial/critic-cache/{key}.json`, which is under the existing bucket grant.
+
+### 12.5 Wiring
+
+- **`generate.ts` (§3.9)**: after `generateArtifacts`, call `reviewTestgen(artifacts, catalog, { tier: 'manifest' })`. Then:
+  - add `manifest.adversarial = report.deterministic`;
+  - add `adversarial: {verdict, counts}` to the GEN# record;
+  - include the full report in `test-artifacts/{runId}/artifacts.json`.
+
+  The added cost is about 5 × the compat-eligible entities extra `generateArtifacts` calls on two-contract catalogs, which is pure and well within NFR-8.
+- **`functional-gen.ts` (§3.11)**: `runFunctionalJob` follows §12.1:
+  - withheld plans → `skipped` with `adversarial: A-xx,…`;
+  - critic errors are caught per plan, and an `AccessDenied` is caught once → `critic.status` (R-141);
+  - `FunctionalJobRecord` gains `adversarial: {verdict, counts}`;
+  - the artifact object gains `report`.
+- **`read.ts`**: no logic change. Responses already return the record + the inline artifact object, so the report rides along (R-143).
+- **`scripts/generate-tests.ts`**: after writing the tree:
+  - write `adversarial-reports/{id}/report.{md,json}`;
+  - for §3.9 (default and `--local`), run the **executed tier** through `scripts/adversary-exec.ts`. This harness writes each mutant's emitted compat file to `os.tmpdir()/adv-{id}/` and runs `startVitest('test', [dir], { watch: false, include: ['**/*.generated.test.ts'] })` from `vitest/node`. It also merges the executed-tier mutation findings into the report and fails loudly if the executed tier disagrees with the manifest tier;
+  - print the verdict and counts, then the existing "review `git diff`" line.
+
+  `.gitignore` gains `adversarial-reports/`.
+
+**As built (T-45…T-47, 2026-10-07):**
+- **Ids:** critic findings are `C-nn`, separate from the committed `A-nn` (R-128 amended).
+- **Manifest block:** `{ findings }` only; the verdict lives in the report and record (R-131).
+- **Batched mutation:** `mutateTestgenBatched` makes exactly two batch calls (baselines, then all mutants), and `mutateTestgen` wraps it with a per-case evaluator. The executed tier writes every case's emitted compat file into `.adversarial-tmp/<run>/` and runs **one** `node vitest.mjs run --reporter=json` child per batch, mapping results back by file name. The parent's `VITEST*` env vars are stripped.
+- **CLI:** the CLI flow is `runCli(argv, deps)` (injectable fetch, env, output dir, report dir, batch, poll); `main()` is a one-line wrapper.
+- **Critic placement:** the worker constructs the critic next to the synthesiser (`createBedrockCritic`, lazy import). The critic cache is `adversarial/critic-cache/{key}.json` in the existing bucket.
+- **Unavailable critic:** after the first `unavailable` the critic is not called for the remaining plans; they are recorded as `skipped`.
+
+### 12.6 Calibration (R-145, D-80)
+
+```
+packages/adversary/tests/__fixtures__/calibration/
+  answer-key.md                    seed id → expected attack, severity, rule (R-133a…R-136)
+  clean/                           v2 plan + emitted file + real contracts; expect 0 Critical
+  seeds/S1-body-commented/ …       one folder per D-80 seed: plan.json, file.generated.test.ts, context.json
+  testgen/publisher-consumer/      pair built from the real core fixtures (valid-org.odcs.yaml + a divergent
+                                   variant), labelled publisher/consumer + roles.json
+  testgen/create-get-ready/        real TaskPublished pair captured from the live catalog
+                                   (GET /contracts/{s}/{id}/raw), domain labels + roles.json
+  results_YYYYMMDD.md              live critic-recall runs (T-49)
+```
+
+Seeds 1–3 start from verbatim copies of the committed `generated-tests/functional/*` (2026-10-06). Seed 6 needs no planted defect, because the current `resolveCompatPair` *is* the defect. A role-correct generator is simulated in AC-135 by a generator that takes `roles`.
+
+### 12.7 Integration boundaries → tests (extends §11.6)
+
+25. **functest v2 ↔ emit**: payload body, poll, real expects, mapped env names; v1 plans rejected; schema version busts the cache (AC-117b, AC-119b).
+26. **adversary ↔ real fixtures**: grounding/vacuity/mutation rules per seed; clean control is 0 Critical (AC-128, AC-133…AC-136, AC-145).
+27. **gate ↔ functional job**: withhold → `skipped`; critic Critical never withholds; byte-identical on re-run (AC-129…AC-131).
+28. **critic ↔ stub**: blind input isolation, persona prefix, posture lint, failure isolation, cache (AC-137…AC-142).
+29. **generate/read ↔ report**: the adversarial block on records and responses (AC-127, AC-143).
+30. **CLI ↔ executed tier**: temp-dir Vitest run, tiers agree, report written before the diff reminder, git-ignored, no commit (AC-135, AC-144).
+
+### 12.8 Risks
+
+- **(a) Regex-based file checks.** R-133d and R-134b parse emitted TypeScript with regexes. This is acceptable because the emitter is ours and its output shape is fixed. If the emitter changes, the checks must change with it, and calibration seeds 1–3 guard that.
+- **(b) Executed tier in the CLI.** Running Vitest from inside the CLI adds a few seconds and needs `vitest` installed, which it is (a root devDependency). The temp dirs are deleted afterwards.
+- **(c) OQ-15 and OQ-16 defaults weaken two attacks on live data:** trigger paths can only be Major, and role inversion is caught only by fixtures. Both are called out in every report header until they are resolved. _(2026-10-08: OQ-16 resolved → roles are declared, so role inversion is caught on live data too; OQ-15 stays (b), §12.9.)_
+- **(d) v2 plans may withhold a lot at first.** The first live job after D-74 re-synthesises everything (R-119b), and early v2 plans may be withheld heavily. That is the intended "before a human looks" behaviour, but expect a `FAIL — withheld` verdict on the first run.
+- **(e) Unevidenced findings (D-79) will be noisier** than the enhancer-review standard. Revisit after T-49.
+
+### 12.9 Declared flows, field correspondence, nested properties (spec v0.8.0 · D-84…D-88)
+
+Risk 12.8(c) is half closed: OQ-16 → (a), with roles now declared. OQ-15 → (b) keeps trigger paths Major.
+
+```
+packages/core/src/api-map.ts
+  ENTITY_FLOWS: Record<entity, { publisher; consumer; fields?: Record<pubProp, conProp> }>
+  resolveRoles(entity, sources, flows = ENTITY_FLOWS) → { publisher, consumer, fields } | undefined
+      1. declared flow (both declared sources carry the entity)
+      2. sources == {publisher, consumer} literally (D-60)
+      3. undefined → skip with reason
+packages/core/src/schema-model.ts
+  flattenContractProperties(doc) → NormProp[]  (dotted paths: items[].itemId, meta.note;
+      required = own ∧ all ancestors). normalizeContractSchema (the differ, R-53) is unchanged.
+```
+
+- **§3.9** — `generateArtifacts(catalog, flows)` replaces `resolveCompatPair` with `resolveRoles`.
+  - `checkCompat(con, pub, fields)` compares flattened paths. A consumer path is translated to its publisher path by the longest mapped prefix: `id` ← `taskId`, and `tasks[].x` ← `items[].x` when `items → tasks`.
+  - The compat entry gains `fieldMap` (consumer path → publisher path), only when it is non-empty, so manifests for unmapped entities stay byte-identical.
+  - The emitted compat test looks up `fieldMap[req.name] ?? req.name`.
+  - `deriveJsonSchema` recurses into `properties` and `items`.
+- **§3.11** — `ground(…, flows)` adds `roles` + `fieldMap` to `GroundedContext` and to the hash, and the canonical schema is the publisher's.
+  - `validatePlan` takes `{entity, sources, publisher}` and rejects role inversion.
+  - `stampPlan` uses `ctx.roles.consumer` and `requirementIds = [source/id]`.
+  - `fileSlug` uses the id after the last `/`.
+  - Prompt `v3` adds a "Flow" line and a "Field correspondence" block.
+- **§3.12** — `reviewTestgen` defaults `roles` to `resolveRoles` over the catalog's entities. `Roles` values gain `fields`. `compatOutcome` applies `fieldMap`. `compatMutants` mutates the mapped publisher property. `manifestTierEvaluatorWith(flows)` lets seed 6 feed the generator an inverted flow while the oracle keeps the declared roles.
+- **Live effect (checked 2026-10-09, T-57).** The live contracts (`awp-app-plane@c54d40b`) use the same field names on both sides, so the `TaskPublished` map is empty. Compat on the live pair should be green, which makes R-135 mutation applicable there. Confirm on the first live run (T-49).

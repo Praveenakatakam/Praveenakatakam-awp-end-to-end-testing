@@ -28,10 +28,13 @@ const ready = Boolean(baseUrl && token);
 const schema = ${schema} as const;
 const recordsAt = ${recordsAt};
 
+const asArray = (v: unknown): unknown[] | undefined => (Array.isArray(v) ? v : undefined);
+
 function pluck(body: unknown): unknown[] {
-  if (!recordsAt) return Array.isArray(body) ? body : [];
-  const at = recordsAt.split(".").reduce<any>((o, k) => (o == null ? o : o[k]), body);
-  return Array.isArray(at) ? at : [];
+  if (recordsAt) return asArray(recordsAt.split(".").reduce<any>((o, k) => (o == null ? o : o[k]), body)) ?? [];
+  // recordsAt "" = the body is the array. A tRPC response wraps it: { result: { data } } (or data.json under superjson).
+  const data = (body as any)?.result?.data;
+  return asArray(body) ?? asArray(data) ?? asArray(data?.json) ?? [];
 }
 
 // Skipped (not failed) when live credentials are absent — R-83a, D-26.
@@ -43,6 +46,8 @@ describe.skipIf(!ready)("conformance: ${t.source}/${t.entity}", () => {
     });
     expect(res.ok, \`GET ${t.target.path} → \${res.status}\`).toBe(true);
     const records = pluck(await res.json());
+    // Zero records validates nothing: a wrong recordsAt or an error envelope would otherwise stay green (R-134h).
+    expect(records.length, \`GET ${t.target.path} returned no records (recordsAt ${JSON.stringify(t.target.recordsAt)}), so nothing was validated\`).toBeGreaterThan(0);
     records.forEach((rec, i) => {
       const valid = validate(rec);
       // Name the offending record (index + contents) and the failing rule (R-83).
@@ -53,10 +58,19 @@ describe.skipIf(!ready)("conformance: ${t.source}/${t.entity}", () => {
 `;
 }
 
-/** Compat file: static consumer-can-read-publisher over embedded property facts (R-84, D-24). */
+/**
+ * Compat file: static consumer-can-read-publisher over embedded property facts
+ * (R-84, D-24). With a field map (R-84c) each consumer property is looked up
+ * under its publisher name; without one no `fieldMap` is emitted.
+ */
 export function emitCompatTest(t: CompatTest, index: number): string {
   const consumerRequired = JSON.stringify(t.consumerRequired, null, 2);
   const publisherProps = JSON.stringify(t.publisherProps, null, 2);
+  const mapped = t.fieldMap && Object.keys(t.fieldMap).length > 0;
+  const fieldMapDecl = mapped
+    ? `\n// Declared field correspondence, consumer → publisher (R-84c).\nconst fieldMap: Record<string, string> = ${JSON.stringify(t.fieldMap, null, 2)};\n`
+    : '';
+  const lookup = mapped ? 'fieldMap[req.name] ?? req.name' : 'req.name';
   return `${HEADER}
 // Manifest test #${index} — compat ${t.entity} (consumer-can-read-publisher).
 // consumer ${t.consumer.source}/${t.consumer.contractId}@${t.consumer.contentHash.slice(0, 12)}
@@ -67,12 +81,15 @@ const consumerRequired: { name: string; logicalType?: string }[] = ${consumerReq
 const publisherProps = new Map<string, string | undefined>(
   (${publisherProps} as { name: string; logicalType?: string }[]).map((p) => [p.name, p.logicalType]),
 );
-
+${fieldMapDecl}
 describe("compat: ${t.entity} (consumer-can-read-publisher)", () => {
   for (const req of consumerRequired) {
     it(\`publisher provides consumer-required '\${req.name}'\`, () => {
-      expect(publisherProps.has(req.name), \`missing '\${req.name}' in publisher\`).toBe(true);
-      expect(publisherProps.get(req.name), \`type mismatch on '\${req.name}'\`).toBe(req.logicalType);
+      const name = ${lookup};
+      expect(publisherProps.has(name), \`missing '\${name}' in publisher\`).toBe(true);
+      // Two missing types are not "equal types" (R-84a): without a declared type nothing was compared.
+      expect(req.logicalType !== undefined, \`'\${req.name}' declares no logicalType, so type equality cannot be established\`).toBe(true);
+      expect(publisherProps.get(name), \`type mismatch on '\${req.name}'\`).toBe(req.logicalType);
     });
   }
 });

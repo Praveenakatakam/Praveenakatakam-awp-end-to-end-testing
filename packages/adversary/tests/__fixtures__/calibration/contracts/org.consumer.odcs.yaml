@@ -1,0 +1,33 @@
+# DERIVED for calibration (T-48), 2026-10-07 from the real org.publisher.odcs.yaml
+# (packages/core/tests/__fixtures__/valid-org.odcs.yaml): the same five core
+# properties with the same logicalTypes, but the consumer REQUIRES only three of
+# them (sourcedId, name, status) — a realistic narrower read model. This asymmetry
+# is what exposes role inversion in the §3.9 compat generator (D-80 seed 6): with
+# roles assigned by alphabetical label, `consumer` sorts before `publisher`, so the
+# generator checks the publisher's required set against the consumer's properties.
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: 7a1c9e3b-org-consumer-read-model
+name: OneRoster v1.2 Org (consumer read model)
+status: active
+domain: education
+schema:
+  - name: org
+    logicalType: object
+    properties:
+      - name: sourcedId
+        logicalType: string
+        required: true
+      - name: name
+        logicalType: string
+        required: true
+      - name: status
+        logicalType: string
+        required: true
+      - name: dateLastModified
+        logicalType: date
+        required: false
+      - name: type
+        logicalType: string
+        required: false

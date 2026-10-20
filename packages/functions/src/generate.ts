@@ -9,7 +9,8 @@
  * unit-testable offline, mirroring `refresh.ts`.
  */
 import { generateArtifacts, type CatalogContract, type Skip } from '@registry/testgen';
-import type { CatalogEntry } from './repository.js';
+import { reviewTestgen, type AdversarialReport } from '@registry/adversary';
+import type { AdversarialSummary, CatalogEntry } from './repository.js';
 import { repository } from './repository.js';
 import { log } from './log.js';
 
@@ -19,6 +20,8 @@ export interface GenerationSummary {
   endedAt: string;
   counts: { conformance: number; compat: number; skipped: number };
   skipped: Skip[];
+  /** The adversarial review of this run (§3.12, R-143). */
+  adversarial: AdversarialSummary & { report: AdversarialReport };
 }
 
 /** Minimal repository surface the generation needs (injected for testing). */
@@ -49,6 +52,16 @@ export async function performGeneration(repo: GenRepo, runId: string, startedAt:
   }
 
   const artifacts = generateArtifacts(catalog);
+
+  // Adversarial review BEFORE persisting (R-127): the deterministic findings are
+  // stamped into the committed manifest (R-131); §3.9 tests are never withheld
+  // (R-129). The Lambda has no Vitest, so mutation runs in the manifest tier —
+  // the CLI re-runs it in the executed tier (D-71, R-144).
+  const review = await reviewTestgen(artifacts, catalog);
+  artifacts.manifest.adversarial = review.block;
+  const adversarial: AdversarialSummary = { verdict: review.report.verdict, counts: review.report.counts };
+  log.info('generate.adversarial', { runId, verdict: adversarial.verdict, findings: review.block.findings.length });
+
   const endedAt = new Date(nowMs()).toISOString();
 
   const counts = {
@@ -71,7 +84,8 @@ export async function performGeneration(repo: GenRepo, runId: string, startedAt:
     })),
   };
 
-  const artifactS3Key = await repo.putArtifacts(runId, artifacts);
+  // The full report rides in the S3 artifact object, never in the manifest (R-130, R-131).
+  const artifactS3Key = await repo.putArtifacts(runId, { ...artifacts, report: review.report });
   await repo.writeGenRun({
     runId,
     startedAt,
@@ -80,10 +94,18 @@ export async function performGeneration(repo: GenRepo, runId: string, startedAt:
     skipped: artifacts.manifest.skipped,
     catalogContext,
     artifactS3Key,
+    adversarial,
   });
 
   log.info('generate.done', { runId, endedAt, ...counts });
-  return { runId, startedAt, endedAt, counts, skipped: artifacts.manifest.skipped };
+  return {
+    runId,
+    startedAt,
+    endedAt,
+    counts,
+    skipped: artifacts.manifest.skipped,
+    adversarial: { ...adversarial, report: review.report },
+  };
 }
 
 /** Lambda entry (writer-only; the authorizer has already enforced the group). */

@@ -2,167 +2,8 @@
   "manifestVersion": 1,
   "generator": "@registry/functest",
   "modelId": "us.anthropic.claude-sonnet-4-6",
-  "promptVersion": "v1",
-  "plans": [
-    {
-      "requirementIds": [
-        "CRE-R-24"
-      ],
-      "title": "TaskPublished CDC propagation when Item's 4th review step (order=4) is approved via review.advance",
-      "setup": [
-        {
-          "description": "Ensure a valid tenant exists and tenantId is available for use in all requests."
-        },
-        {
-          "description": "Ensure a Task exists in the publisher (awp-app-plane / create service) with at least one Item, a valid taskType, duration, title, and a populated items[] array (each item carrying itemId, itemType, sectionIndex, itemIndex, scoringRule, and MCQ keys/answerOptions)."
-        },
-        {
-          "description": "Ensure the Task's review workflow has review steps order=1, order=2, and order=3 already in an Approved/Ready state, leaving the 4th review step (order=4) as the final pending step."
-        },
-        {
-          "description": "Confirm the create-evb EventBridge bus is reachable and a consumer (get-ready service) is subscribed to events with source=bawp.create and detail-type=TaskPublished."
-        },
-        {
-          "description": "Record the taskId and all item metadata (itemId, itemType, sectionIndex, itemIndex, scoringRule, keys, answerOptions) for later assertion."
-        }
-      ],
-      "trigger": {
-        "source": "create",
-        "entity": "TaskPublished",
-        "method": "POST",
-        "path": "/api/review/advance",
-        "payloadShape": "Object containing taskId (string, required), tenantId (string, required), and review step advancement data targeting the 4th review step (order=4) with an Approved/Ready decision."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "TaskPublished event delivered to create-evb EventBridge bus (source=bawp.create, detail-type=TaskPublished) and consumed by the get-ready service."
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The review.advance call for the 4th review step (order=4) returns a success response (HTTP 2xx), confirming the step transitioned to Approved/Ready."
-        },
-        {
-          "service": "publisher",
-          "assertion": "A TaskPublished event is emitted to the create-evb EventBridge bus with source exactly equal to 'bawp.create' and detail-type exactly equal to 'TaskPublished'."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The TaskPublished event detail contains all required fields: schemaVersion, eventId, tenantId, taskId, title, taskType, itemCount, items[], publishedAt, and publishedBy — all non-null and non-empty."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The taskId in the event payload matches the taskId of the Task whose 4th review step was just approved."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The tenantId in the event payload matches the tenantId used in the review.advance request."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The itemCount field equals the actual number of entries in the items[] array in the event payload."
-        },
-        {
-          "service": "publisher",
-          "assertion": "Each entry in items[] contains itemId, itemType, sectionIndex, itemIndex, and scoringRule fields; MCQ-typed items additionally carry non-empty keys and answerOptions fields."
-        },
-        {
-          "service": "publisher",
-          "assertion": "publishedAt is a valid ISO 8601 timestamp string representing the approximate time of the review.advance action."
-        },
-        {
-          "service": "publisher",
-          "assertion": "If standards were associated with the Task, the standards array in the event is non-empty and matches the Task's configured standards; otherwise the standards field is an empty array or omitted."
-        },
-        {
-          "service": "publisher",
-          "assertion": "If duration was set on the Task, the duration integer field in the event matches the Task's configured duration value."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, calling GET /api/grdy/assignments/getTasks on the get-ready service returns a response that includes the newly published Task, identifiable by the matching taskId."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The Task record visible in get-ready contains title, taskType, itemCount, and taskId values that are consistent with those in the published TaskPublished event payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The items[] data visible for the Task in get-ready reflects the serialised items from the TaskPublished event, with each item retaining its itemId, itemType, sectionIndex, itemIndex, and scoringRule."
-        }
-      ],
-      "inputHash": "86f940e2fb09ef5c71ca0e1ce70d75a0340e6b5597b5817e05f9ce01ef1d301b"
-    },
-    {
-      "requirementIds": [
-        "XCT-R-11"
-      ],
-      "title": "TaskPublished CDC propagation from create service to get-ready consumer via create-evb",
-      "setup": [
-        {
-          "description": "Ensure the create service is running and connected to the create-evb EventBridge bus."
-        },
-        {
-          "description": "Ensure the get-ready service is running and subscribed to TaskPublished events on create-evb."
-        },
-        {
-          "description": "Ensure a valid tenantId and publishedBy user identity are available for the test."
-        },
-        {
-          "description": "Ensure the get-ready consumer endpoint /api/grdy/assignments/getTasks is reachable and queryable."
-        },
-        {
-          "description": "Record the current list of tasks visible to the get-ready consumer so a post-propagation diff can be made."
-        }
-      ],
-      "trigger": {
-        "source": "create",
-        "entity": "TaskPublished",
-        "method": "POST",
-        "path": "/api/create/tasks",
-        "payloadShape": "Object containing: taskId (UUID string), taskType (string), title (string), tenantId (string), publishedBy (string), publishedAt (ISO-8601 datetime string), items (non-empty array with at least 1 entry), itemCount (integer matching items length), schemaVersion (string, value '1.0.0'), eventId (UUID string); optionally duration (integer) and standards (array)."
-      },
-      "propagation": {
-        "kind": "cdc",
-        "waitFor": "TaskPublished event emitted on create-evb and consumed by get-ready service"
-      },
-      "assertions": [
-        {
-          "service": "publisher",
-          "assertion": "The create service emits a TaskPublished event onto create-evb with schemaVersion exactly equal to '1.0.0'."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The emitted TaskPublished event carries a non-null, well-formed UUID in the eventId field."
-        },
-        {
-          "service": "publisher",
-          "assertion": "The emitted TaskPublished event's items array contains at least 1 entry, and itemCount matches the length of items."
-        },
-        {
-          "service": "publisher",
-          "assertion": "All required fields (eventId, itemCount, items, publishedAt, publishedBy, schemaVersion, taskId, taskType, tenantId, title) are present and non-null in the emitted TaskPublished event."
-        },
-        {
-          "service": "consumer",
-          "assertion": "After CDC propagation, a GET to /api/grdy/assignments/getTasks returns a response that includes a task record whose taskId matches the taskId supplied in the trigger payload."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The task record returned by /api/grdy/assignments/getTasks reflects the correct title, taskType, tenantId, publishedBy, and publishedAt values from the TaskPublished event — confirming event-driven metadata ingest replaced any prior HTTP poll."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The task record returned by /api/grdy/assignments/getTasks contains schemaVersion '1.0.0', confirming the get-ready service persisted or forwarded the schema version carried in the event."
-        },
-        {
-          "service": "consumer",
-          "assertion": "The task record was available in get-ready without any manual polling action by the test — its presence confirms the consumer reacted to the TaskPublished event asynchronously via create-evb."
-        }
-      ],
-      "inputHash": "604729cb3807e06bb02b8053a305518f321d7044fae6b2dc320a6946a198d208"
-    }
-  ],
+  "promptVersion": "v3",
+  "plans": [],
   "skipped": [
     {
       "requirement": "awp-app-plane/CRE-R-01",
@@ -257,20 +98,24 @@
       "reason": "references no cataloged entity"
     },
     {
+      "requirement": "awp-app-plane/CRE-R-24",
+      "reason": "adversarial: A-01, A-02, A-03, A-04, A-05, A-06"
+    },
+    {
       "requirement": "awp-app-plane/CRE-R-25",
       "reason": "references no cataloged entity"
     },
     {
       "requirement": "awp-app-plane/DLV-R-01",
-      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ClassAssignment'"
     },
     {
       "requirement": "awp-app-plane/DLV-R-02",
-      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ClassAssignment'"
     },
     {
       "requirement": "awp-app-plane/DLV-R-03",
-      "reason": "single-service entity 'ClassAssignment' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ClassAssignment'"
     },
     {
       "requirement": "awp-app-plane/DLV-R-04",
@@ -302,7 +147,7 @@
     },
     {
       "requirement": "awp-app-plane/DLV-R-11",
-      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ResultPackage'"
     },
     {
       "requirement": "awp-app-plane/DLV-R-12",
@@ -714,7 +559,7 @@
     },
     {
       "requirement": "awp-app-plane/SCR-R-04",
-      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ResultPackage'"
     },
     {
       "requirement": "awp-app-plane/SCR-R-05",
@@ -814,11 +659,209 @@
     },
     {
       "requirement": "awp-app-plane/XCT-R-09",
-      "reason": "single-service entity 'ResultPackage' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'ResultPackage'"
     },
     {
       "requirement": "awp-app-plane/XCT-R-10",
-      "reason": "single-service entity 'StudentTaskScoredEvent' (no cross-service counterpart)"
+      "reason": "no API mapping for entity 'StudentTaskScoredEvent'"
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-11",
+      "reason": "adversarial: A-11"
+    },
+    {
+      "requirement": "jira-awp/BAWP-1551",
+      "reason": "references no cataloged entity"
+    },
+    {
+      "requirement": "jira-awp/BAWP-2486",
+      "reason": "references no cataloged entity"
     }
-  ]
+  ],
+  "adversarial": {
+    "findings": [
+      {
+        "id": "A-01",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #1 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[0].clause = \"containing `taskId`\""
+      },
+      {
+        "id": "A-02",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #2 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[1].clause = \"containing `title`\""
+      },
+      {
+        "id": "A-03",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #3 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[2].clause = \"containing `taskType`\""
+      },
+      {
+        "id": "A-04",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #4 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[3].clause = \"containing `duration`\""
+      },
+      {
+        "id": "A-05",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #5 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[4].clause = \"containing `itemCount`\""
+      },
+      {
+        "id": "A-06",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133c",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #8 cites a clause that does not appear verbatim in CRE-R-24.",
+        "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+        "evidence": "plan.assertions[7].clause = \"containing `standards`\""
+      },
+      {
+        "id": "A-07",
+        "attack": "grounding",
+        "severity": "Major",
+        "rule": "R-133b",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "The trigger payload sends 'reviewStep', which the create contract does not define (the trigger path is unmapped, so the request shape is unverifiable — OQ-15).",
+        "failureScenario": "The publisher rejects or ignores the unknown field(s), so the scenario the test describes never happens.",
+        "evidence": "plan.trigger.payload keys: schemaVersion, eventId, tenantId, taskId, title, taskType, duration, itemCount, items, standards, publishedAt, publishedBy, reviewStep"
+      },
+      {
+        "id": "A-08",
+        "attack": "grounding",
+        "severity": "Major",
+        "rule": "R-133e",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "The trigger POST /api/create/review/advance is in no API mapping for 'TaskPublished'.",
+        "failureScenario": "Nothing confirms the publisher exposes this write; if the path is wrong the test fails at the trigger and never exercises propagation.",
+        "evidence": "mapped paths: /api/grdy/assignments/getTasks"
+      },
+      {
+        "id": "A-09",
+        "attack": "vacuity",
+        "severity": "Major",
+        "rule": "R-134g",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #1 re-checks the field the read-back record was selected by, so it cannot fail.",
+        "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+        "evidence": "assertion #1: consumer taskId equals payload.taskId; readBack matchOn taskId"
+      },
+      {
+        "id": "A-10",
+        "attack": "vacuity",
+        "severity": "Major",
+        "rule": "R-134g",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "withheld": true
+        },
+        "defect": "Assertion #9 re-checks the field the read-back record was selected by, so it cannot fail.",
+        "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+        "evidence": "assertion #9: consumer taskId exists; readBack matchOn taskId"
+      },
+      {
+        "id": "A-11",
+        "attack": "grounding",
+        "severity": "Critical",
+        "rule": "R-133a",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "withheld": true
+        },
+        "defect": "Assertion #2 reads consumer field 'schemaVersion', which the get-ready contract does not define.",
+        "failureScenario": "A correct get-ready never returns 'schemaVersion', so the read yields undefined and the assertion fails against a working system (or is meaningless).",
+        "evidence": "plan.assertions[1].fieldPath = \"schemaVersion\"; get-ready schema: description, duration, itemCount, items, standards, taskId, taskType, title"
+      },
+      {
+        "id": "A-12",
+        "attack": "grounding",
+        "severity": "Major",
+        "rule": "R-133e",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "withheld": true
+        },
+        "defect": "The trigger POST /api/create/tasks/publish is in no API mapping for 'TaskPublished'.",
+        "failureScenario": "Nothing confirms the publisher exposes this write; if the path is wrong the test fails at the trigger and never exercises propagation.",
+        "evidence": "mapped paths: /api/grdy/assignments/getTasks"
+      },
+      {
+        "id": "A-13",
+        "attack": "vacuity",
+        "severity": "Major",
+        "rule": "R-134g",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "withheld": true
+        },
+        "defect": "Assertion #1 re-checks the field the read-back record was selected by, so it cannot fail.",
+        "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+        "evidence": "assertion #1: consumer taskId equals payload.taskId; readBack matchOn taskId"
+      }
+    ]
+  }
 }

@@ -1,0 +1,15 @@
+{
+  "id": "S04",
+  "title": "A consumer assertion on itemCount, which the get-ready contract does not define",
+  "provenance": "S05 base plus the committed CRE-R-24 plan's consumer-side claim about itemCount (manifest plans[0].assertions): get-ready stores totalItemCount, not itemCount.",
+  "extends": "S05-event-entity-unmapped-trigger",
+  "addAssertions": [
+    {
+      "service": "consumer",
+      "fieldPath": "itemCount",
+      "operator": "matchesType",
+      "expected": { "from": "literal", "value": "integer" },
+      "clause": "the get-ready service SHALL make the published Task available through getTasks"
+    }
+  ]
+}

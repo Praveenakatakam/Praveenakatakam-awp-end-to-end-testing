@@ -43,6 +43,59 @@ export const API_MAP: Record<string, Record<string, EntityApiTarget>> = {
   },
 };
 
+/** One entity's declared publisher → consumer flow (R-84b, D-84). */
+export interface EntityFlow {
+  publisher: string;
+  consumer: string;
+  /** Publisher property → consumer property, for fields renamed across the flow (R-84c, D-85). */
+  fields?: Record<string, string>;
+}
+
+export type EntityFlows = Record<string, EntityFlow>;
+
+/** Resolved roles for one entity; `fields` is always present (possibly empty). */
+export interface ResolvedRoles {
+  publisher: string;
+  consumer: string;
+  fields: Record<string, string>;
+}
+
+/**
+ * Declared publisher → consumer flows, per entity (D-84). Lives beside `API_MAP`
+ * because a flow spans two sources while `API_MAP` is keyed by one. Declare
+ * `fields` only for real renames: the live get-ready contract sources every
+ * TaskPublished field from the same-named create field (verified 2026-10-09, D-85).
+ */
+export const ENTITY_FLOWS: EntityFlows = {
+  TaskPublished: { publisher: 'create', consumer: 'get-ready' },
+  // Directions read off the contract ids: each consumer contract is the `-consumer` counterpart of the
+  // publisher's (deliver.class-assignment-monitor-api → frontend.…-consumer, deliver.result-package →
+  // score.result-package-consumer, score.student-scored-task → report.…-consumer). No `fields`: a field
+  // map is declared only for a verified rename (D-85). No API_MAP entry is added for these entities,
+  // since their live paths are unknown, so only the static compat test is generated for them.
+  ClassAssignment: { publisher: 'deliver', consumer: 'frontend' },
+  ResultPackage: { publisher: 'deliver', consumer: 'score' },
+  StudentTaskScoredEvent: { publisher: 'score', consumer: 'report' },
+};
+
+/**
+ * Resolve an entity's roles from the sources that carry it (R-84b):
+ * 1. a declared flow whose two sources both carry the entity;
+ * 2. else exactly the literal `publisher` + `consumer` labels (D-60);
+ * 3. else undefined. Never inferred from label order.
+ */
+export function resolveRoles(entity: string, sources: string[], flows: EntityFlows = ENTITY_FLOWS): ResolvedRoles | undefined {
+  const present = new Set(sources);
+  const flow = flows[entity];
+  if (flow && present.has(flow.publisher) && present.has(flow.consumer)) {
+    return { publisher: flow.publisher, consumer: flow.consumer, fields: { ...(flow.fields ?? {}) } };
+  }
+  if (present.size === 2 && present.has('publisher') && present.has('consumer')) {
+    return { publisher: 'publisher', consumer: 'consumer', fields: {} };
+  }
+  return undefined;
+}
+
 /** Resolve the API target for a {source, entity}, or undefined when unmapped (R-83b). */
 export function apiTarget(source: string, entity: string): EntityApiTarget | undefined {
   return API_MAP[source]?.[entity];

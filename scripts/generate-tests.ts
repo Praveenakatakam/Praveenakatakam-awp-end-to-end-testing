@@ -29,10 +29,19 @@
  * a directive error — it never hangs.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateArtifacts, serializeManifest, type ArtifactSet, type CatalogContract } from '@registry/testgen';
 import { serializeFunctionalManifest, type FunctionalArtifactSet } from '@registry/functest';
+import {
+  renderReportMarkdown,
+  reviewTestgen,
+  verdictLine,
+  type AdversarialReport,
+  type BatchEvaluator,
+  type ManifestAdversarialBlock,
+} from '@registry/adversary';
+import { createExecutedBatchEvaluator } from './adversary-exec.js';
 
 export type FetchImpl = typeof fetch;
 
@@ -338,55 +347,186 @@ export function mergeSettingSources(
   return out;
 }
 
-/** CLI entry. */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const values = mergeSettingSources(await loadBoundConfig(), process.env);
+// ---- Adversarial review delivery (T-47 · §3.12, R-144) ---------------------
+
+/** Git-ignored home of the full adversarial reports (never committed — R-130). */
+export const REPORTS_DIR = join(REPO_ROOT, 'adversarial-reports');
+/** Git-ignored scratch space for the executed mutation tier. */
+const EXEC_TMP_DIR = join(REPO_ROOT, '.adversarial-tmp');
+
+/** A path as the handoff block prints it: repo-relative when inside the repo, always `/`-separated. */
+export function displayPath(p: string): string {
+  const rel = relative(REPO_ROOT, p);
+  const inside = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  return (inside ? rel : p).replace(/\\/g, '/');
+}
+
+/**
+ * The block the main conversation acts on after a run (repo CLAUDE.md): it runs
+ * the `adversarial-test-review` skill with these inputs — mirroring the
+ * enhancer chain's `## REVIEW HANDOFF`. Always the LAST lines of the output.
+ */
+function handoffLines(generatedDir: string, reports: string[], run: string, functionalJob: string | undefined): string[] {
+  return [
+    '## ADVERSARIAL REVIEW HANDOFF',
+    `generated_dir: ${displayPath(generatedDir)}`,
+    `in_product_reports: ${reports.map(displayPath).join(', ') || 'none'}`,
+    `run: ${run}`,
+    `functional_job: ${functionalJob ?? 'none'}`,
+  ];
+}
+
+/** Write `{id}/report.json` + `{id}/report.md`; returns their reportsDir-relative paths. */
+export function writeAdversarialReport(reportsDir: string, id: string, title: string, report: AdversarialReport): string[] {
+  const dir = join(reportsDir, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  writeFileSync(join(dir, 'report.md'), renderReportMarkdown(title, report));
+  return [`${id}/report.json`, `${id}/report.md`];
+}
+
+/**
+ * Review a §3.9 artifact set in BOTH mutation tiers (D-71): the manifest tier
+ * (what the Lambda ran) and the executed tier (the emitted files under Vitest).
+ * If they disagree, the emitted compat test does not behave like its manifest
+ * entry — an emitter defect — so fail loudly instead of reporting either one.
+ */
+export async function reviewTestgenForCli(
+  artifacts: ArtifactSet,
+  catalog: CatalogContract[],
+  runBatch: BatchEvaluator
+): Promise<{ block: ManifestAdversarialBlock; report: AdversarialReport }> {
+  const manifestTier = await reviewTestgen(artifacts, catalog);
+  const executed = await reviewTestgen(artifacts, catalog, { runBatch, tier: 'executed' });
+  const shape = (r: AdversarialReport) =>
+    JSON.stringify((r.mutation.testgen ?? []).map((e) => [e.entity, e.applicable, e.survivors]));
+  if (shape(manifestTier.report) !== shape(executed.report)) {
+    throw new Error(
+      `adversarial mutation tiers disagree — manifest ${shape(manifestTier.report)} vs executed ${shape(executed.report)}: an emitted compat test does not behave like its manifest entry`
+    );
+  }
+  return executed;
+}
+
+export interface CliDeps {
+  fetchImpl?: FetchImpl;
+  /** Settings source; when given, `sst bind` config is not read (tests). */
+  env?: Record<string, string | undefined>;
+  outputDir?: string;
+  reportsDir?: string;
+  log?: (line: string) => void;
+  /** The executed-tier batch evaluator (default: real Vitest runs). */
+  runBatch?: BatchEvaluator;
+  poll?: PollOptions;
+}
+
+/** GET /test-artifacts/latest → the run id + artifact set (incl. its stored report). */
+async function fetchLatestRun(
+  fetchImpl: FetchImpl,
+  apiUrl: string,
+  token: string
+): Promise<{ runId: string; artifacts: ArtifactSet & { report?: AdversarialReport } }> {
+  const body = await getJson<{ run?: { runId?: string }; artifacts?: ArtifactSet & { report?: AdversarialReport } }>(
+    fetchImpl,
+    `${apiUrl}/test-artifacts/latest`,
+    token
+  );
+  if (!body?.artifacts) throw new Error('no artifacts in the latest generation run');
+  return { runId: body.run?.runId ?? 'latest', artifacts: body.artifacts };
+}
+
+/** The whole CLI flow with injectable I/O (R-91, R-126, R-144). Never commits (D-34). */
+export async function runCli(argv: string[], deps: CliDeps = {}): Promise<void> {
+  const log = deps.log ?? ((l: string) => console.log(l));
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const outputDir = deps.outputDir ?? OUTPUT_DIR;
+  const reportsDir = deps.reportsDir ?? REPORTS_DIR;
+  const env = deps.env ?? process.env;
+  const runBatch = deps.runBatch ?? createExecutedBatchEvaluator({ workDir: join(EXEC_TMP_DIR, `run-${process.pid}`) });
+
+  const values = mergeSettingSources(deps.env ? {} : await loadBoundConfig(), env);
   const settings = resolveSettings(values);
   const apiUrl = settings.apiUrl;
   const token = await resolveToken(settings);
 
-  const skipFunctional = argv.includes('--skip-functional') || process.env.SKIP_FUNCTIONAL === '1';
+  const skipFunctional = argv.includes('--skip-functional') || env.SKIP_FUNCTIONAL === '1';
   const mode = argv.includes('--local') ? 'local' : argv.includes('--pull') ? 'pull' : 'default';
+  const reportLines: string[] = [];
+  const reportJsons: string[] = [];
+  let run = '';
+  let functionalJob: string | undefined;
+  const deliver = (label: string, id: string, title: string, report: AdversarialReport) => {
+    const paths = writeAdversarialReport(reportsDir, id, title, report);
+    reportLines.push(`[generate-tests] ${verdictLine(label, report)}`);
+    reportLines.push(`  adversarial-reports/${paths.find((p) => p.endsWith('.md'))}`);
+    reportJsons.push(join(reportsDir, paths.find((p) => p.endsWith('.json'))!));
+  };
 
-  // Compat + conformance tests (always).
+  // Compat + conformance tests (always), adversarially reviewed before they land (R-127, R-144).
   let artifacts: ArtifactSet;
   if (mode === 'local') {
-    console.log('[generate-tests] --local: generating from the read API…');
-    artifacts = await generateLocally(fetch, apiUrl, token);
+    log('[generate-tests] --local: generating from the read API…');
+    const catalog = await buildCatalogFromApi(fetchImpl, apiUrl, token);
+    artifacts = generateArtifacts(catalog);
+    log('[generate-tests] adversarial review (§3.9, executed tier)…');
+    const review = await reviewTestgenForCli(artifacts, catalog, runBatch);
+    artifacts.manifest.adversarial = review.block;
+    const id = `local-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    run = id;
+    deliver('§3.9', id, `Adversarial review — §3.9 local generation ${id}`, review.report);
   } else {
     if (mode === 'default') {
-      const summary = await triggerGeneration(fetch, apiUrl, token);
-      console.log(`[generate-tests] generated run ${summary.runId}:`, JSON.stringify(summary.counts));
+      const summary = await triggerGeneration(fetchImpl, apiUrl, token);
+      log(`[generate-tests] generated run ${summary.runId}: ${JSON.stringify(summary.counts)}`);
     }
-    artifacts = await fetchLatestArtifacts(fetch, apiUrl, token);
+    const latest = await fetchLatestRun(fetchImpl, apiUrl, token);
+    artifacts = latest.artifacts;
+    run = latest.runId;
+    if (mode === 'default') {
+      log('[generate-tests] adversarial review (§3.9, executed tier)…');
+      const catalog = await buildCatalogFromApi(fetchImpl, apiUrl, token);
+      const review = await reviewTestgenForCli(artifacts, catalog, runBatch);
+      deliver('§3.9', latest.runId, `Adversarial review — §3.9 run ${latest.runId}`, review.report);
+    } else if (latest.artifacts.report) {
+      deliver('§3.9', latest.runId, `Adversarial review — §3.9 run ${latest.runId} (stored)`, latest.artifacts.report);
+    }
   }
 
-  const written = writeArtifactTree(OUTPUT_DIR, artifacts);
-  console.log(`[generate-tests] wrote ${written.length} file(s) to generated-tests/:`);
-  for (const p of written) console.log(`  generated-tests/${p}`);
+  const written = writeArtifactTree(outputDir, artifacts);
+  log(`[generate-tests] wrote ${written.length} file(s) to generated-tests/:`);
+  for (const p of written) log(`  generated-tests/${p}`);
 
   // Functional (LLM) tests — default on; skip with --skip-functional or SKIP_FUNCTIONAL=1.
   if (mode === 'local') {
-    console.log('[generate-tests] skipping functional generation (not available in --local mode)');
+    log('[generate-tests] skipping functional generation (not available in --local mode)');
   } else if (skipFunctional) {
-    console.log('[generate-tests] skipping functional generation (--skip-functional)');
+    log('[generate-tests] skipping functional generation (--skip-functional)');
   } else {
-    console.log('[generate-tests] triggering LLM functional generation…');
-    const { jobId } = await triggerFunctionalGeneration(fetch, apiUrl, token);
-    console.log(`[generate-tests] job ${jobId} accepted; polling…`);
-    const { job, functionalArtifacts } = await pollFunctionalJob(fetch, apiUrl, token, jobId).then((r) => ({
-      job: r.job,
-      functionalArtifacts: r.artifacts,
-    }));
-    const functionalWritten = writeFunctionalArtifactTree(OUTPUT_DIR, functionalArtifacts);
-    console.log(
+    log('[generate-tests] triggering LLM functional generation…');
+    const { jobId } = await triggerFunctionalGeneration(fetchImpl, apiUrl, token);
+    functionalJob = jobId;
+    log(`[generate-tests] job ${jobId} accepted; polling…`);
+    const { job, artifacts: functionalArtifacts } = await pollFunctionalJob(fetchImpl, apiUrl, token, jobId, deps.poll);
+    const functionalWritten = writeFunctionalArtifactTree(outputDir, functionalArtifacts);
+    log(
       `[generate-tests] job ${jobId} succeeded (${job.planCount ?? 0} plan(s), ${job.skipCount ?? 0} skipped); wrote ${functionalWritten.length} file(s):`
     );
-    for (const p of functionalWritten) console.log(`  generated-tests/${p}`);
-    written.push(...functionalWritten);
+    for (const p of functionalWritten) log(`  generated-tests/${p}`);
+    const report = (functionalArtifacts as FunctionalArtifactSet & { report?: AdversarialReport }).report;
+    if (report) deliver('§3.11', jobId, `Adversarial review — §3.11 job ${jobId}`, report);
   }
 
-  console.log('[generate-tests] review `git diff` and commit — this tool does not commit for you.');
+  // The verdicts come BEFORE the reminder: the adversary reports before a human looks (R-144).
+  for (const l of reportLines) log(l);
+  log('[generate-tests] review `git diff` and commit — this tool does not commit for you.');
+  // Last: the handoff the main conversation acts on (repo CLAUDE.md → adversarial-test-review).
+  log('');
+  for (const l of handoffLines(outputDir, reportJsons, run, functionalJob)) log(l);
+}
+
+/** CLI entry. */
+export async function main(argv = process.argv.slice(2)): Promise<void> {
+  await runCli(argv);
 }
 
 // Run when invoked directly (tsx scripts/generate-tests.ts), not when imported by tests.

@@ -10,16 +10,28 @@
  *   - "references no cataloged entity"  (infra-only / entity-less requirement)
  *   - "single-service entity …"         (no cross-service counterpart)
  *   - "no API mapping for entity …"     (nothing to target at runtime)
+ *   - "no declared publisher/consumer roles for entity …" (R-117c, D-84)
  *
  * The core is pure and offline (NFR-8): the LLM and the cache are injected; this
  * module only reads the catalog snapshot passed in. The input hash is a SHA-256
  * over the requirement text, the entity's contract content hashes, the entity's
- * api-map entries, the model id, and the prompt version — so any change to what
- * the model would see busts the cache (R-119); nothing else does.
+ * api-map entries, the model id, the prompt version, the plan-schema version,
+ * and the entity's declared roles + field map (R-119c)
+ * — so any change to what the model would see, or to the shape it must return,
+ * busts the cache (R-119, R-119b); nothing else does.
  */
 import { createHash } from 'node:crypto';
-import { normalizeContractSchema, parseAndValidate, type NormProp } from '@registry/core';
-import type { EntityApiTarget } from '@registry/core';
+import {
+  compareCodePoint,
+  flattenContractProperties,
+  normalizeContractSchema,
+  parseAndValidate,
+  resolveRoles,
+  ENTITY_FLOWS,
+  type NormProp,
+} from '@registry/core';
+import type { EntityApiTarget, EntityFlows } from '@registry/core';
+import { PLAN_SCHEMA_VERSION } from './plan.js';
 
 /** One requirement from the catalog (R-107 shape, trimmed to what grounding needs). */
 export interface RequirementInput {
@@ -47,8 +59,21 @@ export interface GroundedContext {
   sources: string[];
   /** The entity's contract properties (schema[0]), from one canonical variant. */
   schema: NormProp[];
+  /** Every variant's properties, by source — so a check can use the asserting service's own contract. */
+  schemasBySource: Record<string, NormProp[]>;
+  /**
+   * Every variant's properties flattened to dotted paths, nested included
+   * (`items[].itemId`), so R-133a can resolve a nested `fieldPath`. Used only by
+   * the adversarial stage: it is not part of the prompt or the input hash.
+   * Optional so hand-built contexts and older callers keep working.
+   */
+  flatSchemasBySource?: Record<string, NormProp[]>;
   /** Live API coordinates for the entity, per source (may be one side only). */
   apiTargets: { source: string; target: EntityApiTarget }[];
+  /** Declared publisher/consumer for the entity (R-117c). */
+  roles: { publisher: string; consumer: string };
+  /** The flow's field map, publisher property → consumer property (empty if none, R-117c). */
+  fieldMap: Record<string, string>;
   inputHash: string;
 }
 
@@ -81,7 +106,9 @@ export function ground(
   contracts: ContractInput[],
   apiMap: ApiMapLike,
   modelId: string,
-  promptVersion: string
+  promptVersion: string,
+  planSchemaVersion: number = PLAN_SCHEMA_VERSION,
+  flows: EntityFlows = ENTITY_FLOWS
 ): GroundResult {
   const entities = [...new Set(contracts.map((c) => c.entity))].sort();
   const referenced = entities.filter((e) => mentions(req.text, e));
@@ -109,11 +136,25 @@ export function ground(
     return { ok: false, reason: `no API mapping for entity '${entity}'` };
   }
 
-  // Canonical schema variant: the publisher's if present, else the first source.
-  const variants = contracts.filter((c) => c.entity === entity).sort((a, b) => a.source.localeCompare(b.source));
-  const canonical = variants.find((c) => c.source === 'publisher') ?? variants[0];
-  const parsed = parseAndValidate(canonical.rawYaml).parsed;
-  const schema = [...normalizeContractSchema(parsed).props.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const resolved = resolveRoles(entity, sources, flows);
+  if (!resolved) {
+    return { ok: false, reason: `no declared publisher/consumer roles for entity '${entity}'` };
+  }
+  const roles = { publisher: resolved.publisher, consumer: resolved.consumer };
+  const fieldMap = resolved.fields;
+
+  // Canonical schema variant: the declared publisher's (R-117c, supersedes D-60's fallback).
+  const variants = contracts.filter((c) => c.entity === entity).sort((a, b) => compareCodePoint(a.source, b.source));
+  const canonical = variants.find((c) => c.source === roles.publisher)!;
+  const propsOf = (rawYaml: string) =>
+    [...normalizeContractSchema(parseAndValidate(rawYaml).parsed).props.values()].sort((a, b) => compareCodePoint(a.name, b.name));
+  const schema = propsOf(canonical.rawYaml);
+  const schemasBySource: Record<string, NormProp[]> = {};
+  const flatSchemasBySource: Record<string, NormProp[]> = {};
+  for (const v of variants) {
+    schemasBySource[v.source] ??= propsOf(v.rawYaml);
+    flatSchemasBySource[v.source] ??= flattenContractProperties(parseAndValidate(v.rawYaml).parsed);
+  }
 
   const contentHashes = variants.map((c) => `${c.source}:${c.contentHash}`).sort();
   const inputHash = createHash('sha256')
@@ -125,12 +166,15 @@ export function ground(
         apiTargets,
         modelId,
         promptVersion,
+        planSchemaVersion,
+        roles,
+        fieldMap,
       })
     )
     .digest('hex');
 
   return {
     ok: true,
-    context: { requirement: req, entity, sources, schema, apiTargets, inputHash },
+    context: { requirement: req, entity, sources, schema, schemasBySource, flatSchemasBySource, apiTargets, roles, fieldMap, inputHash },
   };
 }

@@ -1,0 +1,57 @@
+{
+  "id": "clean",
+  "title": "Clean control: a fully grounded, non-vacuous org propagation plan",
+  "provenance": "Hand-written v2 plan over the real org contract (publisher) and its derived consumer read model. Every fieldPath, payload key, path and clause is grounded; all mutants are killable.",
+  "requirement": {
+    "source": "publisher",
+    "id": "R-10",
+    "text": "WHEN an org is created in the publisher, the consumer SHALL reflect its name and its status.",
+    "earsType": "event",
+    "section": "3.1"
+  },
+  "contracts": [
+    { "source": "publisher", "entity": "org", "id": "5d8f2b4a-org-oneroster-v12", "contentHash": "calib-org-publisher", "file": "contracts/org.publisher.odcs.yaml" },
+    { "source": "consumer", "entity": "org", "id": "7a1c9e3b-org-consumer-read-model", "contentHash": "calib-org-consumer", "file": "contracts/org.consumer.odcs.yaml" }
+  ],
+  "plan": {
+    "requirementIds": ["R-10"],
+    "title": "a publisher-created org is reflected by the consumer with its name and status",
+    "setup": [{ "description": "a writer access token for the publisher and a reader token for the consumer" }],
+    "trigger": {
+      "source": "publisher",
+      "entity": "org",
+      "method": "POST",
+      "path": "/orgs",
+      "payload": {
+        "sourcedId": "org-calib-0001",
+        "status": "active",
+        "dateLastModified": "2026-10-07T00:00:00Z",
+        "name": "Calibration High School",
+        "type": "school"
+      }
+    },
+    "propagation": {
+      "kind": "cdc",
+      "waitFor": "the consumer read model to contain the new org",
+      "timeoutSeconds": 60,
+      "pollIntervalSeconds": 5,
+      "readBack": { "service": "consumer", "path": "/orgs", "matchOn": "sourcedId" }
+    },
+    "assertions": [
+      {
+        "service": "consumer",
+        "fieldPath": "name",
+        "operator": "equals",
+        "expected": { "from": "trigger.payload", "path": "name" },
+        "clause": "the consumer SHALL reflect its name and its status"
+      },
+      {
+        "service": "consumer",
+        "fieldPath": "status",
+        "operator": "equals",
+        "expected": { "from": "trigger.payload", "path": "status" },
+        "clause": "the consumer SHALL reflect its name and its status"
+      }
+    ]
+  }
+}

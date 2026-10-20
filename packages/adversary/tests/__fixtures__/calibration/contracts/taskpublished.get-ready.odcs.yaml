@@ -1,0 +1,48 @@
+# RECONSTRUCTED for calibration (T-48), 2026-10-07 — NOT a verbatim copy.
+# Source of truth: the live catalog's `get-ready` / urn:bawp:get-ready:assignments-api
+# (contentHash 72642b9a766cae59a42c69922f0ce62dc0216e93). Property names,
+# logicalTypes and `required` flags are taken verbatim from the committed
+# generated-tests/manifest.json: the compat entry's `consumerRequired` and the
+# conformance entry's derived `jsonSchema` (required list + the `type` enum).
+# Replace with the live raw contract in T-49 (GET /contracts/get-ready/{id}/raw).
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: urn:bawp:get-ready:assignments-api
+name: Get Ready Assignments API
+status: active
+domain: get-ready
+schema:
+  - name: TaskPublished
+    logicalType: object
+    properties:
+      - name: id
+        logicalType: string
+        required: true
+      - name: title
+        logicalType: string
+        required: true
+      - name: description
+        logicalType: string
+        required: true
+      - name: type
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [practice, quiz, homework, classwork, assessment]
+      - name: duration
+        logicalType: integer
+        required: true
+      - name: totalItemCount
+        logicalType: integer
+        required: true
+      - name: itemTypes
+        logicalType: array
+        required: true
+      - name: standards
+        logicalType: array
+        required: true

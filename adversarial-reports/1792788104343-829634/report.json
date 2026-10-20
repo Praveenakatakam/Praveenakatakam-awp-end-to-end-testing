@@ -1,0 +1,523 @@
+{
+  "generator": "functest",
+  "verdict": "FAIL — withheld",
+  "counts": {
+    "grounding": {
+      "Critical": 7,
+      "Major": 3,
+      "Minor": 0
+    },
+    "vacuity": {
+      "Critical": 0,
+      "Major": 3,
+      "Minor": 0
+    },
+    "mutation": {
+      "Critical": 0,
+      "Major": 0,
+      "Minor": 0
+    },
+    "critic": {
+      "Critical": 3,
+      "Major": 10,
+      "Minor": 6
+    }
+  },
+  "withheld": [
+    {
+      "requirement": "awp-app-plane/CRE-R-24",
+      "findings": [
+        "A-01",
+        "A-02",
+        "A-03",
+        "A-04",
+        "A-05",
+        "A-06"
+      ]
+    },
+    {
+      "requirement": "awp-app-plane/XCT-R-11",
+      "findings": [
+        "A-11"
+      ]
+    }
+  ],
+  "deterministic": [
+    {
+      "id": "A-01",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #1 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[0].clause = \"containing `taskId`\""
+    },
+    {
+      "id": "A-02",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #2 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[1].clause = \"containing `title`\""
+    },
+    {
+      "id": "A-03",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #3 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[2].clause = \"containing `taskType`\""
+    },
+    {
+      "id": "A-04",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #4 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[3].clause = \"containing `duration`\""
+    },
+    {
+      "id": "A-05",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #5 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[4].clause = \"containing `itemCount`\""
+    },
+    {
+      "id": "A-06",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133c",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #8 cites a clause that does not appear verbatim in CRE-R-24.",
+      "failureScenario": "The assertion verifies behaviour the requirement never states, so the test can pass while the actual requirement is broken.",
+      "evidence": "plan.assertions[7].clause = \"containing `standards`\""
+    },
+    {
+      "id": "A-07",
+      "attack": "grounding",
+      "severity": "Major",
+      "rule": "R-133b",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "The trigger payload sends 'reviewStep', which the create contract does not define (the trigger path is unmapped, so the request shape is unverifiable — OQ-15).",
+      "failureScenario": "The publisher rejects or ignores the unknown field(s), so the scenario the test describes never happens.",
+      "evidence": "plan.trigger.payload keys: schemaVersion, eventId, tenantId, taskId, title, taskType, duration, itemCount, items, standards, publishedAt, publishedBy, reviewStep"
+    },
+    {
+      "id": "A-08",
+      "attack": "grounding",
+      "severity": "Major",
+      "rule": "R-133e",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "The trigger POST /api/create/review/advance is in no API mapping for 'TaskPublished'.",
+      "failureScenario": "Nothing confirms the publisher exposes this write; if the path is wrong the test fails at the trigger and never exercises propagation.",
+      "evidence": "mapped paths: /api/grdy/assignments/getTasks"
+    },
+    {
+      "id": "A-09",
+      "attack": "vacuity",
+      "severity": "Major",
+      "rule": "R-134g",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #1 re-checks the field the read-back record was selected by, so it cannot fail.",
+      "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+      "evidence": "assertion #1: consumer taskId equals payload.taskId; readBack matchOn taskId"
+    },
+    {
+      "id": "A-10",
+      "attack": "vacuity",
+      "severity": "Major",
+      "rule": "R-134g",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/CRE-R-24",
+        "file": "functional/cre-r-24-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #9 re-checks the field the read-back record was selected by, so it cannot fail.",
+      "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+      "evidence": "assertion #9: consumer taskId exists; readBack matchOn taskId"
+    },
+    {
+      "id": "A-11",
+      "attack": "grounding",
+      "severity": "Critical",
+      "rule": "R-133a",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/XCT-R-11",
+        "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #2 reads consumer field 'schemaVersion', which the get-ready contract does not define.",
+      "failureScenario": "A correct get-ready never returns 'schemaVersion', so the read yields undefined and the assertion fails against a working system (or is meaningless).",
+      "evidence": "plan.assertions[1].fieldPath = \"schemaVersion\"; get-ready schema: description, duration, itemCount, items, standards, taskId, taskType, title"
+    },
+    {
+      "id": "A-12",
+      "attack": "grounding",
+      "severity": "Major",
+      "rule": "R-133e",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/XCT-R-11",
+        "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+      },
+      "defect": "The trigger POST /api/create/tasks/publish is in no API mapping for 'TaskPublished'.",
+      "failureScenario": "Nothing confirms the publisher exposes this write; if the path is wrong the test fails at the trigger and never exercises propagation.",
+      "evidence": "mapped paths: /api/grdy/assignments/getTasks"
+    },
+    {
+      "id": "A-13",
+      "attack": "vacuity",
+      "severity": "Major",
+      "rule": "R-134g",
+      "target": {
+        "kind": "functional",
+        "ref": "awp-app-plane/XCT-R-11",
+        "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+      },
+      "defect": "Assertion #1 re-checks the field the read-back record was selected by, so it cannot fail.",
+      "failureScenario": "The read-back only returns a record whose taskId already equals payload.taskId; a consumer that corrupts every other field still passes this assertion.",
+      "evidence": "assertion #1: consumer taskId equals payload.taskId; readBack matchOn taskId"
+    }
+  ],
+  "critic": {
+    "status": "ok",
+    "independence": "ok",
+    "modelId": "us.anthropic.claude-opus-4-8",
+    "droppedByPostureLint": 0,
+    "malformed": 0,
+    "findings": [
+      {
+        "id": "C-01",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 100
+        },
+        "defect": "The off-by-one / wrong-trigger behaviour (publishing only on order=4 Approved/Ready and NOT on steps 1-3) is never exercised; only a single happy-path order=4 payload is sent with no negative case.",
+        "failureScenario": "A publisher that publishes on every review step transition (e.g. order=1) passes this test because the single order=4 trigger still yields a record, leaving the core trigger-condition requirement unverified.",
+        "evidence": "trigger.payload.reviewStep = { order: 4, status: \"Approved/Ready\" } with no order=1..3 counter-case"
+      },
+      {
+        "id": "C-02",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 112
+        },
+        "defect": "The read-back polls /api/grdy/assignments/getTasks with no query parameter or tenant scoping, so a record with the hard-coded taskId left over from a prior run satisfies the match without the current trigger ever publishing.",
+        "failureScenario": "A previous test run (or seed data) left task-xyz-9876 in get-ready; the publisher silently drops the event this run, yet pollUntil finds the stale record and every assertion passes.",
+        "evidence": "matchOn: \"taskId\", value: at(payload, \"taskId\") with constant \"taskId\": \"task-xyz-9876\" and no per-run unique id"
+      },
+      {
+        "id": "C-03",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 162
+        },
+        "defect": "itemCount is asserted equal to payload.itemCount but never cross-checked against items.length, contradicting the expected behaviour that itemCount must equal the actual number of entries.",
+        "failureScenario": "Consumer propagates itemCount=3 verbatim but delivers only 1 item in items[]; assertion #5 passes and no assertion catches the count/length mismatch.",
+        "evidence": "assertion #5 compares at(readBackRecord,\"itemCount\") to at(payload,\"itemCount\") only"
+      },
+      {
+        "id": "C-04",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 166
+        },
+        "defect": "No assertion verifies the item sub-fields (itemId, itemType, sectionIndex, itemIndex, scoringRule, keys, answerOptions); items is only checked for existence and array type.",
+        "failureScenario": "A consumer that receives items as [{}] or drops keys/answerOptions/itemIndex for MCQ entries still passes assertions #6 and #7 because they never inspect element contents.",
+        "evidence": "assertion #6/#7 only: expect(at(readBackRecord,\"items\")).toBeDefined() and typeMatches(...,\"array\",false)"
+      },
+      {
+        "id": "C-05",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 189
+        },
+        "defect": "On the trigger failure path the test asserts res.ok but never asserts that an event was published to create-evb or that source/detail-type are correct; the publisher-side observables are entirely unverified since the publisher target is unmapped.",
+        "failureScenario": "Publisher sends the event to the default bus or with source 'create' instead of 'bawp.create'; if get-ready happens to still ingest it (or a stale record exists), no assertion catches the wrong bus/source/detail-type.",
+        "evidence": "targets[1] publisher mapped:false; no assertion references source, detail-type, or create-evb bus"
+      },
+      {
+        "id": "C-06",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 72
+        },
+        "defect": "pollIntervalSeconds=3 against timeoutSeconds=30 means the final sleep can overrun the deadline and the loop re-checks only ~10 times; a CDC pipeline that lands the record at ~29s may be missed because the last poll sleep pushes past the deadline before the next fetch.",
+        "failureScenario": "Event propagates in 28s but the loop last fetched at 27s then sleeps 3s to 30s and exits without a final read, returning undefined against a correct, slightly-slow system.",
+        "evidence": "deadline = Date.now()+30*1000; await setTimeout(..., 3*1000) after each fetch with no post-sleep deadline re-check"
+      },
+      {
+        "id": "C-07",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 160
+        },
+        "defect": "duration is asserted with strict equals but is declared nullable (consumer:duration), so if the field is optional and legitimately absent the test fails against a correct system.",
+        "failureScenario": "A correct consumer that omits optional duration returns undefined; assertion #4 expects 60 and fails even though duration dropping is permitted by the contract per the plan's nullable list.",
+        "evidence": "nullable includes \"consumer:duration\" yet assertion #4 uses equals to at(payload,\"duration\")"
+      },
+      {
+        "id": "C-08",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/CRE-R-24",
+          "file": "functional/cre-r-24-taskpublished.generated.test.ts",
+          "line": 169
+        },
+        "defect": "standards is asserted only with exists (toBeDefined), while the plan lists consumer:standards as nullable, so a null value passes and a dropped-content array is not detected.",
+        "failureScenario": "Consumer returns standards:[] or a reordered/empty array; assertion #8 passes because the field merely exists, so the equals-the-published-array behaviour is unverified.",
+        "evidence": "assertion #8: expect(at(readBackRecord,\"standards\")).toBeDefined() with nullable [\"consumer:standards\"]"
+      },
+      {
+        "id": "C-09",
+        "attack": "critic",
+        "severity": "Critical",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "No behaviour verifies the publisher actually emits TaskPublished/TaskAssigned events on create-evb; the test only asserts the trigger POST returns ok and reads the consumer.",
+        "failureScenario": "The create service accepts the POST and persists the task but never publishes any event to create-evb; if the get-ready record happens to be produced by the legacy HTTP poll path the test still passes while the eventing contract is completely broken.",
+        "evidence": "targets[1] publisher is 'mapped': false; no assertion targets service 'publisher'; only publisher check is expect(res.ok)"
+      },
+      {
+        "id": "C-10",
+        "attack": "critic",
+        "severity": "Critical",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The eventId UUID behaviour is never asserted anywhere in the file.",
+        "failureScenario": "A publisher that emits events with a missing, empty, or duplicated eventId passes the test because no assertion reads eventId on either service.",
+        "evidence": "behaviour fieldPath 'eventId' present; no assertion with fieldPath eventId in plan.assertions or test file"
+      },
+      {
+        "id": "C-11",
+        "attack": "critic",
+        "severity": "Critical",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The itemCount assertion compares the consumer value to the trigger payload's itemCount rather than to the actual number of items, so a stale/mismatched count that still equals the hard-coded 2 is accepted.",
+        "failureScenario": "Consumer surfaces items array with 3 entries but itemCount frozen at 2 (the payload value); assertion #5 passes because both equal 2, leaving the count/items mismatch undetected.",
+        "evidence": "assertion #5 itemCount equals trigger.payload.itemCount; behaviour requires 'itemCount is consistent with the actual number of items'"
+      },
+      {
+        "id": "C-12",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The consumer-side items contents are never compared to the published items, so field-level corruption inside items is undetected.",
+        "failureScenario": "Consumer drops itemId/order or reorders modules inside each item; the test only checks items is a non-null array, so the faithful-propagation behaviour for items fails silently.",
+        "evidence": "behaviour 'Consumer surfaces items identical to the published event'; file only asserts items exists and is array"
+      },
+      {
+        "id": "C-13",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The test cannot distinguish event-driven ingestion from the replaced HTTP poll path, so it does not verify the record was produced solely from create-evb events.",
+        "failureScenario": "get-ready still populates getTasks via the old poll/HTTP path; the propagated record appears regardless of whether any create-evb event fired, and the test passes.",
+        "evidence": "behaviour \"get-ready's record is produced solely from create-evb events and not from the replaced HTTP poll path\"; readBack only polls getTasks"
+      },
+      {
+        "id": "C-14",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The version-gate behaviour (consumer must reject/not surface events whose schemaVersion is absent or not '1.0.0') is not tested; the trigger always sends a valid 1.0.0 and no negative case is exercised.",
+        "failureScenario": "Consumer ingests events regardless of schemaVersion (no gate); since only a valid-version event is ever sent, the test passes while the gate is absent.",
+        "evidence": "behaviour 'Consumer rejects or does not surface events whose schemaVersion is absent or not \"1.0.0\"'; single trigger payload schemaVersion '1.0.0'"
+      },
+      {
+        "id": "C-15",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "description, duration, and standards are declared nullable so their equality/type assertions pass when the consumer returns null, dropping those fields.",
+        "failureScenario": "Consumer drops description and duration (returns null); assertions #8 and #9 compare at(record,'description') to payload — null !== payload string would fail, but typeMatches for standards allows null and the equals assertions do not account for nullability, creating inconsistent dead/false behavior; specifically standards assertion #10 passes on null.",
+        "evidence": "plan.nullable includes consumer:description, consumer:duration, consumer:standards; assertion #10 typeMatches(..., 'array', true)"
+      },
+      {
+        "id": "C-16",
+        "attack": "critic",
+        "severity": "Major",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "items is only checked for existence and array type; the minimum-1-entry requirement is never verified.",
+        "failureScenario": "Consumer returns items: [] (empty array); assertions #3 (exists/not null) and #4 (matchesType array) both pass, so the 'at minimum 1 entry' clause is violated without failing.",
+        "evidence": "assertion #3 operator 'exists', assertion #4 operator 'matchesType' value 'array'; no length check; clause '`TaskPublished.items` SHALL have at minimum 1 entry'"
+      },
+      {
+        "id": "C-17",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "Publisher-required fields publishedAt, publishedBy, tenantId are never asserted on any read-back, so dropped/renamed required fields are not caught.",
+        "failureScenario": "Publisher omits tenantId or publishedBy from the emitted TaskPublished; no assertion reads these, so the required-field behaviour fails silently.",
+        "evidence": "behaviours fieldPath 'publishedAt' and 'tenantId'; no assertion references publishedAt/publishedBy/tenantId"
+      },
+      {
+        "id": "C-18",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "The taskId used in the trigger is a hard-coded constant rather than a freshly generated unique value, contradicting the setup step requiring a unique taskId.",
+        "failureScenario": "A record with taskId d4f1c2a3-... left over from a prior run is already present in getTasks; pollUntil immediately matches the stale record and all assertions pass without the current trigger ever propagating.",
+        "evidence": "payload taskId fixed \"d4f1c2a3-9b7e-4f0a-8c6d-1e2f3a4b5c6d\"; setup 'Record a unique taskId (UUID)'"
+      },
+      {
+        "id": "C-19",
+        "attack": "critic",
+        "severity": "Minor",
+        "target": {
+          "kind": "functional",
+          "ref": "awp-app-plane/XCT-R-11",
+          "file": "functional/xct-r-11-taskpublished.generated.test.ts"
+        },
+        "defect": "recordsOf returns [] whenever the consumer body is neither the array nor a recognized tRPC envelope, masking a malformed/empty read-back as simply 'not found yet'.",
+        "failureScenario": "Consumer returns records under a different envelope shape; recordsOf yields [], pollUntil never finds a match and times out, failing a system that is actually returning the correct record in an unrecognized wrapper.",
+        "evidence": "recordsOf: [body, data, data?.json].find(Array.isArray) ?? []"
+      }
+    ],
+    "perPlan": [
+      {
+        "ref": "awp-app-plane/CRE-R-24",
+        "status": "ok"
+      },
+      {
+        "ref": "awp-app-plane/XCT-R-11",
+        "status": "ok"
+      }
+    ]
+  },
+  "mutation": {
+    "tier": "manifest",
+    "functional": [
+      {
+        "ref": "awp-app-plane/CRE-R-24",
+        "score": 0.9375,
+        "survivors": [
+          "MP-corrupt:items"
+        ]
+      },
+      {
+        "ref": "awp-app-plane/XCT-R-11",
+        "score": 0.9375,
+        "survivors": [
+          "MP-corrupt:items"
+        ]
+      }
+    ]
+  },
+  "notes": []
+}

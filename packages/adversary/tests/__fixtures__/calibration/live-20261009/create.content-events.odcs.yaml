@@ -1,0 +1,373 @@
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: urn:bawp:create:content-events
+name: Create Content Events
+status: proposed
+tenant: bawp
+domain: create
+
+description:
+  purpose: >-
+    Emitted by the create-server authoring service when content reaches a
+    significant lifecycle state. Two event types are defined:
+    TaskPublished — a Task moves to `ready` status (all four review steps approved),
+    signalling that the task is available for scheduling and scoring ingestion.
+    TaskAssigned — a TaskAssignment is created, linking a ready Task to a Class
+    with an optional due date.
+    Consumers use these events to synchronise their local task catalog without
+    polling create-server directly (scoring currently polls via HTTP; this contract
+    describes the target event-driven integration path).
+    Source of truth for schema: packages/exchange-contracts/src/create.ts
+    (file does not yet exist — this contract is PROPOSED, pending implementation).
+    The create-evb bus is already provisioned by cell-shared
+    (apps/cell-shared/lib/regional-stack.ts line 746) but has no producers today.
+  usage: "Internal. allowedConsumers: [score, get-ready]"
+  limitations: >-
+    Status is `proposed`. No events are currently published to this bus.
+    The create-server Outbox table captures all row-level mutations for
+    cross-cell migration via SQS only. EventBridge emission requires a
+    dedicated outbox-to-EventBridge relay or direct PutEvents calls from
+    the tRPC mutation handlers. See open question CRE-OQ-01 in docs/spec.md.
+
+servers:
+  - server: create-evb
+    type: custom
+    description: >-
+      AWS EventBridge bus provisioned by cell-shared for Create domain events.
+      Bus ARN and name are published to SSM at
+      /{cell}/{env}/cell/evb/{rs}/create-bus-arn and
+      /{cell}/{env}/cell/evb/{rs}/create-bus-name.
+    environment: production
+    stream: "{cell}-{env}-cell-shd-{rs}-create-evb"
+    format: json
+    customProperties:
+      - property: eventBridgeSource
+        value: bawp.create
+      - property: eventBridgeDetailTypes
+        value: "TaskPublished, TaskAssigned"
+  - server: create-aurora
+    type: custom
+    description: >-
+      Aurora Serverless v2 PostgreSQL 15.10 database owned by create-server.
+      Schema-per-tenant. Source rows for both event types live here.
+    environment: production
+  - server: onboard-evb
+    type: custom
+    description: >-
+      Upstream Onboard EventBridge bus. create-server is an allowed consumer
+      of CatalogAssigned and CatalogMappingChanged events published here
+      (see onboard.catalog-events contract).
+    environment: production
+    stream: "{cell}-{env}-cell-shd-{rs}-onboard-evb"
+
+schema:
+  - name: TaskPublished
+    logicalType: object
+    description: >-
+      Emitted when a Task transitions to `ready` status — i.e. when the
+      fourth and final review step (Approved/Ready, order=4) is approved via
+      review.advance. This signals that the task content is stable and may
+      be ingested by the scoring engine and presented for teacher scheduling.
+    properties:
+      - name: schemaVersion
+        logicalType: string
+        required: true
+        description: Contract version. Consumers must reject unknown major versions.
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: ["1.0.0"]
+      - name: eventId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: Idempotency key — consumers must deduplicate on this field.
+      - name: tenantId
+        logicalType: string
+        required: true
+        description: >-
+          Tenant slug that owns the task. Matches the tenantId column on
+          TaskDefinition in create-aurora.
+        logicalTypeOptions:
+          pattern: "^[a-z][a-z0-9-]{2,62}$"
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.tenantId.
+      - name: taskId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: UUID of the published task. Matches TaskDefinition.id in create-aurora.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.id.
+        relationships:
+          - to: deliver.result-package.odcs.yaml#schema/ResultPackage/properties/taskId
+          - to: score.student-scored-task.odcs.yaml#schema/StudentTaskScore/properties/taskId
+      - name: title
+        logicalType: string
+        required: true
+        description: Human-readable task title at the moment of publication.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.title.
+      - name: description
+        logicalType: string
+        required: false
+        description: Optional free-text description of the task. Null when not set.
+        customProperties:
+          - property: nullable
+            value: "true"
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.description.
+      - name: taskType
+        logicalType: string
+        required: true
+        description: Task type from TaskTypeSchema.
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [quiz, practice, homework, classwork, assessment]
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.type.
+      - name: duration
+        logicalType: integer
+        required: false
+        description: Estimated task duration in minutes. Null when not set.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.duration.
+      - name: itemCount
+        logicalType: integer
+        required: true
+        description: >-
+          Total number of items across all sections at the time of publication.
+          Consumed by the scoring engine to know when all items have been scored
+          (StudentTaskScore.scoredItemCount == itemCount → task is fully scored).
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Derived by counting TaskItem rows joined to the TaskDefinition.
+        relationships:
+          - to: score.student-scored-task.odcs.yaml#schema/StudentTaskScore
+      - name: items
+        logicalType: array
+        required: true
+        description: Ordered list of TaskPublishedItem objects — one per item across all sections.
+        logicalTypeOptions:
+          minItems: 1
+      - name: standards
+        logicalType: array
+        required: false
+        description: >-
+          CB CASE curriculum standard tuples attached to the task at publication time.
+          Array of { frameworkId, unitId?, topicId? } objects (same shape as
+          TaskDefinition.standards JSONB column).
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskDefinition.standards.
+      - name: publishedAt
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+        description: ISO 8601 timestamp when the final review step was approved.
+      - name: publishedBy
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: JWT subject (userId) of the user who approved the final review step.
+
+  - name: TaskPublishedItem
+    logicalType: object
+    description: >-
+      Per-item entry within TaskPublished.items. Carries the scoring rule so
+      the scoring engine can build its metadata without a round-trip to create-server.
+    properties:
+      - name: itemId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: UUID of the item. Matches Item.id in create-aurora.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from Item.id.
+        relationships:
+          - to: score.student-scored-task.odcs.yaml#schema/ScoredItem
+      - name: itemType
+        logicalType: string
+        required: true
+        description: Item type discriminant.
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [mcq, frq]
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from Item.type.
+      - name: sectionIndex
+        logicalType: integer
+        required: true
+        description: Zero-based index of the section this item belongs to.
+      - name: itemIndex
+        logicalType: integer
+        required: true
+        description: Zero-based position of the item within its section.
+      - name: scoringRule
+        logicalType: object
+        required: true
+        description: >-
+          Scoring rule copied from Item.scoringRule JSONB at publication time.
+          MCQ: { method: "exactMatch", maxPoints: number }.
+          FRQ: { method: "rubric", maxPoints: number, parts?: RubricPart[] }.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from Item.scoringRule.
+      - name: keys
+        logicalType: array
+        required: false
+        description: >-
+          MCQ-only. Array of answer-option UUIDs that are correct. Absent for FRQ.
+          Used by the scoring engine for exact-match comparison.
+        customProperties:
+          - property: pii
+            value: "false"
+          - property: loggable
+            value: "true"
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from Item.keys (UUID[]).
+      - name: answerOptions
+        logicalType: array
+        required: false
+        description: >-
+          MCQ-only. Array of { id: uuid } entries matching the answer options
+          in display order. Provides the optionMap that Deliver uses to translate
+          student responseKey values to labelled options (A/B/C/D).
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Derived from AnswerOption rows ordered by AnswerOption.order.
+        relationships:
+          - to: deliver.result-package.odcs.yaml#schema/ResultPackageItemResponse/properties/responseKey
+
+  - name: TaskAssigned
+    logicalType: object
+    description: >-
+      Emitted when a teacher calls task.assignToClass, creating a TaskAssignment
+      that links a ready Task to a Class with an optional due date.
+      Allows Get Ready and other consumers to react to new assignments
+      without polling create-server.
+    properties:
+      - name: schemaVersion
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: ["1.0.0"]
+      - name: eventId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: Idempotency key.
+      - name: tenantId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          pattern: "^[a-z][a-z0-9-]{2,62}$"
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.tenantId.
+      - name: assignmentId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: UUID of the TaskAssignment record.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.id.
+        relationships:
+          - to: get-ready.assignments-api.odcs.yaml#schema/AssignmentSummary/properties/assignmentId
+      - name: taskId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: UUID of the assigned Task. Matches TaskPublished.taskId.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.taskId.
+        relationships:
+          - to: TaskPublished.taskId
+      - name: classId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        description: >-
+          UUID of the Class the task was assigned to. Sourced from Class.id
+          in create-aurora; corresponds to classId in manifest-api registrations.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.classId.
+        relationships:
+          - to: get-ready.session-registration.odcs.yaml#schema/RegistrationEventDetail/properties/registration
+      - name: status
+        logicalType: string
+        required: true
+        description: Initial assignment status. Always `open` on creation.
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [open, closed, archived]
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.status.
+      - name: assignedAt
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+        description: Timestamp when the assignment was created.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.assignedAt.
+      - name: dueDate
+        logicalType: string
+        required: false
+        logicalTypeOptions:
+          format: date-time
+        description: Optional due date for the assignment. Null when not set.
+        transformSourceObjects:
+          - create-aurora
+        transformDescription: Sourced from TaskAssignment.dueDate.
+
+team:
+  name: Create Domain
+  members:
+    - username: data-contracts-guild-create
+      role: owner
+
+customProperties:
+  - property: noticePeriod
+    value: P90D
+  - property: implementationStatus
+    value: "proposed — create-evb bus provisioned, no producers yet. See TD-09 in docs/technical-design.md."
