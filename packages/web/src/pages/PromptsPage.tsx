@@ -25,6 +25,7 @@ import {
   useLegacyPromptVersions,
   legacyPromptKey,
 } from '../hooks/usePipelines.js';
+import PageHeader from '../components/PageHeader.js';
 
 /** PromptItem extended with the best-effort usedByPipelines field (R-41). */
 type PromptListItem = PromptItem & { usedByPipelines?: string[] };
@@ -187,31 +188,33 @@ export default function PromptsPage({
   return (
     <div className="app-body" aria-label="prompts">
       <div className="app-main">
-        {/* Header row */}
-        <div className="cluster" style={{ marginBottom: 12 }}>
-          <h3 className="section-heading" style={{ marginBottom: 0 }}>
-            Prompts
-          </h3>
-          {writer && !showNewForm && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setShowNewForm(true)}
-            >
-              New Prompt
-            </button>
-          )}
-          {writer && (
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              disabled={importMutation.isPending}
-              onClick={handleImport}
-              title="Copy legacy /prompt-versions records into the prompt store as legacy-<version>"
-            >
-              {importMutation.isPending ? 'Importing…' : 'Import legacy prompt versions'}
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Prompts"
+          subtitle="Versioned system prompts that pipeline steps run with — editing a prompt creates a new version"
+          actions={
+            <>
+              {writer && !showNewForm && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowNewForm(true)}
+                >
+                  New Prompt
+                </button>
+              )}
+              {writer && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={importMutation.isPending}
+                  onClick={handleImport}
+                  title="Copy legacy /prompt-versions records into the prompt store as legacy-<version>"
+                >
+                  {importMutation.isPending ? 'Importing…' : 'Import legacy prompt versions'}
+                </button>
+              )}
+            </>
+          }
+        />
 
         {/* Legacy import result (R-72) */}
         {importResult && (
@@ -252,56 +255,98 @@ export default function PromptsPage({
                 data-testid="prompt-row"
                 style={{
                   display: 'flex',
+                  flexWrap: 'wrap',
                   alignItems: 'flex-start',
-                  gap: 8,
-                  padding: '8px 0',
+                  gap: 12,
+                  padding: '10px 12px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface)',
+                  transition: 'border-color 0.1s',
                 }}
               >
                 {/* Main clickable area */}
                 <button
-                  className="row-btn"
-                  style={{ flex: 1, textAlign: 'left' }}
+                  style={{
+                    flex: '1 1 280px',
+                    minWidth: 0,
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    color: 'var(--text)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
                   onClick={() =>
                     navigate(
                       `/prompts/${encodeURIComponent(prompt.promptKey)}`
                     )
                   }
                 >
-                  <div className="exp-row-info">
-                    <div className="exp-row-ver">{prompt.promptKey}</div>
-                    <div className="exp-row-id">
-                      v{prompt.currentVersion}
-                      {legacy && (
-                        <span className="text-muted" style={{ marginLeft: 8 }}>
-                          · imported from legacy {legacy.promptVersion} · {legacy.modelId}
-                        </span>
-                      )}
-                      {prompt.usedByPipelines &&
-                        prompt.usedByPipelines.length > 0 && (
-                          <span
-                            className="text-muted"
-                            style={{ marginLeft: 8 }}
-                          >
-                            · used by {prompt.usedByPipelines.length} pipeline
+                  {/* Name on its own line */}
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: 'var(--text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {prompt.promptKey}
+                  </div>
+
+                  {/* Meta line: version, legacy info, usage */}
+                  <div
+                    className="text-muted"
+                    style={{
+                      fontSize: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0 8px',
+                    }}
+                  >
+                    <span>v{prompt.currentVersion}</span>
+                    {legacy && (
+                      <>
+                        <span>·</span>
+                        <span>imported from legacy {legacy.promptVersion}</span>
+                        <span>·</span>
+                        <span>{legacy.modelId}</span>
+                      </>
+                    )}
+                    {prompt.usedByPipelines &&
+                      prompt.usedByPipelines.length > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>
+                            used by {prompt.usedByPipelines.length} pipeline
                             {prompt.usedByPipelines.length !== 1 ? 's' : ''}
                           </span>
-                        )}
-                    </div>
+                        </>
+                      )}
                   </div>
-                  {/* Body preview (first 200 chars) */}
+
+                  {/* Body snippet: 2-line clamp, sans font */}
                   {prompt.body && (
                     <div
-                      className="text-muted text-sm"
+                      className="text-muted"
                       style={{
-                        marginTop: 4,
-                        fontFamily: 'var(--font-mono)',
                         fontSize: 12,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
+                        lineHeight: 1.5,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        wordBreak: 'break-word',
                       }}
                     >
-                      {prompt.body.slice(0, 200)}
-                      {prompt.body.length > 200 ? '…' : ''}
+                      {prompt.body}
                     </div>
                   )}
                 </button>
@@ -309,7 +354,7 @@ export default function PromptsPage({
                 {/* Right-side: status badge + updated-at + delete */}
                 <div
                   className="cluster"
-                  style={{ flexShrink: 0, alignSelf: 'flex-start' }}
+                  style={{ flexShrink: 0, flexWrap: 'wrap', alignSelf: 'flex-start', gap: 6 }}
                 >
                   {legacy && <span className="badge badge-warning">legacy</span>}
                   <span
@@ -317,7 +362,7 @@ export default function PromptsPage({
                   >
                     {prompt.active ? 'active' : 'inactive'}
                   </span>
-                  <span className="exp-row-time">
+                  <span className="text-muted" style={{ fontSize: 11 }}>
                     {new Date(prompt.updatedAt).toLocaleString()}
                   </span>
                   {writer &&
@@ -357,20 +402,52 @@ export default function PromptsPage({
                 key={`legacy:${v.promptVersion}`}
                 data-testid="prompt-row"
                 aria-label={`legacy prompt version ${v.promptVersion}`}
-                style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 0' }}
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                  padding: '10px 12px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface)',
+                }}
               >
-                <div className="exp-row-info" style={{ flex: 1, padding: '0 8px' }}>
-                  <div className="exp-row-ver">{v.promptVersion}</div>
-                  <div className="exp-row-id">
-                    {v.modelId}
-                    <span className="text-muted" style={{ marginLeft: 8 }}>
-                      · not imported (would become {legacyPromptKey(v.promptVersion)})
-                    </span>
+                <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {/* Name on its own line */}
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: 'var(--text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {v.promptVersion}
+                  </div>
+                  {/* Meta line: model, not-imported note */}
+                  <div
+                    className="text-muted"
+                    style={{
+                      fontSize: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0 8px',
+                    }}
+                  >
+                    <span>{v.modelId}</span>
+                    <span>·</span>
+                    <span>not imported (would become {legacyPromptKey(v.promptVersion)})</span>
                   </div>
                 </div>
-                <div className="cluster" style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
+                <div className="cluster" style={{ flexShrink: 0, flexWrap: 'wrap', alignSelf: 'flex-start', gap: 6 }}>
                   <span className="badge badge-warning">legacy</span>
-                  <span className="exp-row-time">{new Date(v.createdAt).toLocaleString()}</span>
+                  <span className="text-muted" style={{ fontSize: 11 }}>
+                    {new Date(v.createdAt).toLocaleString()}
+                  </span>
                   {writer && (
                     <button
                       className="btn btn-ghost btn-sm"

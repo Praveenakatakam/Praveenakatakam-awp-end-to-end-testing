@@ -32,9 +32,13 @@ export default function PlanView({ plan }: { plan: Plan }) {
 
   return (
     <div className="plan-view" aria-label="plan output">
-      {plan.title && <p className="card-title" style={{ marginBottom: 4 }}>{plan.title}</p>}
+      {plan.title && (
+        <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
+          {plan.title}
+        </h3>
+      )}
       {plan.requirementIds && plan.requirementIds.length > 0 && (
-        <p className="text-muted text-sm" style={{ fontFamily: 'var(--font-mono)' }}>
+        <p className="text-muted text-sm" style={{ fontFamily: 'var(--font-mono)', marginBottom: 12 }}>
           {plan.requirementIds.join(', ')}
         </p>
       )}
@@ -87,7 +91,7 @@ export default function PlanView({ plan }: { plan: Plan }) {
 
       <section aria-label="assertions">
         <p className="section-heading">Assertions ({plan.assertions.length})</p>
-        <table className="data-table">
+        <div className="table-scroll"><table className="data-table">
           <thead>
             <tr>
               <th>Service</th>
@@ -102,11 +106,11 @@ export default function PlanView({ plan }: { plan: Plan }) {
                 <td className="mono">{a.service}</td>
                 <td>{a.assertion}</td>
                 {hasFieldChecks && <td className="mono">{a.field ?? ''}</td>}
-                {hasFieldChecks && <td className="mono">{a.expected ?? ''}</td>}
+                {hasFieldChecks && <td className="mono wrap">{a.expected ?? ''}</td>}
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       <section aria-label="negative cases">
@@ -114,7 +118,7 @@ export default function PlanView({ plan }: { plan: Plan }) {
         {negativeCases.length === 0 ? (
           <p className="text-muted text-sm">None.</p>
         ) : (
-          <table className="data-table">
+          <div className="table-scroll"><table className="data-table">
             <thead>
               <tr><th>Description</th><th>Expected outcome</th></tr>
             </thead>
@@ -123,7 +127,7 @@ export default function PlanView({ plan }: { plan: Plan }) {
                 <tr key={i}><td>{n.description}</td><td>{n.expectedOutcome}</td></tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </section>
     </div>

@@ -16,6 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
+import PageHeader from '../components/PageHeader.js';
 import {
   usePrompt,
   useUpdatePrompt,
@@ -126,23 +127,15 @@ export default function PromptPage({
     <div className="app-body" aria-label="prompt-detail">
       {/* Main panel */}
       <div className="app-main">
-        {/* Breadcrumb + heading */}
-        <div className="cluster" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => navigate('/prompts')}
-          >
-            ← Prompts
-          </button>
-          <h3 className="detail-heading" style={{ marginBottom: 0 }}>
-            {prompt.promptKey}
-          </h3>
-          <span
-            className={`badge ${prompt.active ? 'badge-success' : 'badge-muted'}`}
-          >
-            {prompt.active ? 'active' : 'inactive'}
-          </span>
-        </div>
+        <PageHeader
+          title={prompt.promptKey}
+          back={{ label: 'Prompts', to: '/prompts' }}
+          badges={
+            <span className={`badge ${prompt.active ? 'badge-success' : 'badge-muted'}`}>
+              {prompt.active ? 'active' : 'inactive'}
+            </span>
+          }
+        />
 
         {/* Metadata */}
         <dl className="meta-grid" style={{ marginBottom: 16 }}>
@@ -255,9 +248,9 @@ export default function PromptPage({
 
       {/* Version history aside panel */}
       <aside className="app-panel" aria-label="version-history">
-        <p className="section-heading" style={{ marginBottom: 8 }}>
+        <h2 className="section-title">
           Version history
-        </p>
+        </h2>
         {versions.length === 0 ? (
           <p className="text-muted text-sm">No versions yet.</p>
         ) : (

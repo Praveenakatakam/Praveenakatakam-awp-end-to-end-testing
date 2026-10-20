@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import type { Api } from '../api.js';
+import PageHeader from '../components/PageHeader.js';
 import type {
   PipelineRun,
   StepRecord,
@@ -217,9 +218,10 @@ function StepCard({ api, runId, step, configOutputType, priorPlanStep }: StepCar
   return (
     <div className="card" style={{ marginBottom: 8 }} data-testid={`step-card-${step.stepIndex}`}>
       {/* Header row — always visible (R-76) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span
           style={{
+            flexShrink: 0,
             fontSize: 11,
             fontWeight: 700,
             color: 'var(--text-faint)',
@@ -230,11 +232,11 @@ function StepCard({ api, runId, step, configOutputType, priorPlanStep }: StepCar
           {stepNo(step)}
         </span>
 
-        <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
+        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
           {step.label}
         </span>
 
-        <div className="step-header-meta">
+        <div className="step-header-meta" style={{ flex: 1, minWidth: 0, justifyContent: 'flex-end' }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             {step.model}
           </span>
@@ -259,6 +261,7 @@ function StepCard({ api, runId, step, configOutputType, priorPlanStep }: StepCar
         {isTerminal && (
           <button
             className="btn btn-ghost btn-sm"
+            style={{ flexShrink: 0 }}
             onClick={() => setExpanded((open) => !open)}
             aria-expanded={expanded}
             aria-label={expanded ? 'Collapse step detail' : 'Expand step detail'}
@@ -585,6 +588,15 @@ export default function RunDetailPage({ api }: { api: Api }) {
   return (
     <div className="app-main">
       <div style={{ maxWidth: 820 }}>
+        <PageHeader
+          title={`Run ${run.runId.length > 12 ? `${run.runId.slice(0, 12)}…` : run.runId}`}
+          back={{ label: 'Runs', to: '/runs' }}
+          badges={
+            <span className={runStatusBadgeClass(run.status)}>
+              {run.status.replace(/_/g, ' ')}
+            </span>
+          }
+        />
 
         {/* Run header */}
         <RunHeader run={run} />
@@ -668,9 +680,9 @@ export default function RunDetailPage({ api }: { api: Api }) {
         )}
 
         {/* Step timeline */}
-        <p className="section-heading" style={{ marginBottom: 8 }}>
+        <h2 className="section-title">
           Steps{sortedSteps.length > 0 ? ` (${sortedSteps.length})` : ''}
-        </p>
+        </h2>
 
         {sortedSteps.length === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -679,7 +691,7 @@ export default function RunDetailPage({ api }: { api: Api }) {
         ) : (
           sortedSteps.map((step, i) => (
             <StepCard
-              key={step.sk}
+              key={step.stepIndex}
               api={api}
               runId={run.runId}
               step={step}

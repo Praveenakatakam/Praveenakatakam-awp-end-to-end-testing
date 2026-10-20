@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { groupRequirementsBySection, type RequirementEntry } from '../lib.js';
 import type { Api } from '../api.js';
+import PageHeader from '../components/PageHeader.js';
 
 export default function RequirementsPage({ api }: { api: Api }) {
   const [reqs, setReqs] = useState<RequirementEntry[]>([]);
@@ -10,9 +11,13 @@ export default function RequirementsPage({ api }: { api: Api }) {
   return (
     <div className="app-body" aria-label="requirements">
       <div className="app-main">
+        <PageHeader
+          title="Requirements"
+          subtitle="EARS requirements crawled from each service's requirements docs, grouped by source and section"
+        />
         {groups.map((sg) => (
           <div key={sg.source}>
-            <h3 className="section-heading">{sg.source}</h3>
+            <h2 className="section-title">{sg.source}</h2>
             {sg.sections.map((sec) => (
               <div key={sec.section} className="mt-8">
                 <h4 className="text-muted text-sm" style={{ marginBottom: 4, fontWeight: 500 }}>{sec.section}</h4>

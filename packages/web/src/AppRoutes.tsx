@@ -35,6 +35,7 @@ import type { Api } from './api.js';
 import Sidebar from './Sidebar.js';
 import { ContractDataProvider } from './contexts/ContractDataContext.js';
 import ByEntityPage from './pages/ByEntityPage.js';
+import HomePage from './pages/HomePage.js';
 import BySourcePage from './pages/BySourcePage.js';
 import RequirementsPage from './pages/RequirementsPage.js';
 import ExperimentsHubPage from './pages/ExperimentsHubPage.js';
@@ -97,7 +98,7 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
   return (
     <Routes>
       <Route path="/" element={<AuthenticatedShell token={token} />}>
-        <Route index element={<Navigate to="/source/contracts-by-entity" replace />} />
+        <Route index element={<HomePage />} />
 
         {/* Catalog routes */}
         <Route path="source" element={<ContractDataProvider api={api} />}>
@@ -129,7 +130,7 @@ export default function AppRoutes({ api, token }: { api: Api; token: string }) {
         {/* Experiment-level compare (T-34, R-90) */}
         <Route path="compare" element={<ComparePage api={api} />} />
 
-        <Route path="*" element={<Navigate to="/source/contracts-by-entity" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

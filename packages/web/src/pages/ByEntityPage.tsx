@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { Api } from '../api.js';
 import { useContractData } from '../contexts/ContractDataContext.js';
+import PageHeader from '../components/PageHeader.js';
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -44,7 +45,7 @@ function Detail({ api, source, id }: { api: Api; source: string; id: string }) {
       </dl>
       {data.versions?.length > 0 && (
         <>
-          <p className="section-heading">Version history</p>
+          <h2 className="section-title">Version history</h2>
           <ul className="row-list">
             {data.versions.map((v: any) => (
               <li key={v.versionNumber} className="row-btn" style={{ cursor: 'default' }}>
@@ -108,6 +109,10 @@ export default function ByEntityPage({ api }: { api: Api }) {
   return (
     <div className="app-body">
       <div className="app-main">
+        <PageHeader
+          title="Contracts by Entity"
+          subtitle="ODCS contracts grouped by entity, with divergence detection between publisher and consumer"
+        />
         <div>
           {groups.map((g) => (
             <div key={g.entity} className="entity-group">

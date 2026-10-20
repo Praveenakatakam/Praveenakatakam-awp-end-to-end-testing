@@ -296,7 +296,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 **R-68** — The pipeline side panel and the full pipeline page (step list | selected-step detail) SHALL use a shared resizable split pane that: responds to pointer (mouse, touch, pen) drag on a divider with a hit area of at least 8 px; starts from the pane's measured rendered width (no jump on first drag); clamps to one set of bounds (min 320 px, max 70 vw); supports keyboard resizing (arrow keys, `role="separator"`, `aria-valuenow`); and persists width per pane in `localStorage`.
 
-**R-69** — The sidebar SHALL be organised into two areas: **Catalog** (renamed from "Source Pipeline": contracts by entity, contracts by source, requirements, crawl refresh) and **Experiments** (Pipelines, Prompts, Runs, Compare runs). The legacy prompt-versioning pages (Prompt versions, single-step experiments, experiment compare) SHALL appear under a collapsed **Legacy** group labelled deprecated. This supersedes the area placement in R-38 and R-41.
+**R-69** — The sidebar SHALL be organised into two areas: **Requirements Catalog** (renamed from "Source Pipeline"; label changed from "Catalog" by D-35: contracts by entity, contracts by source, requirements, crawl refresh) and **Experiments** (Pipelines, Prompts, Runs, Compare runs). The legacy prompt-versioning pages (Prompt versions, single-step experiments, experiment compare) SHALL appear under a collapsed **Legacy** group labelled deprecated. This supersedes the area placement in R-38 and R-41.
 
 **R-70** — The SPA SHALL provide a **Compare runs** page (`/runs/compare?a=<runId>&b=<runId>`) that shows two runs side by side: per-step label/model/prompt version/status, metrics, raw output, and a line diff of the two emitted test artifacts (R-65) where both exist.
 
@@ -307,7 +307,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 **TS-51** — Given the full pipeline page with a step that has a `promptKey` → a "View prompt body" control renders and reveals the prompt text.
 **TS-52** — Given the split pane, a pointer drag of −100 px on the divider → the panel width increases by 100 px from its measured width and is written to `localStorage`; a remount restores it.
 **TS-53** — Given the split pane focused divider → ArrowLeft increases panel width; width never exceeds 70 vw or drops below 320 px.
-**TS-54** — Given an authenticated session → the sidebar shows "Catalog" and "Experiments" areas; "Pipelines", "Prompts", "Runs", "Compare runs" are under Experiments; "Source Pipeline" text is absent.
+**TS-54** — Given an authenticated session → the sidebar shows "Requirements Catalog" and "Experiments" areas; "Pipelines", "Prompts", "Runs", "Compare runs" are under Experiments; "Source Pipeline" text is absent.
 **TS-55** — Given two completed runs with artifacts → the compare page renders both step columns and a diff of the artifacts.
 **TS-56** — Given a run trigger response with 2 `skipped` entries → the SPA lists both requirements with reasons.
 **TS-57** — Given 2 legacy prompt versions, one already imported → `POST /prompts/import-legacy` returns `imported` of length 1 and `skipped` of length 1; repeating returns `imported: []`.
@@ -376,7 +376,7 @@ Errors (`errorMessage`, `errorStack`) remain visible above the tabs for failed /
 
 **R-86** — `POST /prompts/import-legacy` SHALL accept an optional body `{ promptVersions: string[] }`; when present only those versions are imported (same idempotency and response). Absent body keeps R-72 behaviour.
 
-**R-87** — The SPA Experiments area SHALL contain, in order: **Experiments**, **Pipelines**, **Prompts**, **Compare**. The Legacy nav group (R-69) is removed; legacy routes remain reachable by URL and redirect to their unified equivalents where one exists.
+**R-87** — The SPA Experiments area SHALL contain, in order: **Prompts**, **Pipelines**, **Experiments**, **Compare** (order changed by D-35 to follow the workflow: author prompts → assemble pipelines → run experiments → compare). The Legacy nav group (R-69) is removed; legacy routes remain reachable by URL and redirect to their unified equivalents where one exists.
 
 **R-88** — The **Experiments** page SHALL list `GET /experiment-index` entries with a kind badge (`pipeline` / `legacy`), label, created date, status, and counts; selecting a pipeline experiment shows its runs (requirement, status, link to run detail) and skipped list; selecting a legacy experiment shows its plans and skips read-only. A **New experiment** action SHALL let a writer pick a pipeline and optionally override sampling and mode, call the dry run (R-81), show the selected count and skipped list, and require explicit confirmation when the selected count exceeds 20 before triggering.
 
@@ -394,7 +394,7 @@ Errors (`errorMessage`, `errorStack`) remain visible above the tabs for failed /
 **TS-73** — Given a `planSchema: "v1"` step returning a plan with `propagation.kind: "eventbridge"` → terminal validation failure (v1 rejects it).
 **TS-74** — Given an empty table → seeding creates `legacy-v1` and `baseline-legacy-v1`; seeding twice writes nothing new; an existing `baseline-legacy-v1` is not overwritten.
 **TS-75** — Given `POST /prompts/import-legacy` with `{ promptVersions: ["v2"] }` and legacy versions v1, v2 → only `legacy-v2` imported.
-**TS-76** — Given the sidebar → Experiments area shows Experiments, Pipelines, Prompts, Compare; no "Legacy" group.
+**TS-76** — Given the sidebar → Experiments area shows Prompts, Pipelines, Experiments, Compare; no "Legacy" group.
 **TS-77** — Given a dry run selecting 45 requirements → the New experiment flow shows 45 and the trigger button requires a confirmation step.
 **TS-78** — Given the Prompts page with pipeline prompt `p1`, legacy versions `v1` (imported) and `v2` → three rows; `v2` has an Import action, `v1` does not.
 **TS-79** — Given compare of a legacy and a pipeline experiment sharing requirement `publisher/R-1` and each with one unique requirement → one shared row and two "only in" entries; expanding the shared row shows both plans and a test-file diff.
@@ -555,3 +555,9 @@ All open questions from v0.1.0 have been resolved:
 - **Decision:** R-38 and R-41 no longer restrict the Pipelines and Prompts sections to writers; every authenticated user sees them, and create/edit/delete controls are writer-only per R-44.
 - **Reason:** R-38/R-41 ("WHERE … writer group … SHALL render") contradicted R-44 ("NOT in the writer group … render read-only") and T-15 ("visible to all authenticated users with writer-only controls handled within the pages"). The implementation followed R-44/T-15. Found by the 2026-10-20 health check (DR-05). Also corrected in the same pass: R-02/R-06/R-31/R-32 key names to `PRMPT#` / `PRMPTVER#`, matching design D-11 and the code (DR-04).
 - **Affects:** R-02, R-06, R-31, R-32, R-38, R-41, R-44
+
+**D-35 — Sidebar area renamed "Requirements Catalog"; SPA visual pass.**
+- **Decision:** The first sidebar area is labelled "Requirements Catalog" (was "Catalog", R-69). Every page gets a real page header (title, purpose line, actions); identifier cells never break mid-word.
+- **Reason:** User review of the rendered app (2026-10-20): "Catalog" alone didn't say what was catalogued, pages had no headers, the Prompts list overlapped names and snippets, and table cells like the assertions Service column broke mid-word ("publish/er"). Presentation-only; no behavioural requirement changes.
+- **Also:** Experiments nav order is Prompts → Pipelines → Experiments → Compare, matching the workflow (user request, same day).
+- **Affects:** R-69, R-87 (labels and order only)

@@ -9,7 +9,7 @@
  *   - <CrawlProvider> so the Sidebar's Refresh button has context
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { HashRouter } from 'react-router-dom';
+import { HashRouter, Link } from 'react-router-dom';
 import { signOut, currentToken } from './auth.js';
 import { createApi } from './api.js';
 import { SignIn } from './SignIn.js';
@@ -49,7 +49,7 @@ export default function AppShell() {
       <CrawlProvider api={api!}>
         <div className="app-shell">
           <header className="app-header">
-            <h1>E2E Testing Registry</h1>
+            <h1><Link to="/" className="brand-link" title="Home">E2E Testing Registry</Link></h1>
             <button
               className="btn btn-ghost btn-sm"
               title="Toggle light/dark mode"

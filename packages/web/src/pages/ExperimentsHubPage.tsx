@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
+import PageHeader from '../components/PageHeader.js';
 import type {
   ExecutionMode,
   ExperimentIndexEntry,
@@ -336,7 +337,7 @@ function ExperimentDetail({ api, kind, id, onClose }: { api: Api; kind: Experime
               Compare with…
             </Link>
           </p>
-          <p className="section-heading" style={{ marginTop: 12 }}>{kind === 'pipeline' ? 'Runs' : 'Plans'}</p>
+          <h2 className="section-title">{kind === 'pipeline' ? 'Runs' : 'Plans'}</h2>
           {kind === 'pipeline' ? <PipelineResults results={data.results} /> : <LegacyResults results={data.results} />}
           <div style={{ marginTop: 12 }}>
             <SkippedRequirements skipped={data.skipped} open={false} />
@@ -354,15 +355,18 @@ function ExperimentDetail({ api, kind, id, onClose }: { api: Api; kind: Experime
 function IndexRow({ entry, selected, onSelect }: { entry: ExperimentIndexEntry; selected: boolean; onSelect: () => void }) {
   return (
     <button className="exp-row" aria-pressed={selected} onClick={onSelect} data-testid="experiment-row">
-      <KindBadge kind={entry.kind} />
       <div className="exp-row-info">
-        <div className="exp-row-ver">{entry.label}</div>
-        <div className="exp-row-id">
+        <div className="cluster" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <KindBadge kind={entry.kind} />
+          <span className="exp-row-ver">{entry.label}</span>
+        </div>
+        <div className="exp-row-id" style={{ marginTop: 4 }}>
           {entry.requirementCount} req · {entry.resultCount} result{entry.resultCount !== 1 ? 's' : ''} · {entry.skipCount} skipped
+          {' · '}
+          <span className="exp-row-time">{new Date(entry.createdAt).toLocaleString()}</span>
         </div>
       </div>
-      <span className={statusBadgeClass(entry.status)}>{entry.status.replace(/_/g, ' ')}</span>
-      <span className="exp-row-time">{new Date(entry.createdAt).toLocaleString()}</span>
+      <span className={statusBadgeClass(entry.status)} style={{ flexShrink: 0 }}>{entry.status.replace(/_/g, ' ')}</span>
     </button>
   );
 }
@@ -384,14 +388,17 @@ export default function ExperimentsHubPage({ api, token }: { api: Api; token: st
   return (
     <SplitPane id="experiments" sideLabel="experiment-detail">
       <div aria-label="experiments">
-        <div className="cluster" style={{ marginBottom: 12 }}>
-          <h3 className="section-heading" style={{ marginBottom: 0, flex: 1 }}>Experiments</h3>
-          {writer && (
-            <button className="btn btn-primary btn-sm" type="button" onClick={() => setPanel('new')}>
-              New experiment
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Experiments"
+          subtitle="Each press of Run is one experiment across the sampled requirements — pipeline and legacy experiments together"
+          actions={
+            writer ? (
+              <button className="btn btn-primary btn-sm" type="button" onClick={() => setPanel('new')}>
+                New experiment
+              </button>
+            ) : undefined
+          }
+        />
 
         {writer && panel === 'new' && (
           <NewExperimentForm

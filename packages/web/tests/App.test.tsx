@@ -88,7 +88,8 @@ beforeEach(() => {
   fakeApi.listPipelines.mockResolvedValue({ pipelines: [] });
   fakeApi.listPrompts.mockResolvedValue({ prompts: [] });
   fakeApi.listPromptVersions.mockResolvedValue({ promptVersions: [] });
-  window.location.hash = '';
+  // Catalog suites start on the catalog; '/' is the home page (see the Home suite below).
+  window.location.hash = '#/source/contracts-by-entity';
 });
 
 describe('App auth gate + Refresh visibility (T-14 · R-60, R-64)', () => {
@@ -317,7 +318,7 @@ describe('Sidebar regroup (T-22 · R-69)', () => {
     await screen.findByText('org');
 
     const catalog = screen.getByRole('navigation', { name: /catalog navigation/i });
-    expect(within(catalog).getByText('Catalog')).toBeInTheDocument();
+    expect(within(catalog).getByText('Requirements Catalog')).toBeInTheDocument();
     for (const name of [/contracts by entity/i, /contracts by source/i, /^requirements$/i]) {
       expect(within(catalog).getByRole('link', { name })).toBeInTheDocument();
     }
@@ -329,13 +330,13 @@ describe('Sidebar regroup (T-22 · R-69)', () => {
     expect(screen.queryByText(/source pipeline/i)).not.toBeInTheDocument();
   });
 
-  it('TS-76: Experiments area shows Experiments, Pipelines, Prompts, Compare in order; no "Legacy" group', async () => {
+  it('TS-76: Experiments area shows Prompts, Pipelines, Experiments, Compare in order; no "Legacy" group', async () => {
     render(<App />);
     await screen.findByText('org');
     const experiments = screen.getByRole('navigation', { name: /^experiments navigation/i });
     const links = within(experiments).getAllByRole('link');
-    expect(links.map((l) => l.textContent)).toEqual(['Experiments', 'Pipelines', 'Prompts', 'Compare']);
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['#/experiments', '#/pipelines', '#/prompts', '#/compare']);
+    expect(links.map((l) => l.textContent)).toEqual(['Prompts', 'Pipelines', 'Experiments', 'Compare']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['#/prompts', '#/pipelines', '#/experiments', '#/compare']);
     expect(screen.queryByText(/legacy/i)).not.toBeInTheDocument();
     expect(document.querySelector('[data-area="legacy"]')).toBeNull();
     // Runs is reachable by URL but no longer in the nav.
@@ -374,5 +375,28 @@ describe('Legacy experiment URLs redirect to unified pages (T-32 · R-87)', () =
     renderApp();
     expect(await screen.findByLabelText('prompts')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#/prompts'));
+  });
+});
+
+describe('Home page + brand link', () => {
+  it('renders the home page at / with both areas and the quick start', async () => {
+    authState.token = readerToken;
+    window.location.hash = '#/';
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Quick start' })).toBeInTheDocument();
+    const diagram = screen.getByLabelText('how the two areas fit together');
+    expect(within(diagram).getByText('Requirements Catalog')).toBeInTheDocument();
+    expect(within(diagram).getByText('Experiments')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'How it fits together' })).toBeInTheDocument();
+  });
+
+  it('the brand in the header links home', async () => {
+    authState.token = readerToken;
+    window.location.hash = '#/source/requirements';
+    render(<App />);
+    const brand = await screen.findByRole('link', { name: 'E2E Testing Registry' });
+    await userEvent.click(brand);
+    await waitFor(() => expect(window.location.hash).toBe('#/'));
+    expect(await screen.findByRole('heading', { name: 'Quick start' })).toBeInTheDocument();
   });
 });

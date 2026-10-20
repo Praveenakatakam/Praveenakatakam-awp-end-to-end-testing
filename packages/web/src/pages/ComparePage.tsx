@@ -14,6 +14,7 @@
 import { Fragment, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Api } from '../api.js';
+import PageHeader from '../components/PageHeader.js';
 import type { ExperimentResult, ExperimentResults, SkippedRequirement } from '@registry/core';
 import { asPlan } from '../lib.js';
 import { useExperimentIndex, useExperimentResults } from '../hooks/usePipelines.js';
@@ -92,13 +93,13 @@ function ExpandedRow({ a, b, dataA, dataB }: { a: ExperimentResult; b: Experimen
           </Link>
         </p>
       )}
-      <p className="section-heading" style={{ marginTop: 12 }}>Plan changes</p>
+      <h2 className="section-title">Plan changes</h2>
       {planA && planB ? (
         <PlanDiff before={planA} after={planB} againstLabel={`A · ${dataA.experiment.label}`} />
       ) : (
         <p className="text-muted text-sm">No plan diff — {!planA && !planB ? 'neither side' : !planA ? 'A' : 'B'} has a plan.</p>
       )}
-      <p className="section-heading" style={{ marginTop: 12 }}>Test file diff</p>
+      <h2 className="section-title">Test file diff</h2>
       {a.testFile && b.testFile ? (
         <LineDiffView a={a.testFile.content} b={b.testFile.content} label="test file diff" />
       ) : (
@@ -162,7 +163,10 @@ export default function ComparePage({ api }: { api: Api }) {
   return (
     <div className="app-body" aria-label="compare experiments">
       <div className="app-main">
-        <h3 className="section-heading">Compare experiments</h3>
+        <PageHeader
+          title="Compare Experiments"
+          subtitle="Side-by-side comparison of two experiment runs, per requirement"
+        />
 
         <div className="compare-grid" style={{ marginBottom: 16 }}>
           {(['a', 'b'] as const).map((key) => (
@@ -186,11 +190,14 @@ export default function ComparePage({ api }: { api: Api }) {
           <p className="text-muted text-sm">Select two experiments to compare them per requirement.</p>
         ) : aligned && dataA && dataB ? (
           <>
-            <p className="section-heading">Shared requirements ({aligned.shared.length})</p>
+            <h2 className="section-title">Shared requirements ({aligned.shared.length})</h2>
             {aligned.shared.length === 0 ? (
               <p className="text-muted text-sm">No requirement appears in both experiments.</p>
             ) : (
-              <table className="data-table" aria-label="shared requirements">
+              <table className="data-table" aria-label="shared requirements" style={{ tableLayout: 'fixed' }}>
+                {/* fixed layout: the expanded row's wide content (plans, diffs) scrolls inside its
+                    own boxes instead of stretching the table past the viewport */}
+                <colgroup><col style={{ width: '46%' }} /><col style={{ width: '27%' }} /><col style={{ width: '27%' }} /></colgroup>
                 <thead>
                   <tr><th>Requirement</th><th>Status A</th><th>Status B</th></tr>
                 </thead>
@@ -202,6 +209,7 @@ export default function ComparePage({ api }: { api: Api }) {
                         <tr data-testid="shared-row">
                           <td>
                             <button className="btn btn-ghost btn-sm mono" type="button" aria-expanded={open}
+                              style={{ whiteSpace: 'normal', textAlign: 'left', overflowWrap: 'anywhere' }}
                               onClick={() => setExpanded(open ? null : requirementId)}>
                               {open ? '▾' : '▸'} {requirementId}
                             </button>

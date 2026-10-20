@@ -75,15 +75,16 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
       <div className="sidebar-area" data-area="catalog">
         <nav aria-label="Catalog navigation">
           <div className="sidebar-area-header">
-            <span className="sidebar-area-title">Catalog</span>
+            <span className="sidebar-area-title">Requirements Catalog</span>
             {writer && (
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={runRefresh}
                 disabled={crawlRunning}
                 aria-label="Refresh crawl"
+                title="Re-crawl contracts and requirements"
               >
-                ↺ Refresh
+                ↺
               </button>
             )}
           </div>
@@ -114,9 +115,9 @@ export default function Sidebar({ token, isOpen, onNavigate }: SidebarProps) {
           </div>
           <NavigationMenu.Root orientation="vertical">
             <NavigationMenu.List>
-              <SidebarNavItem to="/experiments" label="Experiments" onNavigate={onNavigate} />
-              <SidebarNavItem to="/pipelines" label="Pipelines" onNavigate={onNavigate} />
               <SidebarNavItem to="/prompts" label="Prompts" onNavigate={onNavigate} />
+              <SidebarNavItem to="/pipelines" label="Pipelines" onNavigate={onNavigate} />
+              <SidebarNavItem to="/experiments" label="Experiments" onNavigate={onNavigate} />
               <SidebarNavItem to="/compare" label="Compare" onNavigate={onNavigate} />
             </NavigationMenu.List>
           </NavigationMenu.Root>

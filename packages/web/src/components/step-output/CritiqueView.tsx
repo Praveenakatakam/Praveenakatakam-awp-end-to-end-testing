@@ -34,7 +34,7 @@ export default function CritiqueView({ critique }: { critique: Critique }) {
       {critique.issues.length === 0 ? (
         <p className="text-muted text-sm">No issues raised.</p>
       ) : (
-        <table className="data-table" aria-label="critique issues">
+        <div className="table-scroll"><table className="data-table" aria-label="critique issues">
           <thead>
             <tr><th>Severity</th><th>Target</th><th>Problem</th><th>Suggestion</th></tr>
           </thead>
@@ -48,7 +48,7 @@ export default function CritiqueView({ critique }: { critique: Critique }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

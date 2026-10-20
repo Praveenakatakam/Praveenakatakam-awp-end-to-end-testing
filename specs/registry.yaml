@@ -92,6 +92,17 @@ pending:
       - generation-run-audit
     needed_by: []
 
+  - slug: in-app-help
+    location: pending/in-app-help/
+    description: >
+      Add a help icon in the top-right corner that opens a slide-over drawer with
+      contextual help for the current page, a searchable catalog of all pages/help
+      topics, and quick-start guides for common workflows.
+    depends_on:
+      - spa-ux-redesign
+      - configurable-llm-pipeline
+    needed_by: []
+
 archive:
   - slug: prompt-versioning-experiments
     location: archive/prompt-versioning-experiments/

@@ -25,7 +25,7 @@ The ODCS Contract Registry SPA currently renders four peer tabs in a flat strip 
 
 **R-02** — The sidebar SHALL be divided into two visually distinct groups: **Source Pipeline** and **Experiments**.
 
-**R-03** — WHEN a user loads the application for the first time, THE system SHALL display Source Pipeline as the default active area and the first sub-section within it as the active view.
+**R-03** — WHEN a user loads the application at `/`, THE system SHALL display the Home page: what the registry is for, a diagram of how the Requirements Catalog and Experiments areas fit together, a quick start, and key concepts. The header brand SHALL link to `/`. (Amended 2026-10-20 — previously Source Pipeline → first sub-section; see D-10.)
 
 **R-04** — The system SHALL apply a distinct accent color to Source Pipeline navigation items and a different distinct accent color to Experiments navigation items, using the existing CSS custom-property theming system.
 
@@ -59,7 +59,7 @@ The ODCS Contract Registry SPA currently renders four peer tabs in a flat strip 
 
 **R-16** — WHEN a user activates the browser back or forward controls, THE system SHALL transition to the corresponding previously visited sub-section view.
 
-**R-17** — IF a user navigates to an unknown URL path, THE system SHALL redirect to the default route (Source Pipeline → Contracts by entity) and SHALL NOT display a blank screen or an unhandled error.
+**R-17** — IF a user navigates to an unknown URL path, THE system SHALL redirect to Home (`/`) and SHALL NOT display a blank screen or an unhandled error.
 
 **R-18** — The system SHALL not use hash-based routing (`#/path`) unless the existing deployment infrastructure requires it; if hash routing is required by the hosting environment, this shall be documented in the decisions log.
 
@@ -95,8 +95,8 @@ The ODCS Contract Registry SPA currently renders four peer tabs in a flat strip 
 
 | Condition | Expected Behaviour |
 |---|---|
-| User loads `/` with no path | Redirect to default sub-section (`/source/contracts-by-entity`) |
-| User loads an unknown path (e.g. `/foo/bar`) | Redirect to default sub-section; no blank screen |
+| User loads `/` with no path | Home page renders (R-03, D-10) |
+| User loads an unknown path (e.g. `/foo/bar`) | Redirect to Home; no blank screen |
 | User deep-links to `/experiments/compare-results` before any experiment data exists | Render the Compare results view with its existing empty-state UI; do not error |
 | Viewport resizes from desktop to mobile mid-session | Sidebar collapses gracefully; active sub-section state is preserved |
 | Viewport resizes from mobile to desktop mid-session | Overlay/drawer dismisses; full sidebar renders; active sub-section state is preserved |
@@ -221,4 +221,9 @@ describe('[web] Shell — mobile viewport', () => {
 
 ## 9. Decisions Log
 
-_Populated during design phase._
+_Design-phase decisions D-1 – D-9 are in design.md._
+
+**D-10 — Home page at `/`; brand links home.**
+- **Decision:** `/` renders a Home page (purpose, two-area diagram, quick start, key concepts) instead of redirecting to Contracts by entity; unknown routes redirect to Home; the header brand is a link to `/`.
+- **Reason:** User request (2026-10-20). New users had no explanation of what the SPA is for or how the Requirements Catalog and Experiments areas relate; landing straight on a contract list assumed that context. Contextual per-page help is captured separately as the `in-app-help` stub.
+- **Affects:** R-03, R-17, §5 edge cases

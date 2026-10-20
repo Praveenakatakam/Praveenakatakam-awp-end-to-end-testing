@@ -14,6 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
+import PageHeader from '../components/PageHeader.js';
 import type { PipelineStep, SamplingConfig, SkippedRequirement } from '@registry/core';
 import {
   usePipeline,
@@ -160,43 +161,38 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
   return (
     <SplitPane id="pipeline-page" sideLabel="step-detail">
       <div aria-label="pipeline-detail">
-        {/* Breadcrumb + actions */}
-        <div className="cluster" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => navigate('/pipelines')}
-          >
-            ← Pipelines
-          </button>
-          <h3 className="detail-heading" style={{ marginBottom: 0 }}>
-            {pipeline.name}
-          </h3>
-          <span className={`badge ${pipeline.active ? 'badge-success' : 'badge-muted'}`}>
-            {pipeline.active ? 'active' : 'archived'}
-          </span>
-
-          {writer && (
-            <div className="cluster" style={{ marginLeft: 'auto', gap: 8 }}>
-              <button
-                className="btn btn-ghost"
-                type="button"
-                disabled={runMutation.isPending || !pipeline.active}
-                onClick={handleRun}
-                title={!pipeline.active ? 'Cannot run an archived pipeline' : undefined}
-              >
-                {runMutation.isPending ? 'Starting…' : '▶ Run'}
-              </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled={updateMutation.isPending}
-                onClick={handleSave}
-              >
-                {updateMutation.isPending ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          )}
-        </div>
+        <PageHeader
+          title={pipeline.name}
+          back={{ label: 'Pipelines', to: '/pipelines' }}
+          badges={
+            <span className={`badge ${pipeline.active ? 'badge-success' : 'badge-muted'}`}>
+              {pipeline.active ? 'active' : 'archived'}
+            </span>
+          }
+          actions={
+            writer ? (
+              <>
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  disabled={runMutation.isPending || !pipeline.active}
+                  onClick={handleRun}
+                  title={!pipeline.active ? 'Cannot run an archived pipeline' : undefined}
+                >
+                  {runMutation.isPending ? 'Starting…' : '▶ Run'}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={updateMutation.isPending}
+                  onClick={handleSave}
+                >
+                  {updateMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </>
+            ) : undefined
+          }
+        />
 
         {/* Metadata card */}
         <div className="card" style={{ marginBottom: 16 }}>
@@ -325,9 +321,9 @@ export default function PipelinePage({ api, token }: { api: Api; token: string }
 
         {/* Steps section — ordered list; the selected step is edited in the side pane */}
         <div className="cluster" style={{ marginBottom: 8 }}>
-          <p className="section-heading" style={{ marginBottom: 0 }}>
+          <h2 className="section-title" style={{ margin: 0 }}>
             Steps ({steps.length})
-          </p>
+          </h2>
           {writer && (
             <button className="btn btn-ghost btn-sm" type="button" onClick={addStep}>
               + Add step

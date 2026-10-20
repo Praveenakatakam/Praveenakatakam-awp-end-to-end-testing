@@ -12,6 +12,7 @@ import type { Api } from '../api.js';
 import type { PipelineRun, StepRecord } from '@registry/core';
 import { usePipelineRun, useRunArtifact, useRunsList } from '../hooks/usePipelines.js';
 import LineDiffView from '../components/LineDiffView.js';
+import PageHeader from '../components/PageHeader.js';
 
 type RunData = { run: PipelineRun; steps: StepRecord[] };
 
@@ -120,7 +121,10 @@ export default function RunsComparePage({ api }: { api: Api }) {
   return (
     <div className="app-body" aria-label="compare runs">
       <div className="app-main">
-        <h3 className="section-heading">Compare runs</h3>
+        <PageHeader
+          title="Compare Runs"
+          subtitle="Side-by-side comparison of two pipeline runs, step by step"
+        />
 
         <div className="compare-grid" style={{ marginBottom: 16 }}>
           {(['a', 'b'] as const).map((key) => (
@@ -146,7 +150,7 @@ export default function RunsComparePage({ api }: { api: Api }) {
               <RunHeaderCell data={dataB} side="B" />
             </div>
 
-            <p className="section-heading" style={{ marginTop: 16 }}>Steps</p>
+            <h2 className="section-title">Steps</h2>
             {indices.length === 0 && <p className="text-muted text-sm">No steps recorded.</p>}
             {indices.map((idx) => (
               <div className="compare-grid" key={idx} aria-label={`step ${idx}`} style={{ marginBottom: 8 }}>
@@ -155,7 +159,7 @@ export default function RunsComparePage({ api }: { api: Api }) {
               </div>
             ))}
 
-            <p className="section-heading" style={{ marginTop: 16 }}>Emitted test diff</p>
+            <h2 className="section-title">Emitted test diff</h2>
             {artA.data && artB.data ? (
               <LineDiffView a={artA.data.content} b={artB.data.content} />
             ) : artA.isLoading || artB.isLoading ? (

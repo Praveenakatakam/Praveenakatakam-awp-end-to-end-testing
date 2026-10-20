@@ -13,6 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import { ApiError } from '../api.js';
 import { isWriter } from '../lib.js';
+import PageHeader from '../components/PageHeader.js';
 import type { PipelineConfig, PipelineStep, SkippedRequirement } from '@registry/core';
 import {
   usePipelines,
@@ -162,9 +163,9 @@ function PipelineEditorPanel({
 
       {/* Steps heading + add button */}
       <div className="cluster" style={{ marginBottom: 8 }}>
-        <p className="section-heading" style={{ marginBottom: 0 }}>
+        <h2 className="section-title" style={{ margin: 0 }}>
           Steps ({steps.length})
-        </p>
+        </h2>
         {writer && (
           <button
             className="btn btn-ghost btn-sm"
@@ -387,6 +388,10 @@ export default function PipelinesPage({ api, token }: { api: Api; token: string 
   return (
     <SplitPane id="pipelines" sideLabel="pipeline-detail">
       <div aria-label="pipelines">
+        <PageHeader
+          title="Pipelines"
+          subtitle="Multi-step LLM generation pipelines with configurable prompts and execution modes"
+        />
         {/* Tabs + New Pipeline button */}
         <div className="cluster" style={{ marginBottom: 12, gap: 0, alignItems: 'flex-end' }}>
           <div className="tabs" style={{ flex: 1 }}>

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Api } from '../api.js';
 import { groupBySource } from '../lib.js';
 import { useContractData } from '../contexts/ContractDataContext.js';
+import PageHeader from '../components/PageHeader.js';
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -49,7 +50,7 @@ function Detail({ api, source, id }: { api: Api; source: string; id: string }) {
       </dl>
       {data.versions?.length > 0 && (
         <>
-          <p className="section-heading">Version history</p>
+          <h2 className="section-title">Version history</h2>
           <ul className="row-list">
             {data.versions.map((v: any) => (
               <li key={v.versionNumber} className="row-btn" style={{ cursor: 'default' }}>
@@ -90,13 +91,17 @@ export default function BySourcePage({ api }: { api: Api }) {
   return (
     <div className="app-body">
       <div className="app-main">
+        <PageHeader
+          title="Contracts by Source"
+          subtitle="ODCS contracts grouped by source repository"
+        />
         <div aria-label="by-source">
           {sourceGroups.map((sg) => (
             <div key={sg.source}>
-              <h3 className="section-heading">{sg.source}</h3>
+              <h2 className="section-title">{sg.source}</h2>
               <ul className="row-list">
                 {sg.contracts.map((c) => (
-                  <li key={c.id}>
+                  <li key={`${c.source}/${c.id}`}>
                     <button
                       className="row-btn"
                       aria-pressed={selected?.source === c.source && selected?.id === c.id}

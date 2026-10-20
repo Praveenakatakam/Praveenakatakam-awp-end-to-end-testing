@@ -176,9 +176,9 @@ Alongside the single-step generator above (which the CLI and `POST /generate-fun
 
 ### SPA pages
 
-- **Experiments** (`/experiments`) — hub with dry-run + confirmation (>20 selected), run history, skipped requirements display
-- **Pipelines** (`/pipelines`) — list + editor with resizable split pane, step add/remove/reorder, prompt body preview
 - **Prompts** (`/prompts`) — list + version history + editor; import legacy prompt versions (one-way idempotent)
+- **Pipelines** (`/pipelines`) — list + editor with resizable split pane, step add/remove/reorder, prompt body preview
+- **Experiments** (`/experiments`) — hub with dry-run + confirmation (>20 selected), run history, skipped requirements display
 - **Compare** (`/compare`) — experiment-level: per-requirement table with plan side-by-side, field diff, test-file line diff
 
 ### Grounding

@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Api } from '../api.js';
 import type { PipelineRun, PipelineRunStatus } from '@registry/core';
 import { useRunsList } from '../hooks/usePipelines.js';
+import PageHeader from '../components/PageHeader.js';
 
 function statusBadgeClass(status: PipelineRunStatus): string {
   switch (status) {
@@ -74,9 +75,10 @@ export default function RunsPage({ api }: { api: Api }) {
   return (
     <div className="app-body" aria-label="runs">
       <div className="app-main">
-        <div className="cluster" style={{ marginBottom: 12 }}>
-          <h3 className="section-heading" style={{ marginBottom: 0 }}>Run History</h3>
-        </div>
+        <PageHeader
+          title="Run History"
+          subtitle="All pipeline run history, newest first"
+        />
 
         {isLoading && <p className="loading">Loading…</p>}
         {error && <p className="alert alert-danger" role="alert">Failed to load runs.</p>}

@@ -41,7 +41,7 @@ All routes require a Cognito access token (`Authorization: Bearer <token>`). Mis
 | `GET` | `/prompts/{key}` | reader | `200` current prompt with body | `401`, `403`, `404` |
 | `PUT` | `/prompts/{key}` | writer | `200` `{currentVersion}` | `401`, `403`, `404`, `422` |
 | `DELETE` | `/prompts/{key}` | writer | `200` | `401`, `403`, `404`, `422` |
-| `GET` | `/prompts/{key}/versions` | reader | `200` `{items[]}` | `401`, `403`, `404` |
+| `GET` | `/prompts/{key}/versions` | reader | `200` `{versions[]}` (ascending) | `401`, `403`, `404` |
 | `POST` | `/prompts/import-legacy` | writer | `200` `{imported[], skipped[]}` | `401`, `403` |
 | `GET` | `/runs` | reader | `200` pipeline runs, newest first | `401`, `403` |
 | `GET` | `/runs/{runId}` | reader | `200` run record + steps | `401`, `403`, `404` |
