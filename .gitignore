@@ -14,4 +14,7 @@ cdk.out
 .idea
 # Claude Code — track agents/commands/settings.json, but not local settings
 .claude/settings.local.json
+# Per-machine agent memory (memory: project) and agent/task worktrees
+.claude/agent-memory/
+.claude/worktrees/
 .pnpm-store
