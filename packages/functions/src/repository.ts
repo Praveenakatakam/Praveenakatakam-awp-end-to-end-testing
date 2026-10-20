@@ -1214,23 +1214,30 @@ export async function putPrmptVer(ddb: DynamoDBDocumentClient, item: PromptVersi
 
 /**
  * List all version records for a prompt, sorted by version ascending.
- * Queries the `byKind` GSI for `kind = 'PRMPTVER'` and filters by `promptKey`.
  */
 export async function listPrmptVers(
   ddb: DynamoDBDocumentClient,
   promptKey: string
 ): Promise<PromptVersionItem[]> {
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName: TABLE,
-      IndexName: 'byKind',
-      KeyConditionExpression: 'kind = :k',
-      FilterExpression: 'promptKey = :pk',
-      ExpressionAttributeValues: { ':k': 'PRMPTVER', ':pk': promptKey },
-      ScanIndexForward: true,
-    })
-  );
-  return (res.Items ?? []) as PromptVersionItem[];
+  // Version items have kind="PRMPTVER" but no `startedAt`, so the byKind GSI
+  // (kind + startedAt) does not index them — same as PIPELINE and PRMPT items.
+  // Scan by this prompt's PK prefix; the trailing `#` keeps key `a` from
+  // matching versions of key `ab`. Paginate to completion (history is small).
+  const items: PromptVersionItem[] = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const res = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE,
+        FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
+        ExpressionAttributeValues: { ':prefix': `PRMPTVER#${promptKey}#`, ':sk': 'PRMPTVER' },
+        ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+      })
+    );
+    items.push(...((res.Items ?? []) as PromptVersionItem[]));
+    startKey = res.LastEvaluatedKey;
+  } while (startKey);
+  return items.sort((a, b) => a.version - b.version);
 }
 
 // ============================================================================

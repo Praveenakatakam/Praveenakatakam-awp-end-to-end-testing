@@ -24,7 +24,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 **R-01** — The system SHALL store pipeline configuration as a DynamoDB item with key `PIPELINE#<pipelineId>`, containing: `pipelineId`, `name`, `steps` (ordered array), `maxSteps`, `maxAgeMinutes`, `active` (boolean), `version`, `createdAt`, `updatedAt`.
 
-**R-02** — Each step in `steps` SHALL contain: `stepId` (unique within pipeline), `label` (human-readable name), `model` (Bedrock model ID, validated against the model allowlist defined in R-10), `promptKey` (reference to a `PROMPT#` item), `optional` (boolean, default `false`), `waitForHuman` (boolean, default `false`), `includeContext` (boolean, default `true`), and `outputType` (`"plan"` | `"critique"` | `"freeform"`, default `"plan"` — added v0.4.0, see R-59/D-22).
+**R-02** — Each step in `steps` SHALL contain: `stepId` (unique within pipeline), `label` (human-readable name), `model` (Bedrock model ID, validated against the model allowlist defined in R-10), `promptKey` (reference to a `PRMPT#` item), `optional` (boolean, default `false`), `waitForHuman` (boolean, default `false`), `includeContext` (boolean, default `true`), and `outputType` (`"plan"` | `"critique"` | `"freeform"`, default `"plan"` — added v0.4.0, see R-59/D-22).
 
 **R-03** — WHEN a pipeline configuration is written (created or updated), THE system SHALL validate that `steps.length` does not exceed `maxSteps`.
 
@@ -32,7 +32,7 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 **R-05** — IF `maxSteps` is not specified on a pipeline create request, THE system SHALL default `maxSteps` to 10.
 
-**R-06** — WHEN a pipeline configuration is written, THE system SHALL reject the request with HTTP 422 if any `promptKey` in `steps` does not resolve to an existing `PROMPT#` item.
+**R-06** — WHEN a pipeline configuration is written, THE system SHALL reject the request with HTTP 422 if any `promptKey` in `steps` does not resolve to an existing `PRMPT#` item.
 
 **R-07** — WHEN a pipeline configuration is updated, THE system SHALL increment the `version` field and set `updatedAt` to the current UTC timestamp.
 
@@ -167,9 +167,9 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 ### 3.6 Prompt Management
 
-**R-31** — The system SHALL store prompts as DynamoDB items with key `PROMPT#<promptKey>`, containing: `promptKey`, `currentVersion`, `body` (for prompts ≤ 64 KB), `s3Ref` (for prompts > 64 KB), `createdAt`, `updatedAt`.
+**R-31** — The system SHALL store prompts as DynamoDB items with key `PRMPT#<promptKey>`, containing: `promptKey`, `currentVersion`, `body` (for prompts ≤ 64 KB), `s3Ref` (for prompts > 64 KB), `createdAt`, `updatedAt`.
 
-**R-32** — WHEN a prompt is updated via `PUT /prompts/{promptKey}`, THE system SHALL create a new version record (`PROMPT_VERSION#<promptKey>#<version>`) and increment `currentVersion` on the parent item rather than overwriting the previous body.
+**R-32** — WHEN a prompt is updated via `PUT /prompts/{promptKey}`, THE system SHALL create a new version record (`PRMPTVER#<promptKey>#<version>` (5-digit zero-padded version)) and increment `currentVersion` on the parent item rather than overwriting the previous body.
 
 **R-33** — IF a `DELETE /prompts/{promptKey}/versions/{version}` request is received for a version that is referenced by any cached run output or active pipeline step, THE system SHALL reject the request with HTTP 409.
 
@@ -210,13 +210,13 @@ The functional test generator today runs a single hardcoded LLM call per require
 
 ### 3.8 SPA — Pipeline and Prompt CRUD
 
-**R-38** — WHERE the authenticated user is in the writer group, THE SPA SHALL render a "Pipelines" section in the Experiments sidebar area (v0.4.0, R-69) that lists all active pipelines with name, step count, and last-modified date.
+**R-38** — THE SPA SHALL render, for every authenticated user, a "Pipelines" section in the Experiments sidebar area (v0.4.0, R-69) that lists all active pipelines with name, step count, and last-modified date.
 
 **R-39** — WHEN a writer views a pipeline step, THE SPA SHALL show inline: the step's label, model, and the linked prompt body (current version). The step editor SHALL allow the writer to view the full current prompt text, create a new prompt without leaving the pipeline editor, and swap which prompt the step references. The full ordered step list SHALL include controls to add, remove, and reorder steps.
 
 **R-40** — WHEN a writer saves changes to a pipeline, THE SPA SHALL call `PUT /pipelines/{pipelineId}` and show an inline validation error if the server returns HTTP 422 (e.g. `maxSteps` exceeded or unrecognized model ID).
 
-**R-41** — WHERE the authenticated user is in the writer group, THE SPA SHALL render a "Prompts" section that lists prompts with promptKey, current version number, and last-modified date.
+**R-41** — THE SPA SHALL render, for every authenticated user, a "Prompts" section that lists prompts with promptKey, current version number, and last-modified date.
 
 **R-42** — WHEN a writer opens a prompt for editing, THE SPA SHALL display a textarea with the current prompt body and a version history list showing prior version numbers and timestamps.
 
@@ -550,3 +550,8 @@ All open questions from v0.1.0 have been resolved:
 - **Decision:** `createBedrockClient` now uses the registry record's text; the v1 code constant is only a fallback.
 - **Reason:** Callers passed the text as a 4th argument the function did not accept, so every legacy experiment used the v1 prompt regardless of the chosen version. Results of past legacy experiments on non-v1 prompt versions therefore reflect the v1 prompt (with the version's model) and should not be read as prompt comparisons.
 - **Affects:** R-79, R-85, R-91
+
+**D-34 — Pipelines and Prompts pages are visible to all authenticated users (spec correction).**
+- **Decision:** R-38 and R-41 no longer restrict the Pipelines and Prompts sections to writers; every authenticated user sees them, and create/edit/delete controls are writer-only per R-44.
+- **Reason:** R-38/R-41 ("WHERE … writer group … SHALL render") contradicted R-44 ("NOT in the writer group … render read-only") and T-15 ("visible to all authenticated users with writer-only controls handled within the pages"). The implementation followed R-44/T-15. Found by the 2026-10-20 health check (DR-05). Also corrected in the same pass: R-02/R-06/R-31/R-32 key names to `PRMPT#` / `PRMPTVER#`, matching design D-11 and the code (DR-04).
+- **Affects:** R-02, R-06, R-31, R-32, R-38, R-41, R-44
