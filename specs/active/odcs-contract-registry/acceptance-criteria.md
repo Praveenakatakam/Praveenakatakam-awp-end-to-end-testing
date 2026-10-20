@@ -602,6 +602,214 @@
 
 ---
 
+## Adversarial Review — R-117b, R-119b, R-127…R-145
+
+> New tier **[adv-unit]**: the pure `@registry/adversary` core runs over **real** fixtures. These are the committed `generated-tests/**` artifacts as of 2026-10-06 and the real ODCS contracts in `packages/core/tests/__fixtures__`. No mocked data operations. The critic runs behind a **stub** `CriticClient`. The `executed` mutation tier runs Vitest on emitted compat files in a temp dir (D-71).
+
+**AC-117b (R-117b, D-74)**: [llm-unit]
+
+- GIVEN a stub LLM that returns a v2 plan (concrete `payload`, bounded read-back, structured assertions)
+- WHEN it is validated and emitted
+- THEN the emitted file:
+  - sends a request **with a JSON body**;
+  - polls the read-back path with the plan's timeout/interval;
+  - contains one `expect()` per assertion and **no** `it.todo`;
+  - reads base-URL/token env names from each service's API mapping (e.g. `GET_READY_API_URL` for `get-ready`).
+- AND a v1-shaped plan (prose `payloadShape`, string assertions) is **rejected** as malformed (R-120).
+
+**AC-119b (R-119b)**: [llm-unit]
+
+- GIVEN a cached plan from plan-schema v1
+- WHEN a job runs with plan-schema v2 and otherwise identical inputs
+- THEN the input hash differs → cache miss → re-synthesis; the v1 plan is never rendered
+
+**AC-127 (R-127, D-72)**: [unit]
+
+- GIVEN `POST /generate-tests`, the CLI `--local` mode, and a functional job
+- WHEN each produces an artifact set
+- THEN the adversarial stage runs **before** the artifacts are persisted (the persisted set already carries the `adversarial` block), and no separate trigger exists
+
+**AC-128 (R-128)**: [adv-unit]
+
+- GIVEN any review output
+- WHEN findings are inspected
+- THEN every finding has `id, attack, severity, target, defect, failureScenario` and either `evidence` or (critic only) `unevidenced: true`
+
+**AC-129 (R-129, E-48, E-49, E-50)**: [adv-unit]
+
+- GIVEN three plans, where plan A asserts on an absent `fieldPath` (E-48), plan B has no consumer assertion (E-49), and plan C is clean
+- WHEN the job runs
+- THEN A and B are absent from `manifest.plans` and from the emitted tree, and are listed in `manifest.skipped` with `reason` starting `adversarial:` plus their finding ids
+- AND C is emitted
+- AND for a §3.9 run with a Critical generator finding, every §3.9 test is **still** emitted
+
+**AC-130 (R-130, D-73)**: [adv-unit]
+
+- GIVEN a stub critic that returns a Critical finding for a clean plan
+- WHEN the job runs
+- THEN the plan **is emitted**, the manifest and tree are byte-identical to a run with no critic, and the critic finding appears only in the persisted report
+
+**AC-131 (R-131, E-58)**: [adv-unit]
+
+- GIVEN unchanged inputs
+- WHEN review runs twice
+- THEN the manifest `adversarial` block is byte-identical (sorted, no timestamps)
+- AND a previously-withheld plan is still withheld via a cache hit (no LLM synthesis, no critic call)
+
+**AC-132 (R-132)**: [adv-unit]
+
+- GIVEN finding sets {withheld}, {Major}, {Minor only}, and {}
+- WHEN the verdict is computed
+- THEN they give `FAIL — withheld`, `FAIL — review findings`, `PASS WITH NOTES`, and `PASS` respectively
+- AND the run/job `status` stays `succeeded` in every case
+
+**AC-133 (R-133, D-80 seeds 3–5)**: [adv-unit]
+
+- GIVEN the calibration seeds for grounding
+- WHEN the grounding attack runs
+- THEN:
+  - an absent `fieldPath` (`itemCount` vs consumer `totalItemCount`) is a **Critical** (a);
+  - an unknown payload key or a missing required payload key is a **Critical** (b);
+  - a non-verbatim `clause` is a **Critical** (c);
+  - hard-coded `PUBLISHER_*`/`CONSUMER_*` env vars where the mapping names `GET_READY_*` is a **Critical** (d);
+  - an unmapped `trigger.path` is a **Major** (e).
+
+**AC-134 (R-134, D-76, seeds 1, 2, 7, 8)**: [adv-unit]
+
+- GIVEN the committed `cre-r-24-taskpublished.generated.test.ts` (as of 2026-10-06) plus seeded variants
+- WHEN the vacuity attack runs
+- THEN it flags **Critical** for each of:
+  - `res.ok`-only;
+  - `it.todo`;
+  - a commented-out body;
+  - zero consumer assertions;
+  - no bounded wait.
+- AND it flags **Major** for an uncovered modality clause and for a tautological assertion
+- AND for §3.9 it flags **Major** for a conformance test that is green on `[]` and for a compat test with zero required properties
+
+**AC-135 (R-135, E-51, E-52, seed 6)**: [adv-unit, `executed` + `manifest` tiers]
+
+- GIVEN a real compat pair labelled `publisher`/`consumer` and a pair labelled `create`/`get-ready`
+- WHEN mutants M1–M4 and control C1 are generated and evaluated in **both** tiers
+- THEN against a generator fed an **inverted** flow (consumer → publisher) while the oracle holds the declared roles, M1 **survives** on the `publisher`/`consumer` pair → a **Critical** generator finding naming `packages/testgen` and the mutant _(v0.8.0: the shipped generator no longer infers roles alphabetically, so seed 6 is reproduced by a mis-declared flow)_
+- AND against the shipped generator (declared roles, R-84b) every M-mutant is killed and C1 stays green
+- AND both tiers agree on every mutant
+- AND _(v0.8.0)_ with no `roles` option on live data, the roles come from `ENTITY_FLOWS`, and no "manifest's own assignment" note is recorded
+- AND with a field map, M1 on a mapped consumer-required property deletes the mapped **publisher** property, and is killed
+
+**AC-136 (R-136, D-77)**: [adv-unit]
+
+- GIVEN a v2 plan with consumer assertions covering a subset of the consumer-required ∩ publisher properties
+- WHEN static mutation runs
+- THEN the score = killed / total, the survivors are listed by mutant id, a score < threshold is **Major**, and a plan with no consumer assertion has a surviving M-noprop → **Critical**
+
+**AC-137 (R-137)**: [adv-unit]
+
+- GIVEN a stub `CriticClient` that records its inputs
+- WHEN the critic runs on a plan
+- THEN the Pass 1 input contains the requirement + grounded context and **does not** contain the plan, the emitted file, or any finding
+- AND the Pass 2 input contains the Pass 1 output + plan + file + deterministic findings
+
+**AC-138 (R-138, D-75)**: [unit]
+
+- GIVEN the critic prompt registry
+- WHEN any critic prompt version is loaded
+- THEN both passes' system prompts begin with the exact persona sentence (string equality)
+
+**AC-139 (R-139, E-57, NFR-2)**: [unit/infra]
+
+- GIVEN `CRITIC_MODEL_ID` equal to `BEDROCK_MODEL_ID`
+- WHEN review runs
+- THEN the report records `independence: degraded`
+- AND the Bedrock critic client takes no credential argument (IAM role); the worker's `bedrock:InvokeModel` grant covers the critic model (synth assertion)
+
+**AC-140 (R-140, E-54, E-55, D-78, D-79)**: [adv-unit]
+
+- GIVEN stub critic findings: one praise-only, one "consider renaming…" with no failure scenario, one defect + scenario + evidence, and one defect + scenario without evidence
+- WHEN the posture lint runs
+- THEN the first two are dropped (`droppedByPostureLint: 2`), the third is kept, and the fourth is kept with `unevidenced: true`
+
+**AC-141 (R-141, E-56)**: [adv-unit]
+
+- GIVEN a stub critic that throws, or that returns malformed output for one plan, or a critic `AccessDenied`
+- WHEN the job runs
+- THEN the job `status` is `succeeded`, the report records `critic: failed | unavailable` with a redacted reason, and the deterministic findings and withholding are identical to a no-critic run
+
+**AC-142 (R-142)**: [adv-unit]
+
+- GIVEN a critic cache entry for an unchanged {plan hash, file hash, findings hash, model, prompt version}
+- WHEN review re-runs
+- THEN the stub critic is **not** called; changing any key component calls it
+
+**AC-143 (R-143)**: [unit]
+
+- GIVEN completed runs/jobs
+- WHEN `POST /generate-tests`, `GET /test-artifacts/{runId|latest}`, or `GET /functional-test-jobs/{jobId|latest}` responds
+- THEN the body includes `adversarial: { verdict, counts, report }`
+
+**AC-144 (R-144, D-34)**: [unit] (mock API + tmp dir)
+
+- GIVEN each CLI mode
+- WHEN it runs
+- THEN it prints the verdict + counts
+- AND it writes `adversarial-reports/{id}/report.md` + `report.json` **before** the "review `git diff`" line
+- AND `adversarial-reports/` is git-ignored, the `executed` mutation tier ran (`--local`/default), and no git commit or push is invoked
+
+**AC-145 (R-145, D-80)**: [adv-unit]
+
+- GIVEN the calibration fixtures + answer key
+- WHEN the deterministic attacks run
+- THEN **100%** of the deterministic-tagged seeds are found with the expected attack + severity, and the clean control yields **zero** Critical findings
+- AND (live, enabling task T-49) critic recall on the critic-tagged seeds is ≥ 80%, recorded in `calibration/results_YYYYMMDD.md`
+
+## Declared flows, field correspondence, nested properties — R-83c, R-84b…R-84d, R-117c, R-117d, R-119c (v0.8.0)
+
+**AC-84b (R-84b, R-85, E-59, D-84)**: [unit]
+
+- GIVEN `ENTITY_FLOWS = { TaskPublished: { publisher: 'create', consumer: 'get-ready' } }`
+- WHEN `resolveRoles` runs on `TaskPublished` from {create, get-ready}, on `org` from {consumer, publisher}, and on `widget` from {deliver, score}
+- THEN it returns create → get-ready, then publisher → consumer, then `undefined`
+- AND `generateArtifacts` emits compat for the first two with those roles, regardless of label order, and skips `widget` with `no declared publisher/consumer roles`
+- AND a flow whose declared source does not carry the entity is treated as undeclared
+- AND an entity in three sources with a declared flow gets one compat test over the declared pair
+
+**AC-84c (R-84c, E-60, D-85)**: [unit]
+
+- GIVEN the consumer requires `id: string` and the publisher has `taskId: string`
+- WHEN compat is generated with the flow field map `taskId → id`, and then without it
+- THEN with the map, `checkCompat` reports no violation for `id`, and the manifest compat entry carries `fieldMap: { id: 'taskId' }`
+- AND the emitted compat file, run under Vitest, is green
+- AND without the map, `id` is a violation (`absent in publisher`) and the emitted file is red
+- AND with the map but `taskId: integer`, it is a type mismatch
+
+**AC-84d (R-84d, R-83c, E-61, D-86)**: [unit]
+
+- GIVEN contracts whose `items` (array, required) has `items.properties: [{name: itemId, required: true}]`, plus an object `meta` with an optional nested property
+- WHEN `flattenContractProperties` runs
+- THEN it yields `items`, `items[].itemId` (required), `meta` and `meta.note` (not required, because the ancestor is optional)
+- AND compat fails on `items[].itemId` when the publisher's `items` lacks `itemId`
+- AND a field-map entry on `items` renames its children (`tasks[].itemId`)
+- AND `deriveJsonSchema` renders `items: {type: array, items: {type: object, required: [itemId], properties: {...}}}`
+- AND the semantic differ's output is unchanged
+
+**AC-117c (R-117c, R-119c, R-121, E-62, D-84)**: [llm-unit]
+
+- GIVEN a requirement on an entity with a declared flow create → get-ready
+- WHEN grounding runs
+- THEN the context carries `roles` and `fieldMap`, and `schema` is the create (publisher) variant
+- AND changing the flow (roles or field map) changes `inputHash`
+- AND an entity with no resolvable roles is skipped with `no declared publisher/consumer roles`
+- AND `validatePlan` rejects `trigger.source = get-ready` with a reason containing `role inversion`
+- AND `stampPlan` takes the consumer target from the declared consumer, even when a third source sorts first
+
+**AC-117d (R-117d, D-87)**: [llm-unit]
+
+- GIVEN an LLM plan with `requirementIds: ['CRE-R-24']` for requirement `{source: 'awp-app-plane', id: 'CRE-R-24'}`
+- WHEN it is stamped and emitted
+- THEN `requirementIds` is `['awp-app-plane/CRE-R-24']` and the file is `functional/cre-r-24-taskpublished.generated.test.ts`
+
+---
+
 ## Non-Functional (verification notes, not unit tests)
 
 - **NFR-1** — read p95 < 300 ms (warm, served from cache); full two-repo crawl p95 < 30 s
@@ -615,4 +823,4 @@
 
 ## Requirements that could NOT be expressed as GIVEN/WHEN/THEN
 
-None. Every functional requirement (R-01…R-72, R-80…R-93, R-100…R-114, R-115…R-126) maps to at least one AC above. NFRs (incl. NFR-8 §3.9 determinism — see AC-88; NFR-9 §3.11 LLM usage/cost/offline seam — see AC-118/AC-119) are expressed as verification scenarios rather than unit-level GWT, which is expected for performance/scale/reliability/security properties.
+None. Every functional requirement (R-01…R-72, R-80…R-93, R-100…R-114, R-115…R-126, R-117b, R-119b, R-127…R-145, R-83c, R-84b…R-84d, R-117c, R-117d, R-119c) maps to at least one AC above. (Critic _recall_ in AC-145 is a live calibration measurement, not an offline unit test.) NFRs (incl. NFR-8 §3.9 determinism — see AC-88; NFR-9 §3.11 LLM usage/cost/offline seam — see AC-118/AC-119) are expressed as verification scenarios rather than unit-level GWT, which is expected for performance/scale/reliability/security properties.

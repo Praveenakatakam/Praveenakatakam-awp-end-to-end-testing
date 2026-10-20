@@ -1,0 +1,24 @@
+{
+  "provenance": "The 2026-10-06 reconstruction of the TaskPublished pair (old get-ready names), with its live domain labels and the declared flow (D-84). No field map is declared (D-85, emptied 2026-10-09 after the live contracts showed same-named fields), so get-ready's description, id, itemTypes, totalItemCount and type are unmet. The baseline compat test is therefore RED, mutation is not applicable, and there must be no mutation finding. The current live contracts are in ../../live-20261009/.",
+  "roles": { "TaskPublished": { "publisher": "create", "consumer": "get-ready" } },
+  "contracts": [
+    {
+      "source": "create",
+      "entity": "TaskPublished",
+      "id": "urn:bawp:create:content-events",
+      "declaredVersion": "1.0.0",
+      "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254",
+      "validation": "valid",
+      "file": "contracts/taskpublished.create.odcs.yaml"
+    },
+    {
+      "source": "get-ready",
+      "entity": "TaskPublished",
+      "id": "urn:bawp:get-ready:assignments-api",
+      "declaredVersion": "1.0.0",
+      "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+      "validation": "valid",
+      "file": "contracts/taskpublished.get-ready.odcs.yaml"
+    }
+  ]
+}

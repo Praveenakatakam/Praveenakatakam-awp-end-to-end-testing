@@ -99,9 +99,15 @@ function orgPlan() {
     requirementIds: ['R-10'],
     title: 'publisher-created org appears to the consumer',
     setup: [{ description: 'a writer token' }],
-    trigger: { source: 'publisher', entity: 'org', method: 'POST', path: '/orgs', payloadShape: '{ sourcedId }' },
-    propagation: { kind: 'cdc', waitFor: 'consumer read model updates' },
-    assertions: [{ service: 'consumer', assertion: 'GET /orgs includes the new org' }],
+    trigger: { source: 'publisher', entity: 'org', method: 'POST', path: '/orgs', payload: { sourcedId: 'org-001' } },
+    propagation: {
+      kind: 'cdc',
+      waitFor: 'consumer read model updates',
+      timeoutSeconds: 30,
+      pollIntervalSeconds: 2,
+      readBack: { service: 'consumer', path: '/orgs', matchOn: 'sourcedId' },
+    },
+    assertions: [{ service: 'consumer', fieldPath: 'sourcedId', operator: 'exists', clause: 'SHALL be published' }],
   };
 }
 

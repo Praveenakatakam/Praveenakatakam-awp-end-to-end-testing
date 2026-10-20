@@ -22,6 +22,7 @@ export * from './odcs-validator.js';
 export * from './metadata.js';
 export * from './github.js';
 export * from './diff.js';
+export * from './compare.js';
 export * from './schema-model.js';
 export * from './api-map.js';
 export * from './requirements.js';

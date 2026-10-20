@@ -1,0 +1,25 @@
+{
+  "provenance": "The real org contract (publisher) and its derived consumer read model, labelled with the original source names `publisher` / `consumer`. Baseline compat is green under BOTH role assignments, so mutants are meaningful under both. v0.8.0: the shipped generator resolves roles from declarations (R-84b), so the D-80 seed-6 role inversion is reproduced by feeding the generator under test `generatorFlows` (an inverted, mis-declared flow) while the oracle keeps the true `roles`.",
+  "roles": { "org": { "publisher": "publisher", "consumer": "consumer" } },
+  "generatorFlows": { "org": { "publisher": "consumer", "consumer": "publisher" } },
+  "contracts": [
+    {
+      "source": "publisher",
+      "entity": "org",
+      "id": "5d8f2b4a-org-oneroster-v12",
+      "declaredVersion": "1.0.0",
+      "contentHash": "calib-org-publisher",
+      "validation": "valid",
+      "file": "contracts/org.publisher.odcs.yaml"
+    },
+    {
+      "source": "consumer",
+      "entity": "org",
+      "id": "7a1c9e3b-org-consumer-read-model",
+      "declaredVersion": "1.0.0",
+      "contentHash": "calib-org-consumer",
+      "validation": "valid",
+      "file": "contracts/org.consumer.odcs.yaml"
+    }
+  ]
+}

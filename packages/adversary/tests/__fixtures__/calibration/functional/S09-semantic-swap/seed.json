@@ -1,0 +1,15 @@
+{
+  "id": "S09",
+  "title": "A grounded but semantically wrong assertion (critic-only)",
+  "provenance": "S05 base plus `description equals payload.tenantId`: both fields exist and are strings, so every deterministic check passes, but a task description is not a tenant id.",
+  "extends": "S05-event-entity-unmapped-trigger",
+  "addAssertions": [
+    {
+      "service": "consumer",
+      "fieldPath": "description",
+      "operator": "equals",
+      "expected": { "from": "trigger.payload", "path": "tenantId" },
+      "clause": "the get-ready service SHALL make the published Task available through getTasks"
+    }
+  ]
+}

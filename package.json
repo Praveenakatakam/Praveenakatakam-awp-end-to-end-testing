@@ -25,6 +25,8 @@
     "@collegeboard-software/nimbus-sst": "^1.13.4"
   },
   "devDependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.12.12",
     "aws-cdk-lib": "2.238.0",

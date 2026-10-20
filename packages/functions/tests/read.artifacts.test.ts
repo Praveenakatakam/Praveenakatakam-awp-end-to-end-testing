@@ -42,3 +42,33 @@ describe('test-artifacts read handlers (T-22 · R-90)', () => {
     expect((await read.testArtifact(ev({ runId: 'nope' }))).statusCode).toBe(404);
   });
 });
+
+describe('adversarial summary in read responses (T-46a · R-143)', () => {
+  const adversarial = { verdict: 'FAIL — review findings', counts: { vacuity: { Critical: 0, Major: 1, Minor: 0 } } };
+  const report = { generator: 'testgen', verdict: 'FAIL — review findings' };
+
+  it('GET /test-artifacts/latest and /{runId} lift { verdict, counts, report } to the top level', async () => {
+    vi.spyOn(repository, 'getLatestGenRun').mockResolvedValue({ runId: 'g-3', adversarial } as any);
+    vi.spyOn(repository, 'getGenRun').mockResolvedValue({ runId: 'g-3', adversarial } as any);
+    vi.spyOn(repository, 'getArtifacts').mockResolvedValue({ manifest: { tests: [] }, files: [], report } as any);
+    for (const res of [await read.testArtifactsLatest(ev()), await read.testArtifact(ev({ runId: 'g-3' }))]) {
+      expect(JSON.parse(res.body!).adversarial).toEqual({ ...adversarial, report });
+    }
+  });
+
+  it('GET /functional-test-jobs/latest and /{jobId} lift the same shape from the job record', async () => {
+    const job = { jobId: 'fj-3', status: 'succeeded', adversarial };
+    vi.spyOn(repository, 'getLatestFunctionalJob').mockResolvedValue(job as any);
+    vi.spyOn(repository, 'getFunctionalJob').mockResolvedValue(job as any);
+    vi.spyOn(repository, 'getFunctionalArtifacts').mockResolvedValue({ manifest: { plans: [] }, files: [], report } as any);
+    for (const res of [await read.functionalJobLatest(ev()), await read.functionalJob(ev({ jobId: 'fj-3' }))]) {
+      expect(JSON.parse(res.body!).adversarial).toEqual({ ...adversarial, report });
+    }
+  });
+
+  it('a run/job from before the adversarial stage has no adversarial key (back-compat)', async () => {
+    vi.spyOn(repository, 'getLatestGenRun').mockResolvedValue({ runId: 'g-old' } as any);
+    vi.spyOn(repository, 'getArtifacts').mockResolvedValue({ manifest: { tests: [] }, files: [] } as any);
+    expect(JSON.parse((await read.testArtifactsLatest(ev())).body!).adversarial).toBeUndefined();
+  });
+});

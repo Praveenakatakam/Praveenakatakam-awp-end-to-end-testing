@@ -1,0 +1,89 @@
+{
+  "requirementIds": [
+    "CRE-R-24"
+  ],
+  "title": "TaskPublished CDC propagation when Item's 4th review step (order=4) is approved via review.advance",
+  "setup": [
+    {
+      "description": "Ensure a valid tenant exists and tenantId is available for use in all requests."
+    },
+    {
+      "description": "Ensure a Task exists in the publisher (awp-app-plane / create service) with at least one Item, a valid taskType, duration, title, and a populated items[] array (each item carrying itemId, itemType, sectionIndex, itemIndex, scoringRule, and MCQ keys/answerOptions)."
+    },
+    {
+      "description": "Ensure the Task's review workflow has review steps order=1, order=2, and order=3 already in an Approved/Ready state, leaving the 4th review step (order=4) as the final pending step."
+    },
+    {
+      "description": "Confirm the create-evb EventBridge bus is reachable and a consumer (get-ready service) is subscribed to events with source=bawp.create and detail-type=TaskPublished."
+    },
+    {
+      "description": "Record the taskId and all item metadata (itemId, itemType, sectionIndex, itemIndex, scoringRule, keys, answerOptions) for later assertion."
+    }
+  ],
+  "trigger": {
+    "source": "create",
+    "entity": "TaskPublished",
+    "method": "POST",
+    "path": "/api/review/advance",
+    "payloadShape": "Object containing taskId (string, required), tenantId (string, required), and review step advancement data targeting the 4th review step (order=4) with an Approved/Ready decision."
+  },
+  "propagation": {
+    "kind": "cdc",
+    "waitFor": "TaskPublished event delivered to create-evb EventBridge bus (source=bawp.create, detail-type=TaskPublished) and consumed by the get-ready service."
+  },
+  "assertions": [
+    {
+      "service": "publisher",
+      "assertion": "The review.advance call for the 4th review step (order=4) returns a success response (HTTP 2xx), confirming the step transitioned to Approved/Ready."
+    },
+    {
+      "service": "publisher",
+      "assertion": "A TaskPublished event is emitted to the create-evb EventBridge bus with source exactly equal to 'bawp.create' and detail-type exactly equal to 'TaskPublished'."
+    },
+    {
+      "service": "publisher",
+      "assertion": "The TaskPublished event detail contains all required fields: schemaVersion, eventId, tenantId, taskId, title, taskType, itemCount, items[], publishedAt, and publishedBy — all non-null and non-empty."
+    },
+    {
+      "service": "publisher",
+      "assertion": "The taskId in the event payload matches the taskId of the Task whose 4th review step was just approved."
+    },
+    {
+      "service": "publisher",
+      "assertion": "The tenantId in the event payload matches the tenantId used in the review.advance request."
+    },
+    {
+      "service": "publisher",
+      "assertion": "The itemCount field equals the actual number of entries in the items[] array in the event payload."
+    },
+    {
+      "service": "publisher",
+      "assertion": "Each entry in items[] contains itemId, itemType, sectionIndex, itemIndex, and scoringRule fields; MCQ-typed items additionally carry non-empty keys and answerOptions fields."
+    },
+    {
+      "service": "publisher",
+      "assertion": "publishedAt is a valid ISO 8601 timestamp string representing the approximate time of the review.advance action."
+    },
+    {
+      "service": "publisher",
+      "assertion": "If standards were associated with the Task, the standards array in the event is non-empty and matches the Task's configured standards; otherwise the standards field is an empty array or omitted."
+    },
+    {
+      "service": "publisher",
+      "assertion": "If duration was set on the Task, the duration integer field in the event matches the Task's configured duration value."
+    },
+    {
+      "service": "consumer",
+      "assertion": "After CDC propagation, calling GET /api/grdy/assignments/getTasks on the get-ready service returns a response that includes the newly published Task, identifiable by the matching taskId."
+    },
+    {
+      "service": "consumer",
+      "assertion": "The Task record visible in get-ready contains title, taskType, itemCount, and taskId values that are consistent with those in the published TaskPublished event payload."
+    },
+    {
+      "service": "consumer",
+      "assertion": "The items[] data visible for the Task in get-ready reflects the serialised items from the TaskPublished event, with each item retaining its itemId, itemType, sectionIndex, itemIndex, and scoringRule."
+    }
+  ],
+  "inputHash": "86f940e2fb09ef5c71ca0e1ce70d75a0340e6b5597b5817e05f9ce01ef1d301b"
+}

@@ -6,9 +6,10 @@
  * it is fully unit-testable offline and re-running on an unchanged catalog is a
  * no-op git diff (E-22). Fault-isolating: an invalid contract, a single-source
  * entity, or an unmapped entity is SKIPPED with a recorded reason (R-85), never
- * an abort.
+ * an abort. An entity with no declared publisher/consumer roles is skipped
+ * the same way (R-84b).
  */
-import { parseAndValidate, apiTarget } from '@registry/core';
+import { parseAndValidate, apiTarget, resolveRoles, compareCodePoint, ENTITY_FLOWS, type EntityFlows } from '@registry/core';
 import { deriveJsonSchema } from './derive-schema.js';
 import { checkCompat } from './compat.js';
 import { emitConformanceTest, emitCompatTest } from './emit.js';
@@ -24,24 +25,11 @@ import {
 } from './manifest.js';
 
 /**
- * Resolve publisher and consumer variants for a set of same-entity contracts.
- *
- * When exactly two sources carry the entity, the alphabetically-first source
- * is treated as publisher and the second as consumer — a stable, deterministic
- * assignment (R-88). Any other count is not a valid compat pair.
+ * `flows` are the declared publisher → consumer flows (R-84b, D-84); roles are
+ * never inferred from source-label order. Injectable so the §3.12 mutation
+ * attack can run this core against a mis-declared flow (calibration seed 6).
  */
-function resolveCompatPair(
-  variants: CatalogContract[]
-): { pub: CatalogContract; con: CatalogContract } | null {
-  const sources = [...new Set(variants.map((v) => v.source))].sort();
-  if (sources.length !== 2) return null;
-  return {
-    pub: variants.find((v) => v.source === sources[0])!,
-    con: variants.find((v) => v.source === sources[1])!,
-  };
-}
-
-export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
+export function generateArtifacts(catalog: CatalogContract[], flows: EntityFlows = ENTITY_FLOWS): ArtifactSet {
   const conformance: ConformanceTest[] = [];
   const compat: CompatTest[] = [];
   const skipped: Skip[] = [];
@@ -73,18 +61,22 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
     });
   }
 
-  // --- Compat: one per entity with exactly two sources (R-84) ---
+  // --- Compat: one per multi-source entity, over its declared pair (R-84, R-84b) ---
   const entities = [...new Set(catalog.map((c) => c.entity))].sort();
   for (const entity of entities) {
     const variants = catalog.filter((c) => c.entity === entity);
-    const pair = resolveCompatPair(variants);
-
-    if (!pair) {
-      const only = variants.map((v) => v.source).join(',');
-      skipped.push({ kind: 'compat', target: entity, reason: `single-source (${only} only)` });
+    const sources = [...new Set(variants.map((v) => v.source))].sort();
+    if (sources.length < 2) {
+      skipped.push({ kind: 'compat', target: entity, reason: `single-source (${sources.join(',')} only)` });
       continue;
     }
-    const { pub, con } = pair;
+    const roles = resolveRoles(entity, sources, flows);
+    if (!roles) {
+      skipped.push({ kind: 'compat', target: entity, reason: 'no declared publisher/consumer roles' });
+      continue;
+    }
+    const pub = variants.find((v) => v.source === roles.publisher)!;
+    const con = variants.find((v) => v.source === roles.consumer)!;
     if (pub.validation !== 'valid' || con.validation !== 'valid') {
       const bad = [pub, con]
         .filter((v) => v.validation !== 'valid')
@@ -93,7 +85,7 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
       skipped.push({ kind: 'compat', target: entity, reason: `variant invalid (${bad})` });
       continue;
     }
-    const result = checkCompat(parseAndValidate(con.rawYaml).parsed, parseAndValidate(pub.rawYaml).parsed);
+    const result = checkCompat(parseAndValidate(con.rawYaml).parsed, parseAndValidate(pub.rawYaml).parsed, roles.fields);
     compat.push({
       kind: 'compat',
       entity,
@@ -102,13 +94,16 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
       rule: 'consumer-can-read-publisher',
       consumerRequired: result.consumerRequired,
       publisherProps: result.publisherProps,
+      // Only when something is renamed, so unmapped entities keep a byte-identical entry (R-88).
+      ...(Object.keys(result.fieldMap).length ? { fieldMap: result.fieldMap } : {}),
     });
   }
 
   // --- Deterministic ordering (R-88) ---
-  conformance.sort((a, b) => `${a.source}.${a.entity}.${a.contractId}`.localeCompare(`${b.source}.${b.entity}.${b.contractId}`));
-  compat.sort((a, b) => a.entity.localeCompare(b.entity));
-  skipped.sort((a, b) => `${a.kind}.${a.target}`.localeCompare(`${b.kind}.${b.target}`));
+  // Code-point order, never the host locale's (R-88).
+  conformance.sort((a, b) => compareCodePoint(`${a.source}.${a.entity}.${a.contractId}`, `${b.source}.${b.entity}.${b.contractId}`));
+  compat.sort((a, b) => compareCodePoint(a.entity, b.entity));
+  skipped.sort((a, b) => compareCodePoint(`${a.kind}.${a.target}`, `${b.kind}.${b.target}`));
 
   const tests: GeneratedTest[] = [...conformance, ...compat];
   const manifest: Manifest = { manifestVersion: 1, generator: GENERATOR_ID, tests, skipped };
@@ -120,7 +115,7 @@ export function generateArtifacts(catalog: CatalogContract[]): ArtifactSet {
         ? { path: `conformance/${t.source}.${t.entity}.generated.test.ts`, contents: emitConformanceTest(t, i) }
         : { path: `compat/${t.entity}.generated.test.ts`, contents: emitCompatTest(t, i) }
     )
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => compareCodePoint(a.path, b.path));
 
   return { manifest, files };
 }

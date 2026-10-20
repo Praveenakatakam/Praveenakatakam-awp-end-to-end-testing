@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import yaml from 'js-yaml';
 import ts from 'typescript';
 import { generateArtifacts, serializeManifest } from '../src/generate.js';
+import { checkCompat } from '../src/compat.js';
+import { deriveJsonSchema } from '../src/derive-schema.js';
 import type { CatalogContract, CompatTest, ConformanceTest } from '../src/manifest.js';
 
 // ---- Fixture builders ------------------------------------------------------
@@ -127,21 +129,20 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
 
     // Compat entries record BOTH variants' hash + declared version (R-82/R-86),
     // so a reader can assess either variant's staleness — not just the hash.
-    // 'consumer' < 'publisher' alphabetically → consumer source is treated as publisher.
+    // v0.8.0 (R-84b): the literal `publisher`/`consumer` labels ARE the roles — no alphabetical inversion.
     const orgCompat = compat(a).find((t) => t.entity === 'org')!;
-    expect(orgCompat.publisher).toMatchObject({ contentHash: 'consumer-org-c-hash000000', declaredVersion: '1.0.0' });
-    expect(orgCompat.consumer).toMatchObject({ contentHash: 'publisher-org-p-hash000000', declaredVersion: '1.0.0' });
+    expect(orgCompat.publisher).toMatchObject({ source: 'publisher', contentHash: 'publisher-org-p-hash000000', declaredVersion: '1.0.0' });
+    expect(orgCompat.consumer).toMatchObject({ source: 'consumer', contentHash: 'consumer-org-c-hash000000', declaredVersion: '1.0.0' });
   });
 
   it('emits compat for shared valid entities with consumer-can-read-publisher facts (AC-84, E-25/E-26)', () => {
     const a = generateArtifacts(fullCatalog());
     expect(compat(a).map((t) => t.entity)).toEqual(['class', 'org', 'user']);
 
-    // 'consumer' < 'publisher' alphabetically → consumer source is publisher, publisher source is consumer.
+    // v0.8.0 (R-84b): the `consumer` source requires givenName and the `publisher` source lacks it.
     const user = compat(a).find((t) => t.entity === 'user')!;
-    // The 'publisher' source (now acting as consumer) requires givenName; 'consumer' source (now publisher) lacks it.
-    expect(user.consumerRequired.map((p) => p.name)).toContain('username');
-    expect(user.publisherProps.map((p) => p.name)).not.toContain('username');
+    expect(user.consumerRequired.map((p) => p.name)).toContain('givenName');
+    expect(user.publisherProps.map((p) => p.name)).not.toContain('givenName');
     expect(user.rule).toBe('consumer-can-read-publisher');
   });
 
@@ -151,7 +152,7 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
     expect(skips.find((s) => s.target === 'enrollment')?.reason).toMatch(/variant invalid \(consumer\)/);
   });
 
-  it('generates compat for two-domain entities using alphabetical publisher/consumer assignment', () => {
+  it('two-domain entities take roles from the declared flow, never from label order (AC-84b, R-84b)', () => {
     const catalog: CatalogContract[] = [
       cc('create', 'TaskPublished', 'tp-create', [
         { name: 'eventId', required: true },
@@ -164,27 +165,42 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
         { name: 'taskId', required: true },
       ]),
     ];
-    const a = generateArtifacts(catalog);
-    const compatTests = compat(a);
-    expect(compatTests).toHaveLength(1);
-    const t = compatTests[0];
-    expect(t.entity).toBe('TaskPublished');
-    // 'create' < 'get-ready' alphabetically → create is publisher, get-ready is consumer
-    expect(t.publisher.source).toBe('create');
-    expect(t.consumer.source).toBe('get-ready');
-    expect(t.rule).toBe('consumer-can-read-publisher');
-    // get-ready requires eventId + taskId; both present in create → compatible
-    expect(t.consumerRequired.map((p) => p.name).sort()).toEqual(['eventId', 'taskId']);
+    const declared = compat(generateArtifacts(catalog, { TaskPublished: { publisher: 'create', consumer: 'get-ready' } }));
+    expect(declared).toHaveLength(1);
+    expect(declared[0]).toMatchObject({ entity: 'TaskPublished', rule: 'consumer-can-read-publisher' });
+    expect(declared[0].publisher.source).toBe('create');
+    expect(declared[0].consumer.source).toBe('get-ready');
+    expect(declared[0].consumerRequired.map((p) => p.name).sort()).toEqual(['eventId', 'taskId']);
+
+    // The alphabetically-LATER source as publisher: only a declaration can do this.
+    const inverted = compat(generateArtifacts(catalog, { TaskPublished: { publisher: 'get-ready', consumer: 'create' } }));
+    expect(inverted[0].publisher.source).toBe('get-ready');
+    expect(inverted[0].consumer.source).toBe('create');
   });
 
-  it('skips compat for entities with more than two sources', () => {
+  it('skips compat for a domain-labelled pair with no declared flow (E-59, R-85)', () => {
+    const catalog: CatalogContract[] = [
+      cc('deliver', 'Widget', 'w-1', [{ name: 'id', required: true }]),
+      cc('score', 'Widget', 'w-2', [{ name: 'id', required: true }]),
+    ];
+    const a = generateArtifacts(catalog, {});
+    expect(compat(a)).toEqual([]);
+    expect(a.manifest.skipped.find((s) => s.kind === 'compat' && s.target === 'Widget')?.reason).toBe(
+      'no declared publisher/consumer roles'
+    );
+  });
+
+  it('three or more sources: one compat test over the declared pair; undeclared → roles skip (R-84b)', () => {
     const catalog: CatalogContract[] = [
       cc('create', 'Event', 'e-1', [{ name: 'id', required: true }]),
       cc('deliver', 'Event', 'e-2', [{ name: 'id', required: true }]),
       cc('score', 'Event', 'e-3', [{ name: 'id', required: true }]),
     ];
-    const skips = generateArtifacts(catalog).manifest.skipped.filter((s) => s.kind === 'compat');
-    expect(skips.find((s) => s.target === 'Event')?.reason).toMatch(/single-source/);
+    const declared = compat(generateArtifacts(catalog, { Event: { publisher: 'score', consumer: 'create' } }));
+    expect(declared.map((t) => `${t.publisher.source}→${t.consumer.source}`)).toEqual(['score→create']);
+
+    const skips = generateArtifacts(catalog, {}).manifest.skipped.filter((s) => s.kind === 'compat');
+    expect(skips.find((s) => s.target === 'Event')?.reason).toBe('no declared publisher/consumer roles');
   });
 
   it('empty catalog → empty artifact set, no crash (AC-81, E-19)', () => {
@@ -245,5 +261,150 @@ describe('generateArtifacts (T-19 · R-81…R-88)', () => {
       expect(s.target).toBeTruthy();
       expect(s.reason).toBeTruthy();
     }
+  });
+});
+
+// ---- v0.8.0: field correspondence + nested properties (T-53a) ---------------
+
+/** A catalog contract from raw ODCS properties (nested allowed). */
+function raw(source: string, entity: string, properties: unknown[]): CatalogContract {
+  const d = { version: '1.0.0', apiVersion: 'v3.1.0', kind: 'DataContract', id: `${source}-${entity}`, name: entity, schema: [{ name: entity, properties }] };
+  return { source, entity, id: `${source}-${entity}`, declaredVersion: '1.0.0', contentHash: `${source}-hash0000000`, validation: 'valid', rawYaml: yaml.dump(d) };
+}
+
+/**
+ * Run an emitted compat file for real: transpile it, swap the `vitest` import
+ * for a tiny recorder, execute it, and return the failing test names.
+ */
+function runEmitted(contents: string): { passed: string[]; failed: string[] } {
+  const js = ts.transpileModule(contents, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const passed: string[] = [];
+  const failed: string[] = [];
+  const expectFn = (actual: unknown, msg?: string) => ({
+    toBe(expected: unknown) {
+      if (!Object.is(actual, expected)) throw new Error(`${msg ?? ''}: expected ${String(expected)}, got ${String(actual)}`);
+    },
+  });
+  const vitest = {
+    describe: (_n: string, fn: () => void) => fn(),
+    it: (name: string, fn: () => void) => {
+      try {
+        fn();
+        passed.push(name);
+      } catch {
+        failed.push(name);
+      }
+    },
+    expect: expectFn,
+  };
+  new Function('require', 'exports', js)((m: string) => (m === 'vitest' ? vitest : {}), {});
+  return { passed, failed };
+}
+
+const compatFile = (a: ReturnType<typeof generateArtifacts>, entity: string) =>
+  a.files.find((f) => f.path === `compat/${entity}.generated.test.ts`)!.contents;
+
+describe('compat field correspondence (T-53 · R-84c, AC-84c, E-60, D-85)', () => {
+  const pub = (idType = 'string') => raw('create', 'Task', [{ name: 'taskId', logicalType: idType, required: true }, { name: 'title', logicalType: 'string', required: true }]);
+  const con = raw('get-ready', 'Task', [{ name: 'id', logicalType: 'string', required: true }, { name: 'title', logicalType: 'string', required: true }]);
+  const flow = (fields?: Record<string, string>) => ({ Task: { publisher: 'create', consumer: 'get-ready', ...(fields ? { fields } : {}) } });
+
+  it('checkCompat satisfies a mapped consumer property from the publisher property', () => {
+    const p = yaml.load(pub().rawYaml);
+    const c = yaml.load(con.rawYaml);
+    expect(checkCompat(c, p, { taskId: 'id' }).violations).toEqual([]);
+    expect(checkCompat(c, p).violations).toEqual([{ path: 'Task.id', reason: 'required by consumer but absent in publisher' }]);
+    expect(checkCompat(c, yaml.load(pub('integer').rawYaml), { taskId: 'id' }).violations[0].reason).toMatch(/type mismatch/);
+  });
+
+  it('the manifest records the map (consumer → publisher) and the emitted file applies it — green', () => {
+    const a = generateArtifacts([pub(), con], flow({ taskId: 'id' }));
+    expect(compat(a)[0].fieldMap).toEqual({ id: 'taskId' });
+    expect(runEmitted(compatFile(a, 'Task'))).toEqual({ passed: ["publisher provides consumer-required 'id'", "publisher provides consumer-required 'title'"], failed: [] });
+  });
+
+  it('without the map the emitted file is red on id; with a retyped mapped field it is red too', () => {
+    expect(runEmitted(compatFile(generateArtifacts([pub(), con], flow()), 'Task')).failed).toEqual(["publisher provides consumer-required 'id'"]);
+    expect(runEmitted(compatFile(generateArtifacts([pub('integer'), con], flow({ taskId: 'id' })), 'Task')).failed).toEqual([
+      "publisher provides consumer-required 'id'",
+    ]);
+  });
+
+  it('an entity with no field map keeps the v0.7 manifest shape (no fieldMap key)', () => {
+    const org = compat(generateArtifacts(fullCatalog())).find((t) => t.entity === 'org')!;
+    expect('fieldMap' in org).toBe(false);
+  });
+});
+
+describe('nested properties (T-53 · R-84d, R-83c, AC-84d, E-61, D-86)', () => {
+  const items = (withItemId: boolean, name = 'items') => ({
+    name,
+    logicalType: 'array',
+    required: true,
+    items: {
+      logicalType: 'object',
+      properties: [...(withItemId ? [{ name: 'itemId', logicalType: 'string', required: true }] : []), { name: 'label', logicalType: 'string' }],
+    },
+  });
+  const flow = { Task: { publisher: 'create', consumer: 'get-ready' } };
+
+  it('compat fails on items[].itemId when the publisher array lacks it, and passes when present', () => {
+    const con = raw('get-ready', 'Task', [items(true)]);
+    const red = generateArtifacts([raw('create', 'Task', [items(false)]), con], flow);
+    expect(compat(red)[0].consumerRequired.map((p) => p.name)).toEqual(['items', 'items[].itemId']);
+    expect(runEmitted(compatFile(red, 'Task')).failed).toEqual(["publisher provides consumer-required 'items[].itemId'"]);
+
+    const green = generateArtifacts([raw('create', 'Task', [items(true)]), con], flow);
+    expect(runEmitted(compatFile(green, 'Task')).failed).toEqual([]);
+  });
+
+  it('a field-map entry on a parent path renames its descendants', () => {
+    const a = generateArtifacts([raw('create', 'Task', [items(true, 'items')]), raw('get-ready', 'Task', [items(true, 'tasks')])], {
+      Task: { publisher: 'create', consumer: 'get-ready', fields: { items: 'tasks' } },
+    });
+    expect(compat(a)[0].fieldMap).toEqual({ tasks: 'items', 'tasks[].itemId': 'items[].itemId' });
+    expect(runEmitted(compatFile(a, 'Task')).failed).toEqual([]);
+  });
+
+  it('the derived conformance schema nests object properties and array items with their required lists', () => {
+    const schema = deriveJsonSchema({
+      schema: [{ name: 'Task', properties: [items(true), { name: 'meta', logicalType: 'object', properties: [{ name: 'note', logicalType: 'string', required: true }] }] }],
+    });
+    expect(schema.properties.items).toEqual({
+      type: 'array',
+      items: { type: 'object', required: ['itemId'], properties: { itemId: { type: 'string' }, label: { type: 'string' } } },
+    });
+    expect(schema.properties.meta).toEqual({ type: 'object', required: ['note'], properties: { note: { type: 'string' } } });
+  });
+});
+
+// ---- T-59a: live-review fixes F-06, F-09, F-10 ------------------------------
+
+describe('derived schema + compat fixes (T-59a)', () => {
+  it('F-06: a nullable property accepts null in the derived conformance schema (enum included)', () => {
+    const schema = deriveJsonSchema({
+      schema: [{ name: 'T', properties: [
+        { name: 'duration', logicalType: 'integer', customProperties: [{ property: 'nullable', value: 'true' }] },
+        { name: 'kind', logicalType: 'string', customProperties: [{ property: 'nullable', value: 'true' }], quality: [{ arguments: { validValues: ['a', 'b'] } }] },
+        { name: 'title', logicalType: 'string' },
+      ] }],
+    });
+    expect(schema.properties.duration).toEqual({ type: ['integer', 'null'] });
+    expect(schema.properties.kind).toEqual({ type: ['string', 'null'], enum: ['a', 'b', null] });
+    expect(schema.properties.title).toEqual({ type: 'string' });
+  });
+
+  it('F-10: ODCS date → format date; timestamp → date-time', () => {
+    const schema = deriveJsonSchema({ schema: [{ name: 'T', properties: [{ name: 'd', logicalType: 'date' }, { name: 'ts', logicalType: 'timestamp' }] }] });
+    expect(schema.properties.d).toEqual({ type: 'string', format: 'date' });
+    expect(schema.properties.ts).toEqual({ type: 'string', format: 'date-time' });
+  });
+
+  it('F-09: compat compares logical types case-insensitively (String vs string)', () => {
+    const pub = raw('create', 'Task', [{ name: 'title', logicalType: 'String', required: true }]);
+    const con = raw('get-ready', 'Task', [{ name: 'title', logicalType: 'string', required: true }]);
+    expect(checkCompat(yaml.load(con.rawYaml), yaml.load(pub.rawYaml)).violations).toEqual([]);
+    const a = generateArtifacts([pub, con], { Task: { publisher: 'create', consumer: 'get-ready' } });
+    expect(runEmitted(compatFile(a, 'Task')).failed).toEqual([]);
   });
 });

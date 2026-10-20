@@ -26,8 +26,29 @@ export interface CatalogContract {
 export interface JsonSchema {
   type: 'object';
   required: string[];
-  properties: Record<string, { type?: string; format?: string; enum?: unknown[] }>;
+  properties: Record<string, JsonSchemaProp>;
   additionalProperties: boolean;
+}
+
+/** One property's derived schema; nested for objects and array items (R-83c). */
+export interface JsonSchemaProp {
+  type?: string | string[];
+  format?: string;
+  enum?: unknown[];
+  /** Constraints carried over from the contract's `logicalTypeOptions` (R-83). */
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+  required?: string[];
+  properties?: Record<string, JsonSchemaProp>;
+  items?: JsonSchemaProp;
 }
 
 export interface ConformanceTest {
@@ -65,6 +86,8 @@ export interface CompatTest {
   consumerRequired: CompatProp[];
   /** Publisher's properties (name → logicalType) for the run-time assertion. */
   publisherProps: CompatProp[];
+  /** Consumer path → publisher path for renamed fields (R-84c). Absent when nothing is renamed. */
+  fieldMap?: Record<string, string>;
 }
 
 export type GeneratedTest = ConformanceTest | CompatTest;
@@ -81,6 +104,12 @@ export interface Manifest {
   generator: string;
   tests: GeneratedTest[];
   skipped: Skip[];
+  /**
+   * Deterministic adversarial findings, stamped by the §3.12 review stage after
+   * generation (R-131). Absent on a manifest that was never reviewed. Typed
+   * structurally here: the finding shape is owned by `@registry/adversary`.
+   */
+  adversarial?: { findings: object[] };
 }
 
 export interface ArtifactFile {

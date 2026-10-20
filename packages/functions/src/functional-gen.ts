@@ -21,7 +21,14 @@ import {
   type ContractInput,
   type RequirementInput,
 } from '@registry/functest';
-import { API_MAP } from '@registry/core';
+import { API_MAP, compareNatural } from '@registry/core';
+import {
+  reviewFunctional,
+  DEFAULT_MUTATION_THRESHOLD,
+  type CriticCache,
+  type CriticClient,
+  type CriticPlanResult,
+} from '@registry/adversary';
 import { repository, type CatalogEntry, type RequirementRecord, type FunctionalJobRecord } from './repository.js';
 import { log, redact } from './log.js';
 
@@ -32,7 +39,7 @@ import { log, redact } from './log.js';
  * overridable per-stage via `BEDROCK_MODEL_ID` without a code change (D-55).
  */
 export const MODEL_ID = process.env.BEDROCK_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
-export const PROMPT_VERSION = 'v1';
+export const PROMPT_VERSION = 'v3';
 
 /** The repository surface the job needs (injected so it is offline-testable). */
 export interface FunctionalGenRepo {
@@ -43,6 +50,27 @@ export interface FunctionalGenRepo {
   putFunctionalArtifacts(jobId: string, artifacts: unknown): Promise<string>;
   getCachedPlan(inputHash: string): Promise<unknown>;
   putCachedPlan(inputHash: string, plan: unknown): Promise<void>;
+  /** Critic-result cache (§3.12, R-142). Optional: without it, results are cached for one job only. */
+  getCachedCritic?(key: string): Promise<CriticPlanResult | undefined>;
+  putCachedCritic?(key: string, result: CriticPlanResult): Promise<void>;
+}
+
+/** §3.11 static-mutation threshold (D-77), from the worker env; falls back to the default on a bad value. */
+export function mutationThreshold(raw = process.env.ADVERSARIAL_MUTATION_THRESHOLD): number {
+  const n = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : DEFAULT_MUTATION_THRESHOLD;
+}
+
+/** Adapt the repo's S3-backed critic store to `CriticCache` (R-142), or a per-job memory cache. */
+export function repoCriticCache(repo: FunctionalGenRepo): CriticCache {
+  if (repo.getCachedCritic && repo.putCachedCritic) {
+    return {
+      get: (k) => repo.getCachedCritic!(k),
+      set: (k, v) => repo.putCachedCritic!(k, v),
+    };
+  }
+  const m = new Map<string, CriticPlanResult>();
+  return { get: async (k) => m.get(k), set: async (k, v) => void m.set(k, v) };
 }
 
 /** Build the generator inputs from the CURRENT catalog snapshot (R-116). */
@@ -90,7 +118,8 @@ export async function runFunctionalJob(
   jobId: string,
   repo: FunctionalGenRepo,
   llm: LlmClient,
-  clock: { now(): string }
+  clock: { now(): string },
+  critic?: CriticClient
 ): Promise<FunctionalJobRecord> {
   const base: FunctionalJobRecord = {
     jobId,
@@ -104,24 +133,44 @@ export async function runFunctionalJob(
     log.info('functional.start', { jobId });
 
     const inputs = await buildFunctionalInputs(repo);
-    const { plans, skipped } = await generateFunctionalPlans(inputs, llm, repoPlanCache(repo));
+    const { plans, skipped: groundingSkips, contexts } = await generateFunctionalPlans(inputs, llm, repoPlanCache(repo));
+
+    // Adversarial review BEFORE persisting (R-127): render the candidates, attack
+    // them, withhold any plan with a deterministic Critical (R-129), then render
+    // only the kept plans. The critic is report-only (R-130) and isolated (R-141).
+    const review = await reviewFunctional(plans, contexts, emitFunctionalTests(plans), {
+      critic,
+      criticCache: repoCriticCache(repo),
+      synthModelId: MODEL_ID,
+      threshold: mutationThreshold(),
+    });
+    const skipped = [...groundingSkips, ...review.withheld.map((w) => ({ requirement: w.requirement, reason: w.reason }))].sort((a, b) =>
+      compareNatural(a.requirement, b.requirement)
+    );
+    log.info('functional.adversarial', {
+      jobId,
+      verdict: review.report.verdict,
+      withheld: review.withheld.length,
+      critic: review.report.critic.status,
+    });
 
     const manifest: FunctionalManifest = {
       manifestVersion: 1,
       generator: FUNCTIONAL_GENERATOR_ID,
       modelId: MODEL_ID,
       promptVersion: PROMPT_VERSION,
-      plans,
+      plans: review.kept,
       skipped,
+      adversarial: review.block,
     };
-    const artifacts = { manifest, files: emitFunctionalTests(plans) };
+    const artifacts = { manifest, files: emitFunctionalTests(review.kept), report: review.report };
     const artifactKey = await repo.putFunctionalArtifacts(jobId, artifacts);
 
     const done: FunctionalJobRecord = {
       ...base,
       status: 'succeeded',
       finishedAt: clock.now(),
-      planCount: plans.length,
+      planCount: review.kept.length,
       skipCount: skipped.length,
       // Persist the catalog context + per-skip reasons on the job record itself
       // (R-124), not just in the S3 artifact manifest, mirroring R-89's run record.
@@ -133,9 +182,10 @@ export async function runFunctionalJob(
       },
       skips: skipped,
       artifactKey,
+      adversarial: { verdict: review.report.verdict, counts: review.report.counts },
     };
     await repo.writeFunctionalJob(done);
-    log.info('functional.done', { jobId, planCount: plans.length, skipCount: skipped.length });
+    log.info('functional.done', { jobId, planCount: review.kept.length, skipCount: skipped.length });
     return done;
   } catch (err) {
     const failed: FunctionalJobRecord = {
@@ -198,8 +248,11 @@ export async function worker(event: { jobId: string }): Promise<void> {
   // Auth is the Lambda role (SigV4) — no secret to read; a Bedrock access/model
   // error surfaces through runFunctionalJob's catch as a `failed` job (R-124).
   const { createBedrockClient } = await import('./llm.js');
+  const { createBedrockCritic } = await import('./critic-llm.js');
   const llm = createBedrockClient(MODEL_ID, process.env.AWS_REGION, PROMPT_VERSION);
-  await runFunctionalJob(event.jobId, repository, llm, { now: () => new Date().toISOString() });
+  // The adversarial critic: a different model (CRITIC_MODEL_ID), same IAM role (R-139).
+  const critic = createBedrockCritic({ region: process.env.AWS_REGION });
+  await runFunctionalJob(event.jobId, repository, llm, { now: () => new Date().toISOString() }, critic);
 }
 
 /** Real dispatch: async-invoke the worker Lambda (name from the SST-bound env). */

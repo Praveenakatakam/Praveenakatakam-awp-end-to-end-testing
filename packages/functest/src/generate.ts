@@ -13,11 +13,12 @@
  * plan skips that ONE requirement with a reason (R-120, NFR-4).
  */
 import { ground, type ApiMapLike, type ContractInput, type GroundedContext, type RequirementInput } from './ground.js';
-import { validatePlan, type FunctionalTestPlan } from './plan.js';
+import { validatePlan, stampPlan, planBodyOf, type FunctionalTestPlan } from './plan.js';
 import { emitFunctionalTest } from './emit.js';
+import { compareCodePoint, compareNatural, type EntityFlows } from '@registry/core';
 
-export type { FunctionalTestPlan, PlanBody, PlanStep, PlanAssertion } from './plan.js';
-export { PLAN_SCHEMA, validatePlan } from './plan.js';
+export type { FunctionalTestPlan, PlanBody, PlanStep, PlanAssertion, PlanTarget, Expected, Role } from './plan.js';
+export { PLAN_SCHEMA, validatePlan, stampPlan, planBodyOf, envStem, PLAN_SCHEMA_VERSION } from './plan.js';
 export * from './ground.js';
 export * from './emit.js';
 
@@ -49,6 +50,8 @@ export interface FunctionalGenInputs {
   apiMap: ApiMapLike;
   modelId: string;
   promptVersion: string;
+  /** Declared entity flows (R-117c); defaults to `ENTITY_FLOWS`. */
+  flows?: EntityFlows;
 }
 
 export interface FunctionalSkip {
@@ -64,6 +67,8 @@ export interface FunctionalManifest {
   promptVersion: string;
   plans: FunctionalTestPlan[];
   skipped: FunctionalSkip[];
+  /** Deterministic adversarial findings stamped by the §3.12 review stage (R-131); absent if never reviewed. */
+  adversarial?: { findings: object[] };
 }
 
 export interface FunctionalArtifactFile {
@@ -82,37 +87,47 @@ export interface FunctionalArtifactSet {
 function planOrder(a: FunctionalTestPlan, b: FunctionalTestPlan): number {
   const ai = a.requirementIds[0] ?? '';
   const bi = b.requirementIds[0] ?? '';
-  return ai.localeCompare(bi, undefined, { numeric: true }) || a.title.localeCompare(b.title);
+  return compareNatural(ai, bi) || compareCodePoint(a.title, b.title);
 }
 
 /**
  * Run the pipeline. Requirements are processed in a stable sorted order so the
  * skip list and any cache-population order are deterministic. Returns the plans
- * (cache-reused or freshly synthesized) and the reasoned skips.
+ * (cache-reused or freshly synthesized), the reasoned skips, and each plan's
+ * grounded context (the adversarial stage checks plans against exactly what the
+ * model was shown, R-133). Contexts are keyed by the requirement's `{source}/{id}`
+ * — two requirements with identical text share an input hash, so the hash alone
+ * would let the second overwrite the first — and also by input hash, for callers
+ * that look a plan up that way.
  */
 export async function generateFunctionalPlans(
   inputs: FunctionalGenInputs,
   llm: LlmClient,
   cache: PlanCache
-): Promise<{ plans: FunctionalTestPlan[]; skipped: FunctionalSkip[] }> {
+): Promise<{ plans: FunctionalTestPlan[]; skipped: FunctionalSkip[]; contexts: Map<string, GroundedContext> }> {
   const plans: FunctionalTestPlan[] = [];
   const skipped: FunctionalSkip[] = [];
+  const contexts = new Map<string, GroundedContext>();
 
-  const requirements = [...inputs.requirements].sort((a, b) =>
-    `${a.source}/${a.id}`.localeCompare(`${b.source}/${b.id}`, undefined, { numeric: true })
-  );
+  const requirements = [...inputs.requirements].sort((a, b) => compareNatural(`${a.source}/${a.id}`, `${b.source}/${b.id}`));
 
   for (const req of requirements) {
     const label = `${req.source}/${req.id}`;
-    const g = ground(req, inputs.contracts, inputs.apiMap, inputs.modelId, inputs.promptVersion);
+    const g = ground(req, inputs.contracts, inputs.apiMap, inputs.modelId, inputs.promptVersion, undefined, inputs.flows);
     if (!g.ok) {
       skipped.push({ requirement: label, reason: g.reason });
       continue;
     }
 
+    contexts.set(label, g.context);
+    contexts.set(g.context.inputHash, g.context);
+    const grounded = { entity: g.context.entity, sources: g.context.sources, publisher: g.context.roles.publisher };
     const cached = await cache.get(g.context.inputHash);
-    if (cached) {
-      plans.push(cached);
+    // A cached plan is reused only if it still passes today's validation: rules added after it was
+    // cached would otherwise never apply to it. A stale one falls through to re-synthesis (R-119).
+    if (cached && validatePlan(planBodyOf(cached), grounded).ok) {
+      // The cache key covers the text, not the id: re-stamp the id for THIS requirement (R-117d, T-59 F-04).
+      plans.push({ ...cached, kind: 'functional', requirementIds: [label] });
       continue;
     }
 
@@ -124,20 +139,20 @@ export async function generateFunctionalPlans(
       continue;
     }
 
-    const v = validatePlan(raw, { entity: g.context.entity, sources: g.context.sources });
+    const v = validatePlan(raw, grounded);
     if (!v.ok) {
       skipped.push({ requirement: label, reason: v.reason });
       continue;
     }
 
-    const plan: FunctionalTestPlan = { ...v.body, inputHash: g.context.inputHash };
+    const plan = stampPlan(v.body, g.context);
     await cache.set(g.context.inputHash, plan);
     plans.push(plan);
   }
 
   plans.sort(planOrder);
-  skipped.sort((a, b) => a.requirement.localeCompare(b.requirement, undefined, { numeric: true }));
-  return { plans, skipped };
+  skipped.sort((a, b) => compareNatural(a.requirement, b.requirement));
+  return { plans, skipped, contexts };
 }
 
 /** Render plans → emitted Vitest files, deterministically (R-122, R-119a). */
@@ -149,9 +164,10 @@ export function emitFunctionalTests(plans: FunctionalTestPlan[]): FunctionalArti
   }));
 }
 
-/** Deterministic file slug from the first requirement id + entity. */
+/** Deterministic file slug from the first requirement's bare id (after its `source/`) + entity (R-117d). */
 function fileSlug(plan: FunctionalTestPlan): string {
-  const id = (plan.requirementIds[0] ?? 'REQ').replace(/[^A-Za-z0-9]+/g, '-');
+  const bare = (plan.requirementIds[0] ?? 'REQ').split('/').pop() || 'REQ';
+  const id = bare.replace(/[^A-Za-z0-9]+/g, '-');
   return `${id}-${plan.trigger.entity}`.toLowerCase();
 }
 

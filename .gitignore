@@ -10,5 +10,11 @@ cdk.out
 .env.*
 .DS_Store
 .idea
-.claude
+.claude/*
+!.claude/skills/
+!.claude/agents/
 .pnpm-store
+# Adversarial review (§3.12): full reports and executed-tier scratch — never committed (R-130, R-144)
+adversarial-reports/
+.adversarial-tmp/
+.adversarial-review/

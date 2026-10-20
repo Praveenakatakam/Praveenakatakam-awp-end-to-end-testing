@@ -7,7 +7,7 @@
       "source": "get-ready",
       "entity": "TaskPublished",
       "contractId": "urn:bawp:get-ready:assignments-api",
-      "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+      "contentHash": "078a5a3b3bf884b2ffc61472fbfd98b39c703e78",
       "declaredVersion": "1.0.0",
       "target": {
         "path": "/api/grdy/assignments/getTasks",
@@ -18,46 +18,54 @@
       "jsonSchema": {
         "type": "object",
         "required": [
-          "description",
-          "duration",
-          "id",
-          "itemTypes",
-          "standards",
-          "title",
-          "totalItemCount",
-          "type"
+          "itemCount",
+          "items",
+          "taskId",
+          "taskType",
+          "title"
         ],
         "properties": {
           "description": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "duration": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "itemCount": {
             "type": "integer"
           },
-          "id": {
-            "type": "string"
-          },
-          "itemTypes": {
-            "type": "array"
+          "items": {
+            "type": "array",
+            "minItems": 1
           },
           "standards": {
-            "type": "array"
+            "type": [
+              "array",
+              "null"
+            ]
           },
-          "title": {
-            "type": "string"
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
           },
-          "totalItemCount": {
-            "type": "integer"
-          },
-          "type": {
+          "taskType": {
             "type": "string",
             "enum": [
-              "practice",
               "quiz",
+              "practice",
               "homework",
               "classwork",
               "assessment"
             ]
+          },
+          "title": {
+            "type": "string"
           }
         },
         "additionalProperties": true
@@ -65,23 +73,23 @@
     },
     {
       "kind": "compat",
-      "entity": "TaskPublished",
+      "entity": "ClassAssignment",
       "publisher": {
-        "source": "create",
-        "contractId": "urn:bawp:create:content-events",
-        "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254",
+        "source": "deliver",
+        "contractId": "urn:bawp:deliver:class-assignment-monitor-api",
+        "contentHash": "97a270748c020010e92d259056da8e45e514fcbb",
         "declaredVersion": "1.0.0"
       },
       "consumer": {
-        "source": "get-ready",
-        "contractId": "urn:bawp:get-ready:assignments-api",
-        "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+        "source": "frontend",
+        "contractId": "urn:bawp:frontend:class-assignment-monitor-consumer",
+        "contentHash": "c8514c64cdfb7ee25553fe5aaa4fc8328d56bddc",
         "declaredVersion": "1.0.0"
       },
       "rule": "consumer-can-read-publisher",
       "consumerRequired": [
         {
-          "name": "description",
+          "name": "assignmentTitle",
           "logicalType": "string"
         },
         {
@@ -93,27 +101,342 @@
           "logicalType": "string"
         },
         {
-          "name": "itemTypes",
-          "logicalType": "array"
-        },
-        {
-          "name": "standards",
-          "logicalType": "array"
-        },
-        {
-          "name": "title",
-          "logicalType": "string"
-        },
-        {
-          "name": "totalItemCount",
+          "name": "registrationCount",
           "logicalType": "integer"
         },
         {
-          "name": "type",
+          "name": "scheduledFor",
+          "logicalType": "string"
+        },
+        {
+          "name": "startedAt",
+          "logicalType": "string"
+        },
+        {
+          "name": "status",
           "logicalType": "string"
         }
       ],
       "publisherProps": [
+        {
+          "name": "assignmentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "assignmentTitle",
+          "logicalType": "string"
+        },
+        {
+          "name": "classAssignmentInfo",
+          "logicalType": "string"
+        },
+        {
+          "name": "classId",
+          "logicalType": "string"
+        },
+        {
+          "name": "className",
+          "logicalType": "string"
+        },
+        {
+          "name": "duration",
+          "logicalType": "integer"
+        },
+        {
+          "name": "id",
+          "logicalType": "string"
+        },
+        {
+          "name": "registrationCount",
+          "logicalType": "integer"
+        },
+        {
+          "name": "scheduledFor",
+          "logicalType": "string"
+        },
+        {
+          "name": "startedAt",
+          "logicalType": "string"
+        },
+        {
+          "name": "status",
+          "logicalType": "string"
+        },
+        {
+          "name": "tenantId",
+          "logicalType": "string"
+        }
+      ]
+    },
+    {
+      "kind": "compat",
+      "entity": "ResultPackage",
+      "publisher": {
+        "source": "deliver",
+        "contractId": "urn:bawp:deliver:result-package",
+        "contentHash": "5be92a0fe024e1ce2ad7ccdd9d9d84e83b62f4fd",
+        "declaredVersion": "1.0.0"
+      },
+      "consumer": {
+        "source": "score",
+        "contractId": "urn:bawp:score:result-package-consumer",
+        "contentHash": "6129a4cf27787d3133a5dbaaff7d5a848702daaf",
+        "declaredVersion": "1.0.0"
+      },
+      "rule": "consumer-can-read-publisher",
+      "consumerRequired": [
+        {
+          "name": "assignmentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "classId",
+          "logicalType": "string"
+        },
+        {
+          "name": "eventId",
+          "logicalType": "string"
+        },
+        {
+          "name": "itemResponses",
+          "logicalType": "array"
+        },
+        {
+          "name": "schemaVersion",
+          "logicalType": "string"
+        },
+        {
+          "name": "sessionId",
+          "logicalType": "string"
+        },
+        {
+          "name": "studentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "taskId",
+          "logicalType": "string"
+        },
+        {
+          "name": "tenantId",
+          "logicalType": "string"
+        }
+      ],
+      "publisherProps": [
+        {
+          "name": "assignmentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "classId",
+          "logicalType": "string"
+        },
+        {
+          "name": "eventId",
+          "logicalType": "string"
+        },
+        {
+          "name": "itemResponses",
+          "logicalType": "array"
+        },
+        {
+          "name": "itemResponses[].itemId",
+          "logicalType": "string"
+        },
+        {
+          "name": "itemResponses[].response",
+          "logicalType": "object"
+        },
+        {
+          "name": "itemResponses[].responseKey",
+          "logicalType": "string"
+        },
+        {
+          "name": "resultsPackageLocation",
+          "logicalType": "string"
+        },
+        {
+          "name": "schemaVersion",
+          "logicalType": "string"
+        },
+        {
+          "name": "sessionId",
+          "logicalType": "string"
+        },
+        {
+          "name": "studentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "taskId",
+          "logicalType": "string"
+        },
+        {
+          "name": "tenantId",
+          "logicalType": "string"
+        }
+      ]
+    },
+    {
+      "kind": "compat",
+      "entity": "StudentTaskScoredEvent",
+      "publisher": {
+        "source": "score",
+        "contractId": "urn:bawp:score:student-scored-task",
+        "contentHash": "6b616339965e84ef21375f414f1869ebb6c06488",
+        "declaredVersion": "1.0.0"
+      },
+      "consumer": {
+        "source": "report",
+        "contractId": "urn:bawp:report:student-scored-task-consumer",
+        "contentHash": "6c4993c4ddfe068685287b3c8571d52a27ff7d92",
+        "declaredVersion": "1.0.0"
+      },
+      "rule": "consumer-can-read-publisher",
+      "consumerRequired": [
+        {
+          "name": "eventId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items",
+          "logicalType": "array"
+        },
+        {
+          "name": "schemaVersion",
+          "logicalType": "string"
+        },
+        {
+          "name": "task",
+          "logicalType": "object"
+        }
+      ],
+      "publisherProps": [
+        {
+          "name": "eventId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items",
+          "logicalType": "array"
+        },
+        {
+          "name": "items[].assignmentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].classId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].comment",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].createdAt",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].itemId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].maxScore",
+          "logicalType": "number"
+        },
+        {
+          "name": "items[].responseKey",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].score",
+          "logicalType": "number"
+        },
+        {
+          "name": "items[].scoredAt",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].sessionId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].status",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].studentId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].taskId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].tenantId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].type",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].updatedAt",
+          "logicalType": "string"
+        },
+        {
+          "name": "schemaVersion",
+          "logicalType": "string"
+        },
+        {
+          "name": "task",
+          "logicalType": "object"
+        }
+      ]
+    },
+    {
+      "kind": "compat",
+      "entity": "TaskPublished",
+      "publisher": {
+        "source": "create",
+        "contractId": "urn:bawp:create:content-events",
+        "contentHash": "506cbbada717c9738f665828c72612d9f8840b2f",
+        "declaredVersion": "1.0.0"
+      },
+      "consumer": {
+        "source": "get-ready",
+        "contractId": "urn:bawp:get-ready:assignments-api",
+        "contentHash": "078a5a3b3bf884b2ffc61472fbfd98b39c703e78",
+        "declaredVersion": "1.0.0"
+      },
+      "rule": "consumer-can-read-publisher",
+      "consumerRequired": [
+        {
+          "name": "itemCount",
+          "logicalType": "integer"
+        },
+        {
+          "name": "items",
+          "logicalType": "array"
+        },
+        {
+          "name": "taskId",
+          "logicalType": "string"
+        },
+        {
+          "name": "taskType",
+          "logicalType": "string"
+        },
+        {
+          "name": "title",
+          "logicalType": "string"
+        }
+      ],
+      "publisherProps": [
+        {
+          "name": "description",
+          "logicalType": "string"
+        },
         {
           "name": "duration",
           "logicalType": "integer"
@@ -129,6 +452,34 @@
         {
           "name": "items",
           "logicalType": "array"
+        },
+        {
+          "name": "items[].answerOptions",
+          "logicalType": "array"
+        },
+        {
+          "name": "items[].itemId",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].itemIndex",
+          "logicalType": "integer"
+        },
+        {
+          "name": "items[].itemType",
+          "logicalType": "string"
+        },
+        {
+          "name": "items[].keys",
+          "logicalType": "array"
+        },
+        {
+          "name": "items[].scoringRule",
+          "logicalType": "object"
+        },
+        {
+          "name": "items[].sectionIndex",
+          "logicalType": "integer"
         },
         {
           "name": "publishedAt",
@@ -173,23 +524,8 @@
     },
     {
       "kind": "compat",
-      "target": "ClassAssignment",
-      "reason": "single-source (deliver only)"
-    },
-    {
-      "kind": "compat",
-      "target": "ResultPackage",
-      "reason": "single-source (deliver only)"
-    },
-    {
-      "kind": "compat",
       "target": "SessionEventDetail",
       "reason": "single-source (get-ready only)"
-    },
-    {
-      "kind": "compat",
-      "target": "StudentTaskScoredEvent",
-      "reason": "single-source (score only)"
     },
     {
       "kind": "conformance",
@@ -208,6 +544,11 @@
     },
     {
       "kind": "conformance",
+      "target": "frontend/urn:bawp:frontend:class-assignment-monitor-consumer",
+      "reason": "no API mapping for entity 'ClassAssignment'"
+    },
+    {
+      "kind": "conformance",
       "target": "get-ready/urn:bawp:get-ready:session-registration",
       "reason": "no API mapping for entity 'SessionEventDetail'"
     },
@@ -218,8 +559,21 @@
     },
     {
       "kind": "conformance",
+      "target": "report/urn:bawp:report:student-scored-task-consumer",
+      "reason": "no API mapping for entity 'StudentTaskScoredEvent'"
+    },
+    {
+      "kind": "conformance",
+      "target": "score/urn:bawp:score:result-package-consumer",
+      "reason": "no API mapping for entity 'ResultPackage'"
+    },
+    {
+      "kind": "conformance",
       "target": "score/urn:bawp:score:student-scored-task",
       "reason": "no API mapping for entity 'StudentTaskScoredEvent'"
     }
-  ]
+  ],
+  "adversarial": {
+    "findings": []
+  }
 }

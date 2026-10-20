@@ -1,0 +1,61 @@
+{
+  "kind": "conformance",
+  "source": "get-ready",
+  "entity": "TaskPublished",
+  "contractId": "urn:bawp:get-ready:assignments-api",
+  "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+  "declaredVersion": "1.0.0",
+  "target": {
+    "path": "/api/grdy/assignments/getTasks",
+    "baseUrlEnv": "GET_READY_API_URL",
+    "tokenEnv": "GET_READY_TOKEN",
+    "recordsAt": ""
+  },
+  "jsonSchema": {
+    "type": "object",
+    "required": [
+      "description",
+      "duration",
+      "id",
+      "itemTypes",
+      "standards",
+      "title",
+      "totalItemCount",
+      "type"
+    ],
+    "properties": {
+      "description": {
+        "type": "string"
+      },
+      "duration": {
+        "type": "integer"
+      },
+      "id": {
+        "type": "string"
+      },
+      "itemTypes": {
+        "type": "array"
+      },
+      "standards": {
+        "type": "array"
+      },
+      "title": {
+        "type": "string"
+      },
+      "totalItemCount": {
+        "type": "integer"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "practice",
+          "quiz",
+          "homework",
+          "classwork",
+          "assessment"
+        ]
+      }
+    },
+    "additionalProperties": true
+  }
+}

@@ -44,6 +44,7 @@ const artifactKey = (runId: string) => `test-artifacts/${runId}/artifacts.json`;
 const fjobPk = (jobId: string) => `FJOB#${jobId}`;
 const fjobArtifactKey = (jobId: string) => `functional-tests/${jobId}/artifacts.json`;
 const planCacheKey = (inputHash: string) => `functional-tests/plan-cache/${inputHash}.json`;
+const criticCacheS3Key = (key: string) => `adversarial/critic-cache/${key}.json`;
 
 export class LockHeldError extends Error {
   override readonly name = 'LockHeldError';
@@ -168,6 +169,14 @@ export interface FunctionalJobRecord {
   skips?: { requirement: string; reason: string }[];
   /** Populated on failure — a redacted, human-readable reason (R-124, NFR-2). */
   error?: string;
+  /** Adversarial review summary (§3.12, R-131, R-143); the full report is in the artifact object. */
+  adversarial?: AdversarialSummary;
+}
+
+/** The {verdict, counts} pair stored on GEN#/FJOB# records (R-131, R-143). */
+export interface AdversarialSummary {
+  verdict: string;
+  counts: Record<string, Record<string, number>>;
 }
 
 class Repository {
@@ -502,6 +511,30 @@ class Repository {
         Bucket: BUCKET,
         Key: planCacheKey(inputHash),
         Body: JSON.stringify(plan),
+        ContentType: 'application/json',
+      })
+    );
+  }
+
+  /** Read a cached critic result by its R-142 key, or undefined on a miss (§3.12, R-142). */
+  async getCachedCritic(key: string): Promise<any | undefined> {
+    try {
+      const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: criticCacheS3Key(key) }));
+      const body = obj.Body ? await (obj.Body as any).transformToString() : undefined;
+      return body ? JSON.parse(body) : undefined;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'NoSuchKey') return undefined;
+      throw err;
+    }
+  }
+
+  /** Persist a successful critic result (failed/unavailable ones are never cached — R-141, R-142). */
+  async putCachedCritic(key: string, result: unknown): Promise<void> {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: criticCacheS3Key(key),
+        Body: JSON.stringify(result),
         ContentType: 'application/json',
       })
     );

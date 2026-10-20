@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "dependencies": {
+    "@registry/adversary": "*",
     "@registry/core": "*",
     "@registry/functest": "*",
     "@registry/testgen": "*"

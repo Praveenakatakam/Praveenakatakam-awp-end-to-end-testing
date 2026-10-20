@@ -87,6 +87,16 @@ export async function crawl(event: APIGatewayProxyEventV2): Promise<APIGatewayPr
   return json(200, run);
 }
 
+/**
+ * The adversarial summary of a run/job, for the response top level (§3.12,
+ * R-143): `{verdict, counts}` from the record plus the full `report` from the
+ * artifact object. Undefined for a run/job that predates the review stage.
+ */
+function adversarialOf(record: { adversarial?: unknown } | undefined, artifacts: { report?: unknown } | undefined) {
+  if (!record?.adversarial) return undefined;
+  return { ...(record.adversarial as object), report: artifacts?.report };
+}
+
 /** GET /test-artifacts — list generation runs newest-first (T-22 · R-90). */
 export async function testArtifacts(_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   return json(200, { runs: await repository.listGenRuns() });
@@ -97,7 +107,7 @@ export async function testArtifactsLatest(_event: APIGatewayProxyEventV2): Promi
   const run = await repository.getLatestGenRun();
   if (!run) return notFound('no generation runs');
   const artifacts = await repository.getArtifacts(run.runId);
-  return json(200, { run, artifacts });
+  return json(200, { run, artifacts, adversarial: adversarialOf(run, artifacts) });
 }
 
 /** GET /test-artifacts/{runId} — one run record + inline artifact set (R-90, R-54). */
@@ -107,7 +117,7 @@ export async function testArtifact(event: APIGatewayProxyEventV2): Promise<APIGa
   const run = await repository.getGenRun(runId);
   if (!run) return notFound(`no generation run ${runId}`);
   const artifacts = await repository.getArtifacts(runId);
-  return json(200, { run, artifacts });
+  return json(200, { run, artifacts, adversarial: adversarialOf(run, artifacts) });
 }
 
 // ---- Functional-test-generation jobs (T-37 · §3.11, R-125) ---------------
@@ -122,7 +132,7 @@ export async function functionalJobLatest(_event: APIGatewayProxyEventV2): Promi
   const job = await repository.getLatestFunctionalJob();
   if (!job) return notFound('no functional-test-generation jobs');
   const artifacts = await repository.getFunctionalArtifacts(job.jobId);
-  return json(200, { job, artifacts });
+  return json(200, { job, artifacts, adversarial: adversarialOf(job, artifacts) });
 }
 
 /** GET /functional-test-jobs/{jobId} — one job record + inline artifact set (R-125, R-126). */
@@ -132,7 +142,7 @@ export async function functionalJob(event: APIGatewayProxyEventV2): Promise<APIG
   const job = await repository.getFunctionalJob(jobId);
   if (!job) return notFound(`no functional-test-generation job ${jobId}`);
   const artifacts = await repository.getFunctionalArtifacts(jobId);
-  return json(200, { job, artifacts });
+  return json(200, { job, artifacts, adversarial: adversarialOf(job, artifacts) });
 }
 
 // ---- Requirements catalog reads (T-30 · §3.10, R-109…R-112) --------------

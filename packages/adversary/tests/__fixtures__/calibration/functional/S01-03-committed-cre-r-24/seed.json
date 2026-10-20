@@ -1,0 +1,18 @@
+{
+  "id": "S01-03",
+  "title": "The committed CRE-R-24 functional test (as of 2026-10-06), verbatim",
+  "provenance": "plan.v1.json and file.generated.test.ts.txt are verbatim copies of generated-tests/functional/{manifest.json plans[0], cre-r-24-taskpublished.generated.test.ts}, refreshed by build-calibration.mjs. The requirement text is RECONSTRUCTED from the committed plan's title and setup (the live catalog text needs AWS access; capture it in T-49).",
+  "requirement": {
+    "source": "create",
+    "id": "CRE-R-24",
+    "text": "WHEN the final (4th) review step of a Task is approved via review.advance, the create service SHALL publish a TaskPublished event with source bawp.create to the create-evb bus, and the get-ready service SHALL make the published Task available through getTasks.",
+    "earsType": "event",
+    "section": "3.2"
+  },
+  "contracts": [
+    { "source": "create", "entity": "TaskPublished", "id": "urn:bawp:create:content-events", "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254", "file": "contracts/taskpublished.create.odcs.yaml" },
+    { "source": "get-ready", "entity": "TaskPublished", "id": "urn:bawp:get-ready:assignments-api", "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93", "file": "contracts/taskpublished.get-ready.odcs.yaml" }
+  ],
+  "planFile": "plan.v1.json",
+  "emittedFile": "file.generated.test.ts.txt"
+}

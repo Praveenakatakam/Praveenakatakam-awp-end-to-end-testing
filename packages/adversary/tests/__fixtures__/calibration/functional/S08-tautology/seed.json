@@ -1,0 +1,15 @@
+{
+  "id": "S08",
+  "title": "A consumer assertion that cannot fail once the read-back succeeded",
+  "provenance": "S05 base plus `id equals payload.taskId`: the read-back record was selected by exactly that equality (matchOn id, matchFrom taskId).",
+  "extends": "S05-event-entity-unmapped-trigger",
+  "addAssertions": [
+    {
+      "service": "consumer",
+      "fieldPath": "id",
+      "operator": "equals",
+      "expected": { "from": "trigger.payload", "path": "taskId" },
+      "clause": "the get-ready service SHALL make the published Task available through getTasks"
+    }
+  ]
+}

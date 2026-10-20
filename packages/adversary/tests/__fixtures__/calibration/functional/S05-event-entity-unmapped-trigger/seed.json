@@ -1,0 +1,56 @@
+{
+  "id": "S05",
+  "title": "trigger.entity names an event; the write path is in no API mapping",
+  "provenance": "v2 rewrite of the committed CRE-R-24 plan's trigger (POST /api/review/advance, entity TaskPublished) over the reconstructed TaskPublished contracts. The request body {taskId, tenantId} is the review.advance request, not the event. This plan is the base the S04/S08/S09 seeds extend.",
+  "requirement": {
+    "source": "create",
+    "id": "CRE-R-24",
+    "text": "WHEN the final (4th) review step of a Task is approved via review.advance, the create service SHALL publish a TaskPublished event with source bawp.create to the create-evb bus, and the get-ready service SHALL make the published Task available through getTasks.",
+    "earsType": "event",
+    "section": "3.2"
+  },
+  "contracts": [
+    { "source": "create", "entity": "TaskPublished", "id": "urn:bawp:create:content-events", "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254", "file": "contracts/taskpublished.create.odcs.yaml" },
+    { "source": "get-ready", "entity": "TaskPublished", "id": "urn:bawp:get-ready:assignments-api", "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93", "file": "contracts/taskpublished.get-ready.odcs.yaml" }
+  ],
+  "plan": {
+    "requirementIds": ["CRE-R-24"],
+    "title": "approving the final review step publishes TaskPublished and get-ready lists the task",
+    "setup": [{ "description": "a Task whose review steps 1-3 are approved, leaving step 4 pending" }],
+    "trigger": {
+      "source": "create",
+      "entity": "TaskPublished",
+      "method": "POST",
+      "path": "/api/review/advance",
+      "payload": { "taskId": "task-calib-0001", "tenantId": "tenant-calib-01" }
+    },
+    "propagation": {
+      "kind": "cdc",
+      "waitFor": "the TaskPublished event to reach get-ready via the create-evb bus",
+      "timeoutSeconds": 120,
+      "pollIntervalSeconds": 10,
+      "readBack": { "service": "consumer", "path": "/api/grdy/assignments/getTasks", "matchOn": "id", "matchFrom": "taskId" }
+    },
+    "assertions": [
+      {
+        "service": "publisher",
+        "fieldPath": "taskId",
+        "operator": "exists",
+        "clause": "the create service SHALL publish a TaskPublished event with source bawp.create to the create-evb bus"
+      },
+      {
+        "service": "consumer",
+        "fieldPath": "title",
+        "operator": "exists",
+        "clause": "the get-ready service SHALL make the published Task available through getTasks"
+      },
+      {
+        "service": "consumer",
+        "fieldPath": "type",
+        "operator": "matchesType",
+        "expected": { "from": "literal", "value": "string" },
+        "clause": "the get-ready service SHALL make the published Task available through getTasks"
+      }
+    ]
+  }
+}

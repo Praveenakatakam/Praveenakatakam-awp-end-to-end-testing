@@ -1,0 +1,101 @@
+{
+  "kind": "compat",
+  "entity": "TaskPublished",
+  "publisher": {
+    "source": "create",
+    "contractId": "urn:bawp:create:content-events",
+    "contentHash": "f9c3a51c653bfa788f94fc2e93311295852fa254",
+    "declaredVersion": "1.0.0"
+  },
+  "consumer": {
+    "source": "get-ready",
+    "contractId": "urn:bawp:get-ready:assignments-api",
+    "contentHash": "72642b9a766cae59a42c69922f0ce62dc0216e93",
+    "declaredVersion": "1.0.0"
+  },
+  "rule": "consumer-can-read-publisher",
+  "consumerRequired": [
+    {
+      "name": "description",
+      "logicalType": "string"
+    },
+    {
+      "name": "duration",
+      "logicalType": "integer"
+    },
+    {
+      "name": "id",
+      "logicalType": "string"
+    },
+    {
+      "name": "itemTypes",
+      "logicalType": "array"
+    },
+    {
+      "name": "standards",
+      "logicalType": "array"
+    },
+    {
+      "name": "title",
+      "logicalType": "string"
+    },
+    {
+      "name": "totalItemCount",
+      "logicalType": "integer"
+    },
+    {
+      "name": "type",
+      "logicalType": "string"
+    }
+  ],
+  "publisherProps": [
+    {
+      "name": "duration",
+      "logicalType": "integer"
+    },
+    {
+      "name": "eventId",
+      "logicalType": "string"
+    },
+    {
+      "name": "itemCount",
+      "logicalType": "integer"
+    },
+    {
+      "name": "items",
+      "logicalType": "array"
+    },
+    {
+      "name": "publishedAt",
+      "logicalType": "string"
+    },
+    {
+      "name": "publishedBy",
+      "logicalType": "string"
+    },
+    {
+      "name": "schemaVersion",
+      "logicalType": "string"
+    },
+    {
+      "name": "standards",
+      "logicalType": "array"
+    },
+    {
+      "name": "taskId",
+      "logicalType": "string"
+    },
+    {
+      "name": "taskType",
+      "logicalType": "string"
+    },
+    {
+      "name": "tenantId",
+      "logicalType": "string"
+    },
+    {
+      "name": "title",
+      "logicalType": "string"
+    }
+  ]
+}

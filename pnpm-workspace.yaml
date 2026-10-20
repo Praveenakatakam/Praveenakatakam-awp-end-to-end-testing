@@ -43,6 +43,8 @@ overrides:
   'sst>kysely': 0.28.17
   tmp: 0.2.6
   undici: 6.27.0
+  # jsdom 29 (web tests) requires undici ^7.25.0; the global 6.27.0 pin above stays for everything else.
+  'jsdom>undici': 7.30.0
   uuid: 11.1.1
   yaml: 2.8.3
 patchedDependencies:

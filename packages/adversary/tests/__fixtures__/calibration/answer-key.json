@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "frozen": "2026-10-07",
+  "note": "`expect` lists findings that MUST be found (at least these; extra findings are allowed except where `forbid` says otherwise). Matching is by attack + rule + severity on the seed's target. `critic` entries are measured only in the live calibration (T-49); the offline suite checks `expect` and `forbid` only.",
+  "seeds": [
+    {
+      "seed": "clean",
+      "kind": "functional",
+      "path": "functional/clean",
+      "tag": "control",
+      "expect": [],
+      "forbid": [{ "severity": "Critical" }, { "severity": "Major" }]
+    },
+    {
+      "seed": "S01-03",
+      "kind": "functional",
+      "path": "functional/S01-03-committed-cre-r-24",
+      "tag": "deterministic",
+      "d80": [1, 2, 3],
+      "expect": [
+        { "attack": "vacuity", "rule": "R-134a", "severity": "Critical" },
+        { "attack": "vacuity", "rule": "R-134b", "severity": "Critical" },
+        { "attack": "vacuity", "rule": "R-134c", "severity": "Critical" },
+        { "attack": "vacuity", "rule": "R-134d", "severity": "Critical" },
+        { "attack": "vacuity", "rule": "R-134e", "severity": "Critical" },
+        { "attack": "grounding", "rule": "R-133d", "severity": "Critical" },
+        { "attack": "grounding", "rule": "R-133e", "severity": "Major" },
+        { "attack": "mutation", "rule": "R-136", "severity": "Critical" }
+      ]
+    },
+    {
+      "seed": "S04",
+      "kind": "functional",
+      "path": "functional/S04-absent-fieldpath",
+      "tag": "deterministic",
+      "d80": [4],
+      "expect": [{ "attack": "grounding", "rule": "R-133a", "severity": "Critical" }]
+    },
+    {
+      "seed": "S05",
+      "kind": "functional",
+      "path": "functional/S05-event-entity-unmapped-trigger",
+      "tag": "deterministic+critic",
+      "d80": [5],
+      "expect": [
+        { "attack": "grounding", "rule": "R-133e", "severity": "Major" },
+        { "attack": "grounding", "rule": "R-133b", "severity": "Major" }
+      ],
+      "forbid": [{ "severity": "Critical" }],
+      "critic": ["trigger.entity TaskPublished is an event, not an entity the review.advance request writes"]
+    },
+    {
+      "seed": "S06",
+      "kind": "testgen",
+      "path": "testgen/S06-publisher-consumer",
+      "tag": "deterministic",
+      "d80": [6],
+      "expect": [{ "attack": "mutation", "rule": "R-135", "severity": "Critical", "targetKind": "generator", "mutant": "M1" }]
+    },
+    {
+      "seed": "create-get-ready",
+      "kind": "testgen",
+      "path": "testgen/create-get-ready",
+      "tag": "control",
+      "expect": [],
+      "forbid": [{ "attack": "mutation" }]
+    },
+    {
+      "seed": "S07",
+      "kind": "conformance",
+      "path": "testgen/S07-conformance-empty",
+      "tag": "deterministic",
+      "d80": [7],
+      "expect": [{ "attack": "vacuity", "rule": "R-134h", "severity": "Major" }]
+    },
+    {
+      "seed": "S08",
+      "kind": "functional",
+      "path": "functional/S08-tautology",
+      "tag": "deterministic",
+      "d80": [8],
+      "expect": [{ "attack": "vacuity", "rule": "R-134g", "severity": "Major" }]
+    },
+    {
+      "seed": "S09",
+      "kind": "functional",
+      "path": "functional/S09-semantic-swap",
+      "tag": "critic",
+      "d80": [9],
+      "expect": [],
+      "forbid": [{ "severity": "Critical" }],
+      "critic": ["consumer description is asserted equal to the payload tenantId; a task description is not a tenant id"]
+    }
+  ]
+}

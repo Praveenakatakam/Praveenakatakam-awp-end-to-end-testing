@@ -1,0 +1,424 @@
+version: 1.0.0
+apiVersion: v3.1.0
+kind: DataContract
+id: urn:bawp:get-ready:assignments-api
+name: Get Ready Assignments tRPC API
+status: active
+tenant: bawp
+domain: get-ready
+
+description:
+  purpose: >-
+    Teacher-facing assignment management API. Served as a tRPC router by the
+    get-ready-assignments BFF. Source of truth for schema: packages/get-ready-contracts.
+    Procedures: getAssignments, getClasses, getTasks, getTask, getAssignmentSummary,
+    getAssignment, getAssignmentStudents, createAssignment.
+    The TaskPublished schema in this contract mirrors the Create domain's TaskPublished
+    event (create.content-events.odcs.yaml) — Get Ready projects the subset of fields
+    required for assignment scheduling and the teacher task browser.
+  usage: "Internal. allowedConsumers: [frontend]"
+
+servers:
+  - server: get-ready-trpc-api
+    type: api
+    location: https://api.bawp.internal/get-ready/trpc
+    environment: production
+  - server: get-ready-assignments-db
+    type: custom
+    description: DynamoDB table owned by gr-config-assignments storing assignments, classes, and student records.
+    environment: production
+  - server: get-ready-evb
+    type: custom
+    description: AWS EventBridge bus carrying Session and Registration events (see get-ready.session-registration contract).
+    environment: production
+    stream: "{cell}-{env}-cell-shd-{rs}-get-ready-evb"
+  - server: create-evb
+    type: custom
+    description: >-
+      Upstream Create domain EventBridge bus. Get Ready consumes TaskPublished events
+      from here to populate its local task catalog (proposed — see create.content-events contract).
+    environment: production
+    stream: "{cell}-{env}-cell-shd-{rs}-create-evb"
+
+schema:
+  - name: TaskPublished
+    logicalType: object
+    description: >-
+      A teacher-created task that has completed the four-step review workflow and
+      reached `ready` status in create-server. Shape mirrors TaskPublished in
+      create.content-events.odcs.yaml — Get Ready projects a subset of those fields
+      needed for assignment scheduling and the teacher task browser.
+    properties:
+      - name: taskId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: uuid
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.taskId in create.content-events.
+      - name: title
+        logicalType: string
+        required: true
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.title (field name unchanged).
+      - name: taskType
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [quiz, practice, homework, classwork, assessment]
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.taskType in create.content-events.
+      - name: description
+        logicalType: string
+        required: false
+        customProperties:
+          - property: nullable
+            value: "true"
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.description (field name unchanged).
+      - name: duration
+        logicalType: integer
+        required: false
+        description: Minutes. Nullable when not yet set.
+        customProperties:
+          - property: nullable
+            value: "true"
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.duration. Coerce undefined → null.
+      - name: itemCount
+        logicalType: integer
+        required: true
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.itemCount in create.content-events.
+      - name: items
+        logicalType: array
+        required: true
+        description: >-
+          Projected subset of TaskPublishedItem objects from create.content-events.
+          Get Ready uses itemType to derive the displayed item-type summary (FRQ/MCQ).
+        logicalTypeOptions:
+          minItems: 1
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.items (field name unchanged).
+      - name: standards
+        logicalType: array
+        required: false
+        customProperties:
+          - property: nullable
+            value: "true"
+        transformSourceObjects:
+          - create-evb
+        transformDescription: Sourced from TaskPublished.standards. Coerce undefined → null.
+
+  - name: TeacherClass
+    logicalType: object
+    description: A class visible to the teacher. Output of getClasses.
+    properties:
+      - name: id
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          minLength: 1
+      - name: name
+        logicalType: string
+        required: true
+      - name: period
+        logicalType: string
+        required: false
+      - name: studentCount
+        logicalType: integer
+        required: false
+
+  - name: TestOptions
+    logicalType: object
+    description: Options controlling how a student experiences a test.
+    properties:
+      - name: scoreResultVisibility
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [hidden, partial, full]
+      - name: resumeAfterExiting
+        logicalType: boolean
+        required: true
+
+  - name: SubmissionStats
+    logicalType: object
+    description: >-
+      Aggregate submission and scoring statistics for an AssignmentClass.
+      Present when the getAssignments or getAssignment procedure is called with
+      `expand: ["submissionStats"]`.
+    properties:
+      - name: submittedCount
+        logicalType: integer
+        required: true
+      - name: scoredCount
+        logicalType: integer
+        required: true
+      - name: averageScore
+        logicalType: number
+        required: true
+        customProperties:
+          - property: nullable
+            value: "true"
+
+  - name: AssignmentClass
+    logicalType: object
+    description: A class-level view of an assignment within AssignmentSummary.classes.
+    properties:
+      - name: classId
+        logicalType: string
+        required: true
+        relationships:
+          - to: TeacherClass.id
+      - name: className
+        logicalType: string
+        required: true
+      - name: period
+        logicalType: string
+        required: true
+      - name: studentCount
+        logicalType: integer
+        required: true
+      - name: windowOpen
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: windowClose
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: classAssignmentStatus
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [not_started, in_progress, needs_scoring, scored]
+      - name: allowedActions
+        logicalType: array
+        required: true
+        description: "Allowed values per element: edit, remove, monitor, score, results"
+      - name: submissionStats
+        logicalType: object
+        required: false
+        description: >-
+          SubmissionStats object. Present only when expanded via
+          `expand: ["submissionStats"]` on getAssignments/getAssignment.
+
+  - name: AssignmentSummary
+    logicalType: object
+    description: Top-level assignment summary. Output of getAssignments and getAssignmentSummary.
+    properties:
+      - name: assignmentId
+        logicalType: string
+        required: true
+        relationships:
+          - to: AssignmentDetail.assignmentId
+          - to: deliver.class-assignment-monitor-api.odcs.yaml#schema/ClassAssignment/properties/assignmentId
+      - name: assignmentName
+        logicalType: string
+        required: true
+      - name: classes
+        logicalType: array
+        required: true
+        description: Array of AssignmentClass objects.
+
+  - name: AssignmentDetail
+    logicalType: object
+    description: >-
+      Detailed assignment view for a specific class. Output of getAssignment.
+      Extends AssignmentClass with assignment identifiers and optionally testOptions.
+    properties:
+      - name: assignmentId
+        logicalType: string
+        required: true
+      - name: assignmentName
+        logicalType: string
+        required: true
+      - name: classId
+        logicalType: string
+        required: true
+      - name: className
+        logicalType: string
+        required: true
+      - name: period
+        logicalType: string
+        required: true
+      - name: studentCount
+        logicalType: integer
+        required: true
+      - name: windowOpen
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: windowClose
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: classAssignmentStatus
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [not_started, in_progress, needs_scoring, scored]
+      - name: allowedActions
+        logicalType: array
+        required: true
+        description: "Allowed values per element: edit, remove, monitor, score, results"
+      - name: submissionStats
+        logicalType: object
+        required: false
+        description: SubmissionStats object. Present only when expanded.
+      - name: testOptions
+        logicalType: object
+        required: false
+        description: TestOptions object. Present when available.
+
+  - name: AssignmentStudent
+    logicalType: object
+    description: >-
+      A single student row for the Students tab on the Assignment Details page.
+      Assembled by the Assignments BFF by merging the Manifest roster with
+      Delivery per-student submissionStatus and resolving taskTime from the Config
+      session config for the associated session. Output of getAssignmentStudents.
+    properties:
+      - name: studentId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          minLength: 1
+        transformSourceObjects:
+          - get-ready-evb
+        transformDescription: Sourced from Registration events on get-ready-evb (see get-ready.session-registration contract).
+        relationships:
+          - to: get-ready.session-registration.odcs.yaml#schema/RegistrationEventDetail/properties/registration
+          - to: deliver.class-assignment-monitor-api.odcs.yaml#schema/Registration/properties/id
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+          - property: classification
+            value: confidential-pii
+      - name: firstName
+        logicalType: string
+        required: true
+        transformSourceObjects:
+          - get-ready-evb
+        transformDescription: Sourced from Registration events on get-ready-evb.
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+      - name: lastName
+        logicalType: string
+        required: true
+        transformSourceObjects:
+          - get-ready-evb
+        transformDescription: Sourced from Registration events on get-ready-evb.
+        customProperties:
+          - property: pii
+            value: "true"
+          - property: studentData
+            value: "true"
+      - name: submissionStatus
+        logicalType: string
+        required: true
+        quality:
+          - type: library
+            metric: invalidValues
+            mustBe: 0
+            arguments:
+              validValues: [NOT_STARTED, READY_TO_START, NOT_PRESENT, IN_PROGRESS, SUBMITTED, NEEDS_HELP, SCORED]
+      - name: taskTime
+        logicalType: integer
+        required: true
+        description: Allocated task time in minutes. Null when not yet resolved.
+        transformSourceObjects:
+          - get-ready-assignments-db
+        transformDescription: Resolved from session config in gr-config-assignments DynamoDB.
+        customProperties:
+          - property: nullable
+            value: "true"
+
+  - name: CreateAssignmentInput
+    logicalType: object
+    description: Input to the createAssignment mutation.
+    properties:
+      - name: assignmentName
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          minLength: 1
+      - name: taskId
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          minLength: 1
+      - name: windowOpen
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: windowClose
+        logicalType: string
+        required: true
+        logicalTypeOptions:
+          format: date-time
+      - name: taskTime
+        logicalType: integer
+        required: true
+        logicalTypeOptions:
+          minimum: 1
+      - name: classes
+        logicalType: array
+        required: true
+        description: Array of objects with required classId (string). minItems 1.
+      - name: testOptions
+        logicalType: object
+        required: true
+        description: See TestOptions schema.
+
+  - name: CreateAssignmentOutput
+    logicalType: object
+    description: Output of the createAssignment mutation.
+    properties:
+      - name: assignmentId
+        logicalType: string
+        required: true
+
+team:
+  name: Get-Ready Domain
+  members:
+    - username: data-contracts-guild-get-ready
+      role: owner
+
+customProperties:
+  - property: noticePeriod
+    value: P30D
