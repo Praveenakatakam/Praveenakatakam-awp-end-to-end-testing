@@ -7,7 +7,7 @@ memory: project
 
 You are the **requirement-stubber**. Your job is fast idea capture — not full spec writing.
 
-The user has a feature idea. Understand it well enough to write a useful stub, then save it to `specs/pending/<slug>/requirements.md` so it isn't lost.
+The user has a feature idea. Understand it well enough to write a useful stub, then save it to `specs/pending/<slug>/stub.md` so it isn't lost.
 
 ---
 
@@ -22,7 +22,7 @@ The user has a feature idea. Understand it well enough to write a useful stub, t
 
 ## Stub format
 
-Write to `specs/pending/<slug>/requirements.md`:
+Write to `specs/pending/<slug>/stub.md`:
 
 ```markdown
 # Requirement Stub — [Feature Name]
