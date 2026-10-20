@@ -17,7 +17,7 @@ For anything non-trivial, run the five-item checklist in `specs/docs/sdd/fit-che
 ## Phase 1 — Intake
 
 First, check if the user referenced a pending stub (e.g., "use the stub for X" or provided a slug). If so:
-- Read `specs/pending/<slug>/requirements.md`
+- Read `specs/pending/<slug>/stub.md`
 - Summarize what the stub captured and any open questions it flagged
 - Ask the user to confirm, correct, or add to it before proceeding to Phase 2
 - Skip asking for the feature idea — you already have it
