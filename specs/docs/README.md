@@ -1,6 +1,6 @@
 # docs/
 
-Agent-facing reference documentation. Each file is intentionally small — load only what you need.
+Agent-facing (LLM-oriented) reference documentation. Human-facing docs live in the root `README.md` and `docs/`. Each file is intentionally small — load only what you need.
 
 ## Index
 

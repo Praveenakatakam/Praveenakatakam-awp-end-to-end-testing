@@ -136,7 +136,7 @@ After the last task, before the feature is called done or a PR is opened:
 1. Run `/health-check <slug>` (HC-1 through HC-5). Show the report.
 2. Reconcile every drift item — no exceptions, no "later".
 3. For UI work: run the app and check the rendered result against the requirements (screenshot or browser). Passing DOM tests do not prove the layout works.
-4. Update docs: affected `specs/docs/` files (system-design, data-model, integrations) and `specs/registry.yaml`.
+4. Launch `tech-writer` to update docs: human-facing `README.md` and `docs/`, agent-facing reference in `specs/docs/` (system-design, data-model, integrations), and `specs/registry.yaml`. Show its Flagged items alongside the doc changes.
 5. **Stop. Show the health report and doc changes. Wait for approval before archiving the spec.**
 
 ---

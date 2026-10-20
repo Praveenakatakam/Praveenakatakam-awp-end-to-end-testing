@@ -126,13 +126,14 @@ Output: a short verified-pass list or list of bugs requiring a fix
 
 ## Stage 7 — Technical Writer
 
-**Agent: `tech-writer`** → no dedicated agent file; run by the main conversation in `/start-feature` Phase 7 (close-out)
+**Agent: `tech-writer`** → `.claude/agents/tech-writer.md` (launched in `/start-feature` Phase 7 close-out)
 
 Updates documentation after a feature ships.
 
 Responsibilities:
-- Update `specs/docs/` files affected by the new feature (system-design, data-model, integrations)
-- Update `docs/` human-facing documentation (README, system map, etc.)
+- Update `specs/docs/` agent-facing reference files affected by the new feature (system-design, data-model, integrations) — terse, LLM-oriented
+- Update human-facing documentation (`README.md`, `docs/` diagrams) — narrative, written for people
+- Keep the two trees separate: never put tutorials/diagrams in `specs/docs/` or agent lookup tables in `README.md`/`docs/`
 - Update `specs/registry.yaml` — move completed specs to `archive`, add `needed_by`/`depends_on` links
 - Files should stay under ~200 lines — split if needed, update the README/index
 
