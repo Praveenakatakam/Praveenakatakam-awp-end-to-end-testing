@@ -2,7 +2,7 @@
 
 A reference AWS application that **discovers, validates, catalogs, and serves Open Data Contract Standard (ODCS v3.1.0) data contracts** by crawling two sibling repositories on demand — [`awp-odcs-publishing`](https://github.com/collegeboard-personal/awp-odcs-publishing) (publisher) and [`awp-odcs-consuming`](https://github.com/collegeboard-personal/awp-odcs-consuming) (consumer) — via the GitHub API.
 
-Each repo carries its own copy of four OneRoster v1.2 contracts (`org`, `user`, `class`, `enrollment`); the copies have **diverged**. The registry catalogs **both variants as-is** and makes that divergence visible and queryable. Built with **Spec-Driven Development** — see [`specs/`](specs/README.md) for the full SDD structure. Core spec: [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) (the oracle).
+Each repo carries its own copy of four OneRoster v1.2 contracts (`org`, `user`, `class`, `enrollment`); the copies have **diverged**. The registry catalogs **both variants as-is** and makes that divergence visible and queryable. Built with **Spec-Driven Development** — see [`specs/`](specs/README.md) for the full SDD structure. New to the workflow? Open [`docs/sdd-start-feature.html`](docs/sdd-start-feature.html) for a visual walkthrough of `/start-feature`. Core spec: [`specs/active/odcs-contract-registry/requirements.md`](specs/active/odcs-contract-registry/requirements.md) (the oracle).
 
 ## Architecture
 
