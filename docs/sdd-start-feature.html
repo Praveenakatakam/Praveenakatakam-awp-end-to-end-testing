@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>/start-feature — Spec-Driven Development with Claude Code</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-2: #131a24;
+    --card: #17202c;
+    --card-2: #1c2734;
+    --line: #2a3747;
+    --text: #e6edf3;
+    --muted: #9aa8b8;
+    --accent: #7c9cff;
+    --accent-2: #4fd1c5;
+    --gate: #f6ad55;
+    --ok: #68d391;
+    --pink: #f687b3;
+    --radius: 16px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  code, .mono { font-family: var(--mono); font-size: .92em; }
+  code { background: #ffffff10; padding: .1em .4em; border-radius: 6px; }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(12px);
+    background: #0d1117cc;
+    border-bottom: 1px solid var(--line);
+  }
+  nav .inner {
+    max-width: 1180px; margin: 0 auto; padding: .8rem 1.5rem;
+    display: flex; gap: 1.6rem; align-items: center; flex-wrap: wrap;
+  }
+  nav .brand { font-weight: 700; color: var(--text); font-family: var(--mono); }
+  nav a.link { color: var(--muted); font-size: .92rem; }
+  nav a.link:hover { color: var(--text); }
+
+  /* ---------- hero ---------- */
+  header.hero {
+    position: relative; overflow: hidden;
+    padding: 6rem 1.5rem 5rem;
+    text-align: center;
+    background:
+      radial-gradient(900px 400px at 15% 0%, #7c9cff33, transparent 60%),
+      radial-gradient(800px 400px at 85% 10%, #4fd1c533, transparent 60%),
+      var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    display: inline-block; font-family: var(--mono); font-size: .8rem;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent-2); border: 1px solid #4fd1c555; border-radius: 999px;
+    padding: .3rem .9rem; margin-bottom: 1.4rem;
+  }
+  h1 {
+    font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1.05; margin: 0 0 1.2rem;
+    letter-spacing: -.02em;
+  }
+  h1 .grad {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lede { max-width: 760px; margin: 0 auto; color: var(--muted); font-size: 1.2rem; }
+  .pills { display: flex; gap: .7rem; justify-content: center; flex-wrap: wrap; margin-top: 2.2rem; }
+  .pill {
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: .5rem 1rem; font-size: .92rem;
+  }
+  .pill b { color: var(--accent-2); }
+
+  /* ---------- sections ---------- */
+  section { max-width: 1180px; margin: 0 auto; padding: 5rem 1.5rem 1rem; }
+  .sec-head { margin-bottom: 2.2rem; }
+  .sec-head .num { font-family: var(--mono); color: var(--accent); font-size: .85rem; letter-spacing: .1em; }
+  h2 { font-size: clamp(1.8rem, 3.5vw, 2.5rem); margin: .3rem 0 .6rem; letter-spacing: -.01em; }
+  .sec-head p { color: var(--muted); max-width: 760px; margin: 0; font-size: 1.08rem; }
+
+  /* ---------- pipeline strip ---------- */
+  .strip {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: .5rem;
+    position: relative;
+  }
+  .strip .step {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1rem .8rem; text-align: center; position: relative;
+    transition: transform .15s ease, border-color .15s ease;
+  }
+  .strip .step:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .strip .step .n { font-family: var(--mono); font-size: .75rem; color: var(--muted); }
+  .strip .step .t { font-weight: 650; font-size: .95rem; margin-top: .2rem; }
+  .strip .step .g {
+    position: absolute; top: -9px; right: -6px; width: 20px; height: 20px;
+    background: var(--gate); color: #1a1205; border-radius: 6px; transform: rotate(45deg);
+    display: grid; place-items: center; font-size: .7rem; font-weight: 800;
+  }
+  .strip .step .g span { transform: rotate(-45deg); }
+  .bands { display: grid; grid-template-columns: 5fr 1fr 2fr; gap: .5rem; margin-top: .7rem; }
+  .band { border-radius: 8px; padding: .45rem .8rem; font-size: .8rem; font-family: var(--mono); text-align: center; }
+  .band.spec { background: #7c9cff1f; color: var(--accent); border: 1px solid #7c9cff44; }
+  .band.code { background: #4fd1c51f; color: var(--accent-2); border: 1px solid #4fd1c544; }
+  .band.ship { background: #f687b31f; color: var(--pink); border: 1px solid #f687b344; }
+  .legend { display: flex; gap: 1.4rem; margin-top: 1.2rem; color: var(--muted); font-size: .9rem; flex-wrap: wrap; }
+  .legend .dia { display: inline-block; width: 12px; height: 12px; background: var(--gate); border-radius: 3px; transform: rotate(45deg); margin-right: .5rem; vertical-align: -1px; }
+
+  /* ---------- terminal ---------- */
+  .run-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem; }
+  .term {
+    background: #0a0e14; border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; box-shadow: 0 10px 40px #00000055;
+  }
+  .term .bar { display: flex; gap: .4rem; padding: .7rem 1rem; background: #111821; border-bottom: 1px solid var(--line); align-items: center; }
+  .term .bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term .bar i:nth-child(1) { background: #ff5f57; } .term .bar i:nth-child(2) { background: #febc2e; } .term .bar i:nth-child(3) { background: #28c840; }
+  .term .bar span { margin-left: .6rem; color: var(--muted); font-size: .8rem; font-family: var(--mono); }
+  .term pre { margin: 0; padding: 1.1rem 1.2rem; font-family: var(--mono); font-size: .88rem; white-space: pre-wrap; color: #c9d4e0; }
+  .term .p { color: var(--accent-2); }
+  .term .c { color: #6b7a8c; }
+  .term .y { color: var(--gate); }
+  .term-desc { padding: 0 1.2rem 1.2rem; color: var(--muted); font-size: .95rem; }
+  .term-desc b { color: var(--text); }
+
+  /* ---------- phase cards ---------- */
+  .phases { position: relative; display: grid; gap: 1.4rem; }
+  .phases::before {
+    content: ""; position: absolute; left: 31px; top: 20px; bottom: 20px; width: 2px;
+    background: linear-gradient(var(--accent), var(--accent-2), var(--pink));
+    opacity: .5;
+  }
+  .phase { display: grid; grid-template-columns: 64px 1fr; gap: 1.2rem; align-items: start; }
+  .phase .dot {
+    width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
+    font-family: var(--mono); font-weight: 800; font-size: 1.3rem;
+    background: var(--card-2); border: 2px solid var(--accent); color: var(--accent);
+    position: relative; z-index: 1;
+  }
+  .phase.code .dot { border-color: var(--accent-2); color: var(--accent-2); }
+  .phase.ship .dot { border-color: var(--pink); color: var(--pink); }
+  .phase .body {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.5rem 1.6rem;
+  }
+  .phase h3 { margin: 0 0 .3rem; font-size: 1.35rem; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
+  .phase .tag { font-size: .72rem; font-family: var(--mono); padding: .2rem .55rem; border-radius: 6px; font-weight: 600; letter-spacing: .03em; }
+  .tag.agent { background: #7c9cff22; color: var(--accent); border: 1px solid #7c9cff55; }
+  .tag.human { background: #68d39122; color: var(--ok); border: 1px solid #68d39155; }
+  .tag.par { background: #4fd1c522; color: var(--accent-2); border: 1px solid #4fd1c555; }
+  .phase .why { color: var(--muted); margin: 0 0 1rem; }
+  .cols { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.4rem; }
+  .phase ul { margin: 0; padding-left: 1.1rem; }
+  .phase li { margin: .3rem 0; }
+  .phase li::marker { color: var(--accent); }
+  .side { display: grid; gap: .7rem; align-content: start; }
+  .box { border-radius: 12px; padding: .8rem 1rem; font-size: .92rem; }
+  .box .lbl { font-family: var(--mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; display: block; margin-bottom: .25rem; }
+  .box.out { background: #4fd1c512; border: 1px solid #4fd1c540; }
+  .box.out .lbl { color: var(--accent-2); }
+  .box.gate { background: #f6ad5512; border: 1px solid #f6ad5555; }
+  .box.gate .lbl { color: var(--gate); }
+  .box.gate .lbl::before { content: "◆ "; }
+
+  /* ---------- per-task loop ---------- */
+  .loop {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1rem;
+  }
+  .loop .l {
+    background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; padding: 1rem;
+    position: relative;
+  }
+  .loop .l .k { font-family: var(--mono); font-size: .75rem; color: var(--accent-2); }
+  .loop .l b { display: block; margin: .2rem 0 .3rem; }
+  .loop .l p { margin: 0; font-size: .88rem; color: var(--muted); }
+  .loop .l:not(:nth-child(4n))::after {
+    content: "→"; position: absolute; right: -.85rem; top: 50%; transform: translateY(-50%);
+    color: var(--accent-2); font-weight: 800;
+  }
+  .loop .l.g { border-color: #f6ad5577; }
+  .loop .l.g .k { color: var(--gate); }
+  .phase-end {
+    margin-top: 1rem; padding: .9rem 1.1rem; border-radius: 12px; border: 1px dashed var(--accent-2);
+    color: var(--muted); font-size: .92rem;
+  }
+  .phase-end b { color: var(--accent-2); }
+
+  /* ---------- artifacts ---------- */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+  .tree {
+    background: #0a0e14; border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.4rem 1.6rem; font-family: var(--mono); font-size: .92rem; line-height: 1.9;
+    white-space: pre; overflow-x: auto;
+  }
+  .tree .d { color: var(--accent); }
+  .tree .f { color: var(--text); }
+  .tree .n { color: #6b7a8c; }
+  .ids { display: grid; gap: .8rem; }
+  .id {
+    display: grid; grid-template-columns: 90px 1fr; gap: 1rem; align-items: center;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .9rem 1.1rem;
+  }
+  .id .code { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; color: var(--accent-2); }
+  .id p { margin: 0; color: var(--muted); font-size: .93rem; }
+  .id p b { color: var(--text); }
+
+  /* ---------- agents ---------- */
+  .agents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .agent {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.2rem 1.3rem;
+    transition: border-color .15s ease;
+  }
+  .agent:hover { border-color: var(--accent); }
+  .agent .name { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+  .agent .when { font-size: .75rem; font-family: var(--mono); color: var(--muted); margin: .15rem 0 .5rem; }
+  .agent p { margin: 0; font-size: .93rem; color: #c3cfdb; }
+
+  /* ---------- rules ---------- */
+  .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .rule {
+    border-radius: var(--radius); padding: 1.4rem;
+    background: linear-gradient(160deg, var(--card-2), var(--card));
+    border: 1px solid var(--line);
+  }
+  .rule .ico { font-size: 1.6rem; }
+  .rule h4 { margin: .5rem 0 .4rem; font-size: 1.08rem; }
+  .rule p { margin: 0; color: var(--muted); font-size: .93rem; }
+
+  /* ---------- docs split ---------- */
+  .docs { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+  .doc {
+    border-radius: var(--radius); padding: 1.6rem 1.7rem;
+    background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--accent);
+  }
+  .doc.agentdoc { border-top-color: var(--accent-2); }
+  .doc .who { font-family: var(--mono); font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  .doc.agentdoc .who { color: var(--accent-2); }
+  .doc h3 { margin: .3rem 0 .8rem; font-size: 1.35rem; }
+  .doc .where { font-family: var(--mono); font-size: 1.05rem; margin-bottom: 1rem; }
+  .doc .where code { background: #ffffff14; padding: .2em .55em; }
+  .doc ul { margin: 0; padding-left: 1.1rem; color: #c3cfdb; }
+  .doc li { margin: .35rem 0; }
+  .doc li::marker { color: var(--muted); }
+  .doc .style { margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .93rem; }
+  .docs-note { margin-top: 1.2rem; color: var(--muted); font-size: .95rem; text-align: center; }
+  .docs-note b { color: var(--text); }
+
+  footer {
+    max-width: 1180px; margin: 5rem auto 0; padding: 2rem 1.5rem 3rem;
+    border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+  }
+
+  @media (max-width: 900px) {
+    .docs { grid-template-columns: 1fr; }
+    .strip { grid-template-columns: repeat(4, 1fr); }
+    .bands { display: none; }
+    .run-grid, .two, .cols { grid-template-columns: 1fr; }
+    .agents, .rules { grid-template-columns: 1fr 1fr; }
+    .loop { grid-template-columns: 1fr 1fr; }
+    .loop .l::after { display: none; }
+  }
+  @media (max-width: 560px) {
+    .agents, .rules { grid-template-columns: 1fr; }
+    .phases::before { display: none; }
+    .phase { grid-template-columns: 1fr; }
+  }
+  @media print {
+    nav { display: none; }
+    body { background: #fff; color: #111; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <span class="brand">/start-feature</span>
+    <a class="link" href="#overview">Overview</a>
+    <a class="link" href="#run">How to run</a>
+    <a class="link" href="#phases">Phases</a>
+    <a class="link" href="#artifacts">Artifacts</a>
+    <a class="link" href="#docs">Docs</a>
+    <a class="link" href="#agents">Agents</a>
+    <a class="link" href="#rules">Ground rules</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <span class="eyebrow">Spec-Driven Development · Claude Code</span>
+  <h1>From idea to shipped feature,<br><span class="grad">one approved step at a time.</span></h1>
+  <p class="lede">
+    <code>/start-feature</code> runs a team of specialised AI agents through requirements, design, planning,
+    review, test-first implementation and close-out. You approve each phase before the next one starts.
+  </p>
+  <div class="pills">
+    <span class="pill"><b>8</b> phases</span>
+    <span class="pill"><b>9</b> specialised agents</span>
+    <span class="pill"><b>Tests</b> before code</span>
+    <span class="pill"><b>You</b> approve every gate</span>
+    <span class="pill"><b>Nothing</b> is ever auto-committed</span>
+  </div>
+</header>
+
+<!-- ============ OVERVIEW ============ -->
+<section id="overview">
+  <div class="sec-head">
+    <div class="num">01 — THE BIG PICTURE</div>
+    <h2>The pipeline at a glance</h2>
+    <p>The spec is written first, then the code, then the docs. Each ◆ is an approval gate: Claude stops,
+       shows you what it produced, and waits for your go-ahead.</p>
+  </div>
+
+  <div class="strip">
+    <a href="#p0" class="step"><div class="n">00</div><div class="t">Fit check</div></a>
+    <a href="#p1" class="step"><div class="n">01</div><div class="t">Intake</div></a>
+    <a href="#p2" class="step"><div class="g"><span>◆</span></div><div class="n">02</div><div class="t">Requirements</div></a>
+    <a href="#p3" class="step"><div class="g"><span>◆</span></div><div class="n">03</div><div class="t">Design</div></a>
+    <a href="#p4" class="step"><div class="g"><span>◆</span></div><div class="n">04</div><div class="t">Tasks</div></a>
+    <a href="#p5" class="step"><div class="g"><span>◆</span></div><div class="n">05</div><div class="t">Review</div></a>
+    <a href="#p6" class="step"><div class="g"><span>◆</span></div><div class="n">06</div><div class="t">Build</div></a>
+    <a href="#p7" class="step"><div class="g"><span>◆</span></div><div class="n">07</div><div class="t">Close-out</div></a>
+  </div>
+  <div class="bands">
+    <div class="band spec">spec work · sequential</div>
+    <div class="band code">code · per task</div>
+    <div class="band ship">ship</div>
+  </div>
+  <div class="legend">
+    <span><span class="dia"></span>Approval gate: Claude stops and waits for you</span>
+  </div>
+</section>
+
+<!-- ============ HOW TO RUN ============ -->
+<section id="run">
+  <div class="sec-head">
+    <div class="num">02 — HOW YOU RUN IT</div>
+    <h2>Four commands</h2>
+    <p>Start with an idea, or with a stub you captured earlier. You can stop and resume between any two phases.</p>
+  </div>
+
+  <div class="run-grid">
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>capture an idea for later</span></div>
+<pre><span class="p">❯</span> /stub-requirement export generation results as CSV
+
+<span class="c">  requirement-stubber asks 2–3 questions, then writes</span>
+<span class="c">  →</span> specs/pending/csv-export/requirements.md
+<span class="c">  →</span> specs/registry.yaml  <span class="y">(status: pending)</span></pre>
+      <div class="term-desc"><b>Quick capture.</b> Saves the idea without starting the full process. Good for backlog items and things you think of mid-task.</div>
+    </div>
+
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>start the full flow</span></div>
+<pre><span class="p">❯</span> /start-feature
+<span class="c">  "What's the feature and the user outcome?"</span>
+
+<span class="p">❯</span> /start-feature use the stub for csv-export
+<span class="c">  Summarises the stub + its open questions,</span>
+<span class="c">  asks you to confirm, then begins gap discovery.</span></pre>
+      <div class="term-desc"><b>The main entry point.</b> Starts from a fresh idea or promotes a pending stub into <code>specs/active/</code>.</div>
+    </div>
+
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>pick up where you left off</span></div>
+<pre><span class="p">❯</span> /resume-feature csv-export
+
+<span class="c">  Reads requirements.md, design.md, tasks.md, review.md</span>
+<span class="c">  →</span> "Design approved, tasks.md approved,
+     T-03 done. Next: T-04a tests."</pre>
+      <div class="term-desc"><b>New session, same feature.</b> Works out the current state from the spec files and continues from the last approval gate.</div>
+    </div>
+
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>check alignment any time</span></div>
+<pre><span class="p">❯</span> /health-check csv-export
+<span class="p">❯</span> /health-check csv-export HC-1 HC-2
+
+<span class="c">  Audits spec ↔ design ↔ tests ↔ code (HC-1 – HC-5)</span>
+<span class="c">  →</span> report of mismatches to reconcile</pre>
+      <div class="term-desc"><b>Built into the flow and available on demand.</b> Confirms the requirements, design, tests and code still agree.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PHASES ============ -->
+<section id="phases">
+  <div class="sec-head">
+    <div class="num">03 — WHAT HAPPENS AT EACH STEP</div>
+    <h2>Phase by phase</h2>
+    <p>The <b>orchestrator</b> is the main Claude session. It talks to you, launches the specialist agents and runs the gates.
+       Agents can't ask you questions directly, so the orchestrator relays every assumption and open question to you.</p>
+  </div>
+
+  <div class="phases">
+
+    <div class="phase" id="p0">
+      <div class="dot">00</div>
+      <div class="body">
+        <h3>Fit check <span class="tag human">orchestrator + you</span></h3>
+        <p class="why">Is this worth a spec?</p>
+        <div class="cols">
+          <ul>
+            <li>Trivial change (typo, config tweak, one-liner)? Claude says so and offers to skip the process.</li>
+            <li>Anything bigger goes through a five-item checklist (<code>fit-check.md</code>).</li>
+            <li>If fewer than four items apply, Claude suggests a throwaway prototype first, so you learn before you specify.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Outcome</span>Proceed with the process, prototype first, or skip it</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" id="p1">
+      <div class="dot">01</div>
+      <div class="body">
+        <h3>Intake &amp; gap discovery <span class="tag human">orchestrator + you</span></h3>
+        <p class="why">Surface what hasn't been thought through, before anything is written down.</p>
+        <div class="cols">
+          <ul>
+            <li>Collects the idea, the user outcome, known constraints, and any security or breaking-change implications. If you named a stub, it starts from that.</li>
+            <li><b>Gap discovery:</b> clarifying questions, most important first. These cover edge cases, requirements that could be read two ways (each reading stated), hidden assumptions, and production risks.</li>
+            <li>Claude doesn't ask what the codebase can answer. It looks it up and states it as an assumption you can correct.</li>
+            <li>Any question you can't answer yet becomes an <b>Open Question</b> in the spec.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span>Intake notes, answers and stated assumptions, handed to the planner</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" id="p2">
+      <div class="dot">02</div>
+      <div class="body">
+        <h3>Requirements <span class="tag agent">planner · requirements mode</span></h3>
+        <p class="why">Write down exactly what "done" means, in testable language.</p>
+        <div class="cols">
+          <ul>
+            <li>Writes requirements in <b>EARS</b> format, numbered <code>R-01</code>, <code>R-02</code>…, e.g. <i>"WHEN the user clicks Export, the system SHALL…"</i></li>
+            <li>Adds non-functional requirements, an edge-case table, and a GIVEN / WHEN / THEN test outline for every requirement.</li>
+            <li>Returns its <b>assumptions &amp; ambiguities</b> plus open questions tagged <code>[BLOCKING]</code> / <code>[NON-BLOCKING]</code>.</li>
+            <li>Promotes the pending stub to <code>specs/active/</code> if one was used.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span><code>requirements.md</code></div>
+            <div class="box gate"><span class="lbl">Gate</span>You resolve every <code>[BLOCKING]</code> question. The answers are written back into the spec before approval.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" id="p3">
+      <div class="dot">03</div>
+      <div class="body">
+        <h3>Analysis &amp; design <span class="tag par">repo-analyst ∥ tool-analyst</span> <span class="tag agent">planner · design mode</span></h3>
+        <p class="why">Decide <i>how</i>, based on what already exists in the code and what's available off the shelf.</p>
+        <div class="cols">
+          <ul>
+            <li>Two analysts run <b>in parallel</b>. <code>repo-analyst</code> finds existing patterns and reusable code. <code>tool-analyst</code> researches libraries and services for build-vs-buy.</li>
+            <li>The planner turns their findings into a design: architecture, data model, API surface, and integration boundaries.</li>
+            <li>Every significant choice shows the options and trade-offs, and is recorded as a decision (<code>D-1</code>, <code>D-2</code>…).</li>
+            <li>Every requirement maps to at least one component.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span><code>design.md</code></div>
+            <div class="box gate"><span class="lbl">Gate</span>For each open question, Claude shows which decision resolved it and flags any resolution that was an assumption rather than a fact.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" id="p4">
+      <div class="dot">04</div>
+      <div class="body">
+        <h3>Task planning <span class="tag agent">technical-planner</span></h3>
+        <p class="why">Break the design into small steps, each one reviewable in a single sitting.</p>
+        <div class="cols">
+          <ul>
+            <li>Ordered tasks <code>T-01</code>, <code>T-02</code>…, each with <i>Deps</i>, <i>Satisfies</i> (requirement IDs) and <i>Done when</i> criteria.</li>
+            <li>Every task is paired with a <b>test task</b>: <code>T-03</code> ↔ <code>T-03a</code>.</li>
+            <li>Each task has a named subagent (or "none, because…").</li>
+            <li>Tasks are grouped into <b>phases</b>. Phases run in order; independent tasks within a phase can run in parallel.</li>
+            <li>Every task traces to a requirement, which keeps out scope creep.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span><code>tasks.md</code>, the source of truth for progress</div>
+            <div class="box gate"><span class="lbl">Gate</span>You approve the plan</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase" id="p5">
+      <div class="dot">05</div>
+      <div class="body">
+        <h3>Adversarial review <span class="tag agent">reviewer · pre-implementation</span></h3>
+        <p class="why">Find the holes in the plan while they're still cheap to fix.</p>
+        <div class="cols">
+          <ul>
+            <li>Checks that every requirement has at least one task.</li>
+            <li>Checks that failure modes are handled, not just happy paths.</li>
+            <li>Flags missing test tasks, scope creep, and ambiguity: requirements two developers could read differently, unverified assumptions, open questions left unresolved.</li>
+            <li>Reports only real problems, not style nits.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span>A short list of gaps, or "no blockers found"</div>
+            <div class="box gate"><span class="lbl">Gate</span>Blocking issues are fixed in the spec before any code is written</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase code" id="p6">
+      <div class="dot">06</div>
+      <div class="body">
+        <h3>Implementation, one task at a time <span class="tag agent">test-writer</span> <span class="tag agent">implementer</span> <span class="tag agent">reviewer</span></h3>
+        <p class="why">Tests come from the spec, then code makes them pass. You see every change.</p>
+
+        <div class="loop">
+          <div class="l"><div class="k">1 · DECLARE</div><b>Name the agent</b><p>Says which subagent will do the task, and proposes a split if the task is too big.</p></div>
+          <div class="l"><div class="k">2 · TESTS FIRST</div><b>test-writer</b><p>Writes <code>T-nna</code> tests from the acceptance criteria and confirms they fail for the right reason.</p></div>
+          <div class="l"><div class="k">3 · IMPLEMENT</div><b>implementer</b><p>Writes the smallest change that makes those tests pass. It never edits a test just to get it passing.</p></div>
+          <div class="l g"><div class="k">◆ 4 · GATE</div><b>You review the change</b><p>Summary of what changed. You approve before anything else happens.</p></div>
+          <div class="l"><div class="k">5 · SYNC</div><b>Update the spec</b><p>Deviations or newly found edge cases go back into requirements/design with a <code>D-n</code> entry.</p></div>
+          <div class="l"><div class="k">6 · REVIEW</div><b>reviewer</b><p>Post-implementation check for correctness, ACs and security, appended to <code>review.md</code>.</p></div>
+          <div class="l g"><div class="k">◆ 7 · GATE</div><b>You see the findings</b><p>Approve before the next task starts.</p></div>
+          <div class="l"><div class="k">↻ NEXT</div><b>Next task</b><p>Repeat until the phase's tasks are done.</p></div>
+        </div>
+
+        <div class="phase-end">
+          <b>End of each phase:</b> <code>reviewer</code> runs an alignment check (HC-1 &amp; HC-2) on the requirements that phase covered,
+          and every mismatch is reconciled before the next phase starts.
+        </div>
+      </div>
+    </div>
+
+    <div class="phase ship" id="p7">
+      <div class="dot">07</div>
+      <div class="body">
+        <h3>Health check &amp; close-out <span class="tag agent">/health-check</span> <span class="tag agent">tech-writer</span></h3>
+        <p class="why">Prove that spec, design, tests and code agree, then document what shipped.</p>
+        <div class="cols">
+          <ul>
+            <li><b>Full health check</b> (HC-1 to HC-5) across spec, design, tests and code. Every item is reconciled. Nothing is deferred.</li>
+            <li><b>UI work:</b> Claude runs the app and checks the rendered result against the requirements. Passing DOM tests don't prove the layout works.</li>
+            <li><code>tech-writer</code> updates the human docs (<code>README.md</code>, <code>docs/</code>), the agent reference docs (<code>specs/docs/</code>) and <code>specs/registry.yaml</code>.</li>
+          </ul>
+          <div class="side">
+            <div class="box out"><span class="lbl">Output</span>Health report and updated docs, ready for your PR</div>
+            <div class="box gate"><span class="lbl">Gate</span>You approve before the spec is archived</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ ARTIFACTS ============ -->
+<section id="artifacts">
+  <div class="sec-head">
+    <div class="num">04 — WHAT GETS PRODUCED</div>
+    <h2>The spec folder</h2>
+    <p>Each feature gets its own folder. These files are the feature's memory: they let any session, person or agent pick up the work.</p>
+  </div>
+
+  <div class="two">
+<div class="tree"><span class="d">specs/</span>
+├── <span class="f">registry.yaml</span>          <span class="n"># index of every spec</span>
+├── <span class="d">pending/</span>              <span class="n"># captured ideas (stubs)</span>
+│   └── <span class="d">csv-export/</span>
+│       └── <span class="f">requirements.md</span>
+├── <span class="d">active/</span>               <span class="n"># in progress</span>
+│   └── <span class="d">csv-export/</span>
+│       ├── <span class="f">requirements.md</span>  <span class="n"># Phase 2 · R-nn</span>
+│       ├── <span class="f">design.md</span>        <span class="n"># Phase 3 · D-n</span>
+│       ├── <span class="f">tasks.md</span>         <span class="n"># Phase 4 · T-nn / T-nna</span>
+│       └── <span class="f">review.md</span>        <span class="n"># Phase 6 findings</span>
+└── <span class="d">archive/</span>              <span class="n"># shipped</span></div>
+
+    <div class="ids">
+      <div class="id"><span class="code">R-nn</span><p><b>Requirement.</b> One testable EARS statement, e.g. <i>"IF the export fails, the system SHALL show a retry option."</i></p></div>
+      <div class="id"><span class="code">D-n</span><p><b>Decision.</b> A design choice or spec change, with the options considered and the reason.</p></div>
+      <div class="id"><span class="code">T-nn</span><p><b>Implementation task.</b> Lists the requirements it satisfies and its "done when" criteria.</p></div>
+      <div class="id"><span class="code">T-nna</span><p><b>Paired test task.</b> Written before its <code>T-nn</code>, and always kept next to it in the plan.</p></div>
+      <div class="id"><span class="code">HC-n</span><p><b>Health check.</b> An alignment audit between spec, design, tests and code.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOCS ============ -->
+<section id="docs">
+  <div class="sec-head">
+    <div class="num">05 — WHERE DOCS LIVE</div>
+    <h2>Two audiences, two places</h2>
+    <p>Docs for people and docs for agents live in separate places and are written differently. Never mix them.</p>
+  </div>
+
+  <div class="docs">
+    <div class="doc">
+      <div class="who">For people</div>
+      <h3>Human docs</h3>
+      <div class="where"><code>README.md</code> + <code>docs/</code></div>
+      <ul>
+        <li>Overviews and getting-started guides</li>
+        <li>Architecture explanations</li>
+        <li>Diagrams in <code>docs/diagrams/</code></li>
+      </ul>
+      <div class="style"><b>Style:</b> narrative and explanatory, written for teammates who are new to the area.</div>
+    </div>
+
+    <div class="doc agentdoc">
+      <div class="who">For agents</div>
+      <h3>Agent reference docs</h3>
+      <div class="where"><code>specs/docs/</code></div>
+      <ul>
+        <li>System design, API surface, data model</li>
+        <li>Integration patterns (e.g. Bedrock, GitHub, Cognito)</li>
+        <li>The SDD process docs the agents follow</li>
+      </ul>
+      <div class="style"><b>Style:</b> terse lookup tables and reference files that agents read while they work.</div>
+    </div>
+  </div>
+
+  <p class="docs-note">Most features change both. <b>tech-writer</b> updates each one, in its own style, at close-out (Phase 07).</p>
+</section>
+
+<!-- ============ AGENTS ============ -->
+<section id="agents">
+  <div class="sec-head">
+    <div class="num">06 — THE TEAM</div>
+    <h2>Specialised agents</h2>
+    <p>Each agent has one job, reads only what it needs, and produces one deliverable. The orchestrator coordinates them and talks to you.</p>
+  </div>
+
+  <div class="agents">
+    <div class="agent"><div class="name">requirement-stubber</div><div class="when">/stub-requirement</div><p>Captures an idea as a pending stub with minimal back-and-forth.</p></div>
+    <div class="agent"><div class="name">planner</div><div class="when">phase 02 · phase 03</div><p>Writes EARS requirements, then the design with build/buy analysis and the decisions log.</p></div>
+    <div class="agent"><div class="name">repo-analyst</div><div class="when">phase 03 · read-only</div><p>Finds existing patterns, reusable code and architectural constraints in the codebase.</p></div>
+    <div class="agent"><div class="name">tool-analyst</div><div class="when">phase 03 · read-only</div><p>Researches external libraries, APIs and services, with pros and cons.</p></div>
+    <div class="agent"><div class="name">technical-planner</div><div class="when">phase 04</div><p>Turns the design into ordered, paired tasks grouped into phases.</p></div>
+    <div class="agent"><div class="name">reviewer</div><div class="when">phase 05 · 06 · health checks</div><p>Checks the plan before code, each task after code, and spec/code alignment.</p></div>
+    <div class="agent"><div class="name">test-writer</div><div class="when">phase 06 · step 2</div><p>Writes tests from the spec before the code exists and confirms they fail correctly.</p></div>
+    <div class="agent"><div class="name">implementer</div><div class="when">phase 06 · step 3</div><p>Makes the smallest change that passes the tests, then reports any deviation from the spec.</p></div>
+    <div class="agent"><div class="name">tech-writer</div><div class="when">phase 07</div><p>Updates human docs, agent reference docs and the spec registry.</p></div>
+  </div>
+</section>
+
+<!-- ============ RULES ============ -->
+<section id="rules">
+  <div class="sec-head">
+    <div class="num">07 — GROUND RULES</div>
+    <h2>What holds the process together</h2>
+  </div>
+
+  <div class="rules">
+    <div class="rule"><div class="ico">🧭</div><h4>The spec is the oracle</h4><p>When code and spec disagree, either fix the code or update the spec and record a <code>D-n</code>. A disagreement is never left unresolved.</p></div>
+    <div class="rule"><div class="ico">🔦</div><h4>Surface, don't assume</h4><p>Every assumption, and every choice between readings of a requirement, is called out at the next gate.</p></div>
+    <div class="rule"><div class="ico">🧪</div><h4>Tests first, from the spec</h4><p>Tests come from acceptance criteria, not from code. A test is never changed just to make it pass.</p></div>
+    <div class="rule"><div class="ico">✋</div><h4>You hold the pen</h4><p>Claude stops at every gate and <b>never commits</b>. You review all the code and decide when it goes into git.</p></div>
+    <div class="rule"><div class="ico">🧱</div><h4>Small, traceable steps</h4><p>One task is one reviewable change, and every task traces back to a requirement.</p></div>
+    <div class="rule"><div class="ico">⏭️</div><h4>Escape hatches, used once</h4><p>"Skip review" or "skip tests" is honoured for that one task only, and the skip is noted in <code>tasks.md</code>.</p></div>
+  </div>
+</section>
+
+<footer>
+  <span>Spec-Driven Development with Claude Code · <code>/start-feature</code></span>
+  <span>Start small: <code>/stub-requirement</code> an idea today.</span>
+</footer>
+
+</body>
+</html>
