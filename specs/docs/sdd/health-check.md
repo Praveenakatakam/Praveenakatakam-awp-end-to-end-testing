@@ -113,7 +113,9 @@ Produce a one-page health report for this project covering:
 2. Drift items: count by category (code, test, design, decisions)
 3. Top 3 most urgent fixes needed
 4. Open questions still unresolved in the spec
-5. Recommendation: is this codebase in a healthy state to receive
+5. Docs drift: README.md / docs/ (human-facing) or specs/docs/ (agent-facing)
+   content that no longer matches what shipped
+6. Recommendation: is this codebase in a healthy state to receive
    new feature work, or does cleanup need to happen first?
 
 Be direct. If the project has meaningful drift, say so.

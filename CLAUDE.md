@@ -68,6 +68,11 @@ Before implementing any non-trivial feature, a spec must exist in `specs/active/
 - `tasks.md` is the source of truth for task progress
 - The spec is the oracle: if code and spec disagree, fix the code (or update the spec explicitly and record the change in the decisions log)
 
+**Docs placement:**
+- `README.md` + `docs/` — human-facing: overviews, guides, architecture explanations, diagrams (`docs/diagrams/`).
+- `specs/docs/` — LLM/agent-facing: terse reference files the SDD agents look up. Index `specs/docs/README.md`.
+- Don't mix them. Feature changes usually need both, written for each audience. The `tech-writer` agent owns these updates at close-out.
+
 **Commands:**
 - `/stub-requirement <idea>` — fast capture to `specs/pending/` without starting SDD
 - `/start-feature` — full SDD flow from intake through implementation
