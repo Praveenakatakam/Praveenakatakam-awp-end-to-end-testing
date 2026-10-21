@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pros and Cons: Standard vs -update Review Runs</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1f2933; --muted:#5f6b7a; --line:#dde1e7;
+          --accent:#2457c5; --ok:#1a7f4b; --okbg:#e9f6ef; --bad:#b42318; --badbg:#fdecea; --warn:#b45309; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+  header { background:var(--accent); color:#fff; padding:30px 20px; }
+  .wrap, main { max-width:1000px; margin:0 auto; padding:0 20px; }
+  header h1 { margin:0 0 6px; font-size:1.8rem; }
+  header p { margin:0; opacity:.92; }
+  main { padding-top:24px; padding-bottom:40px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:22px 26px; margin-bottom:20px; }
+  h2 { margin:0 0 10px; font-size:1.3rem; }
+  h3 { margin:0 0 6px; font-size:1.05rem; }
+  code { background:#eef0f3; border-radius:4px; padding:1px 5px; font:.88em Consolas,Menlo,monospace; }
+  table { width:100%; border-collapse:collapse; font-size:.94rem; margin:8px 0; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#f0f2f5; }
+  .good { color:var(--ok); font-weight:600; } .bad { color:var(--bad); font-weight:600; } .warn { color:var(--warn); font-weight:600; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:760px) { .cols { grid-template-columns:1fr; } }
+  .run { border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .run h3 { font-size:1.15rem; margin-bottom:2px; }
+  .sub { color:var(--muted); font-size:.88rem; margin:0 0 10px; }
+  .pc { border-radius:8px; padding:10px 14px; margin:10px 0; }
+  .pc h4 { margin:0 0 4px; }
+  .pros { background:var(--okbg); } .pros h4 { color:var(--ok); }
+  .cons { background:var(--badbg); } .cons h4 { color:var(--bad); }
+  ul { padding-left:20px; margin:4px 0; } li { margin:4px 0; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:10px 0; }
+  .kpi { background:#f0f4fc; border-radius:8px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:1.25rem; color:var(--accent); } .kpi span { font-size:.82rem; color:var(--muted); }
+  .note { border-left:4px solid var(--warn); background:#fff7ed; padding:10px 14px; border-radius:4px; margin:12px 0; }
+  .verdict { border:2px solid var(--accent); background:#f0f4fc; border-radius:10px; padding:14px 18px; }
+  footer { color:var(--muted); font-size:.85rem; max-width:1000px; margin:0 auto; padding:0 20px 30px; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Pros and Cons: Standard vs <code style="background:#ffffff33;color:#fff">-update</code> Review Runs</h1>
+  <p>Both agents reviewed the same <code style="background:#ffffff33;color:#fff">generated-tests/</code> on 2026-10-21, with the same blind pass (66 items).</p>
+</div></header>
+
+<main>
+
+<section>
+  <h2>At a glance</h2>
+  <table>
+    <tr><th></th><th>Standard<br><small>reconcile + separate Pass 3</small></th><th><code>-update</code><br><small>reconcile + verify in one agent</small></th></tr>
+    <tr><td>Verdict</td><td class="good">PASS WITH NOTES</td><td class="bad">FAIL (Major)</td></tr>
+    <tr><td>Findings</td><td>0 Critical, 0 Major, 7 Minor</td><td>0 Critical, 4 Major, 3 Minor</td></tr>
+    <tr><td>Pass 3 verdicts</td><td>7 confirmed</td><td>3 confirmed, 1 refuted, 3 unclear</td></tr>
+    <tr><td>Blind items</td><td>59 covered, 7 uncovered</td><td>60 covered, 6 uncovered</td></tr>
+    <tr><td>Needs your decision</td><td>6</td><td>9</td></tr>
+    <tr><td>Citations not found</td><td>9 of 72</td><td>6 of 76</td></tr>
+    <tr><td>Approx. wall time</td><td>13 min + 4 min</td><td>25 min</td></tr>
+  </table>
+  <p>The two runs share almost no findings. The only overlap is that both touched <code>functest/emit.ts</code>, on different lines and issues.</p>
+</section>
+
+<section>
+  <h2>Pros and cons</h2>
+  <div class="cols">
+
+    <div class="run">
+      <h3>Standard run</h3>
+      <p class="sub">Folder: <code>20261021-1029_test_feat-adversarial-agents-cmp-std</code></p>
+      <div class="pc pros"><h4>Pros</h4><ul>
+        <li><b>Independent verification.</b> A fresh agent traced every finding in the code and confirmed all 7. None was refuted or left unclear.</li>
+        <li><b>Well-evidenced findings</b> across testgen, core and functest, each with file and line.</li>
+        <li><b>Extra detail from Pass 3,</b> such as the registry URL gets a trailing-slash strip but the emitted tests' base URLs do not.</li>
+        <li><b>Faster</b> overall, and fewer unverifiable citations.</li>
+        <li>Full accounting of the 66 blind items, with reasons for the 7 uncovered.</li>
+      </ul></div>
+      <div class="pc cons"><h4>Cons</h4><ul>
+        <li><b>No Major or Critical findings,</b> so it may be less aggressive. "PASS WITH NOTES" could be too lenient.</li>
+        <li>Two findings (compat and conformance file collisions, UTF-16 ordering) describe <b>catalog states that don't exist today</b> and no test pins them.</li>
+        <li>Did not look at <code>packages/adversary</code>, where the other run found a confirmed Major.</li>
+        <li>Two separate agents mean two handoffs and more orchestration.</li>
+      </ul></div>
+    </div>
+
+    <div class="run">
+      <h3><code>-update</code> run</h3>
+      <p class="sub">Folder: <code>20261021-1029_test_feat-adversarial-agents-cmp-upd</code></p>
+      <div class="pc pros"><h4>Pros</h4><ul>
+        <li><b>Found a confirmed Major</b> the other run missed: <code>mutate-testgen.ts:71</code> treats "no <code>logicalType</code> on either side" as green, while the emitted test fails (R-84a), so the tiers disagree and the CLI aborts.</li>
+        <li><b>Wider coverage:</b> included <code>packages/adversary</code>, plus a digit-leading env-var syntax error and a hard-coded report tier.</li>
+        <li><b>Refuted its own finding</b> (F-03) and admitted one piece of evidence was overstated.</li>
+        <li><b>More judgement calls surfaced:</b> 9 decision items, including four critic findings it disagrees with and a possible missing validity filter in <code>functional-gen.ts</code>.</li>
+        <li>One agent instead of two.</li>
+      </ul></div>
+      <div class="pc cons"><h4>Cons</h4><ul>
+        <li><b>Only 3 of 7 findings are firmly confirmed.</b> 3 are unclear and 1 is refuted.</li>
+        <li><b>Verdict inflated:</b> finalize counts the refuted Major, so 2 of the 4 Majors are refuted or unclear. FAIL still holds because F-02 is a confirmed Major.</li>
+        <li>Three Majors share one weak premise: a capitalised <code>logicalType</code>, which is ODCS-invalid and which testgen skips.</li>
+        <li><b>Self-verification:</b> the agent checks its own findings, so confirmations are less independent.</li>
+        <li><b>Slowest:</b> about 25 minutes in one agent.</li>
+      </ul></div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>Findings, side by side</h2>
+  <div class="cols">
+    <div>
+      <h3>Standard (7 Minor, all confirmed)</h3>
+      <table>
+        <tr><th>Target</th><th>Defect</th></tr>
+        <tr><td><code>core/src/compare.ts:12</code></td><td>"Code-point" ordering is UTF-16 code-unit ordering (R-88)</td></tr>
+        <tr><td><code>functest/src/emit.ts:101</code></td><td>Test timeout can pass before the "never reflected" diagnostic runs</td></tr>
+        <tr><td><code>functest/src/emit.ts:117</code></td><td>Emitted <code>at()</code> returns <code>null</code>, so a nullable <code>exists</code> can pass</td></tr>
+        <tr><td><code>functest/src/plan.ts:221</code></td><td>Template paths like <code>/{taskId}</code> are fetched literally</td></tr>
+        <tr><td><code>testgen/src/derive-schema.ts:119</code></td><td>Contract with no properties derives to a schema everything passes</td></tr>
+        <tr><td><code>testgen/src/emit.ts:44</code></td><td>Trailing slash in base URL gives <code>//api/...</code></td></tr>
+        <tr><td><code>testgen/src/generate.ts:78</code></td><td>Two contracts for one source and entity overwrite one file</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3><code>-update</code> (4 Major, 3 Minor)</h3>
+      <table>
+        <tr><th>Target</th><th>Defect</th><th>Verdict</th></tr>
+        <tr><td><code>adversary/src/grounding.ts:110</code> (Major)</td><td>Case-sensitive <code>matchesType</code> check</td><td class="warn">UNCLEAR</td></tr>
+        <tr><td><code>adversary/src/mutate-testgen.ts:71</code> (Major)</td><td>Manifest tier and emitted test disagree (R-84a)</td><td class="good">CONFIRMED</td></tr>
+        <tr><td><code>adversary/src/mutate-testgen.ts:106</code> (Major)</td><td>M2 <code>otherType</code> is case-sensitive</td><td class="bad">REFUTED</td></tr>
+        <tr><td><code>functest/src/emit.ts:72</code> (Major)</td><td>Emitted <code>matchesType</code> is case-sensitive</td><td class="warn">UNCLEAR</td></tr>
+        <tr><td>conformance test <code>:79</code></td><td>No per-test timeout (Vitest 5 s default)</td><td class="warn">UNCLEAR</td></tr>
+        <tr><td><code>adversary/src/review.ts:254</code></td><td>Report hard-codes <code>mutation.tier: 'manifest'</code></td><td class="good">CONFIRMED</td></tr>
+        <tr><td><code>functest/src/emit.ts:108</code></td><td>Digit-leading env stem is a syntax error</td><td class="good">CONFIRMED</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Caveats</h2>
+  <div class="note"><b>One run each.</b> Agent differences cannot be separated from run-to-run variation. Two earlier UI runs on this branch gave 10 Minor, then 2 Major and 6 Minor, so the variation is large.</div>
+  <ul>
+    <li><b>No live contracts:</b> both runs used <code>sources: none</code>, so neither compared fields against live contract files.</li>
+    <li><b>No functional tests existed:</b> <code>plans: []</code>, so the unmapped-path and absent-field checks had nothing to run on. Blind items X-19 to X-35 could only be judged against the generator code.</li>
+    <li><b>Blind pass miscount:</b> it said 171 requirement ids, but the manifest has 168. Both runs flagged it.</li>
+    <li><b>Unreconciled overlap:</b> the standard run's F-03 reports a bug in the emitted <code>at()</code>, while the <code>-update</code> run says the nullable <code>exists</code> behaviour follows R-117b. They concern different issues, but the two claims need reconciling.</li>
+  </ul>
+</section>
+
+<section class="verdict">
+  <h2>Recommendation</h2>
+  <ul>
+    <li><b>Default to the standard chain.</b> It is faster and its verdicts are better supported.</li>
+    <li><b>Use <code>-update</code> as a second opinion.</b> It found a different set of Majors, but treat its findings as unverified until a separate Pass 3 checks them.</li>
+    <li><b>Check <code>mutate-testgen.ts:71</code> by hand.</b> It is the one confirmed Major, and only the <code>-update</code> run found it.</li>
+    <li><b>For a firmer answer,</b> repeat each agent 2 to 3 times on the same snapshot and compare how much the findings overlap.</li>
+  </ul>
+</section>
+
+</main>
+<footer>Report only: no tests, generators or generated files were changed. Run folders are in <code>.adversarial-review/</code>.</footer>
+</body>
+</html>
