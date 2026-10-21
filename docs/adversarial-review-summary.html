@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adversarial Test Review: How It Works</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2933; --muted: #5f6b7a;
+    --line: #dde1e7; --accent: #2457c5; --accent-soft: #e8eefb;
+    --ok: #1a7f4b; --warn: #b45309; --bad: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  header { background: var(--accent); color: #fff; padding: 32px 20px; }
+  header .wrap, main, footer { max-width: 920px; margin: 0 auto; padding: 0 20px; }
+  header h1 { margin: 0 0 6px; font-size: 1.9rem; }
+  header p { margin: 0; opacity: .92; }
+  nav { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  nav .wrap { max-width: 920px; margin: 0 auto; padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .9rem; }
+  nav a { color: var(--accent); text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  main { padding-top: 24px; padding-bottom: 40px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 22px 26px; margin-bottom: 20px; }
+  h2 { margin: 0 0 4px; font-size: 1.35rem; }
+  h3 { margin: 18px 0 6px; font-size: 1.02rem; }
+  .step { display: inline-block; background: var(--accent-soft); color: var(--accent);
+          font-weight: 600; font-size: .8rem; border-radius: 999px; padding: 2px 10px; margin-bottom: 6px; }
+  .who { color: var(--muted); font-size: .9rem; margin: 0 0 10px; }
+  ul, ol { padding-left: 22px; margin: 6px 0 10px; }
+  li { margin: 3px 0; }
+  code { background: #eef0f3; border-radius: 4px; padding: 1px 5px; font: .88em Consolas, Menlo, monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: .94rem; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0f2f5; }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 14px 0 4px; }
+  .flow div { flex: 1 1 130px; background: var(--accent-soft); border: 1px solid #c9d6f2; border-radius: 8px;
+              padding: 10px; font-size: .88rem; text-align: center; }
+  .flow b { display: block; color: var(--accent); }
+  .arrow { flex: 0 0 auto !important; background: none !important; border: none !important;
+           align-self: center; padding: 0 !important; min-width: 0; color: var(--muted); font-size: 1.2rem; }
+  .note { border-left: 4px solid var(--warn); background: #fff7ed; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } .arrow { display: none; } }
+  .box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; background: #fafbfc; }
+  .box h4 { margin: 0 0 4px; }
+  footer { color: var(--muted); font-size: .85rem; padding-bottom: 30px; }
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <h1>Adversarial Test Review</h1>
+  <p>How the automated review of generated end-to-end tests works, step by step, and what the 2026-10-21 comparison showed.</p>
+</div></header>
+
+<nav><div class="wrap">
+  <a href="#overview">Overview</a>
+  <a href="#trigger">0 Trigger</a>
+  <a href="#preflight">1 Preflight</a>
+  <a href="#blind">2 Blind</a>
+  <a href="#reconcile">3 Reconcile</a>
+  <a href="#verify">3b Verify</a>
+  <a href="#finalize">4 Finalize</a>
+  <a href="#report">5 Report</a>
+  <a href="#variant">Variant</a>
+  <a href="#comparison">Comparison</a>
+  <a href="#gaps">Known gaps</a>
+</div></nav>
+
+<main>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p>This project generates end-to-end tests with machine-written code. This review is a second opinion on that output. Several AI reviewers work in sequence. Each has a narrow job and sees only some of the material. The goal is to find tests that would stay green while the system is broken, or fail on a correct system.</p>
+  <div class="flow">
+    <div><b>1 Preflight</b>collect safe inputs</div><div class="arrow">&rarr;</div>
+    <div><b>2 Blind</b>what should be tested?</div><div class="arrow">&rarr;</div>
+    <div><b>3 Reconcile</b>what is actually tested?</div><div class="arrow">&rarr;</div>
+    <div><b>3b Verify</b>try to disprove each finding</div><div class="arrow">&rarr;</div>
+    <div><b>4 Finalize</b>rules, audit, verdict</div><div class="arrow">&rarr;</div>
+    <div><b>5 Report</b>to the user</div>
+  </div>
+  <ul>
+    <li>Reviewers run <b>one after another, never in parallel</b>.</li>
+    <li>The review is <b>report only</b>. It never edits tests, generators or generated files, never commits, and never pushes. Only its own run folder is written.</li>
+    <li>Every run writes to <code>.adversarial-review/&lt;timestamp&gt;_test_&lt;branch&gt;/</code>.</li>
+  </ul>
+  <p class="who">Sources: the <code>adversarial-test-review</code> skill, the agent definitions in <code>.claude/agents/</code>, <code>scripts/adversarial-review-finalize.ts</code> and <code>scripts/adversarial-ui/server.ts</code>.</p>
+</section>
+
+<section id="trigger">
+  <span class="step">Step 0</span>
+  <h2>Trigger</h2>
+  <ul>
+    <li><b>From the command line:</b> <code>npm run generate-tests</code> ends with an <code>## ADVERSARIAL REVIEW HANDOFF</code> block. The repo's CLAUDE.md chains the review skill from it.</li>
+    <li><b>From the browser UI:</b> run <code>npm run adversarial-ui</code> and open <code>http://127.0.0.1:4173</code>. The launcher starts <code>claude -p</code> in headless mode with a fixed list of allowed tools. The server does the preflight itself, so the headless run needs no approval for that step.</li>
+  </ul>
+  <div class="note"><b>Why the UI showed "Do you want to approve that command?"</b> A headless run has nobody to answer a permission prompt, so any tool call outside the allowed list stops it. Two read-only commands were added to the list: <code>git blame</code> and <code>git branch --show-current</code>.</div>
+  <h3>Inputs</h3>
+  <table>
+    <tr><th>Input</th><th>Meaning</th><th>Default</th></tr>
+    <tr><td><code>generated_dir</code></td><td>Folder of generated tests</td><td><code>generated-tests</code></td></tr>
+    <tr><td><code>in_product_reports</code></td><td>Reports produced by the generation run</td><td>newest <code>adversarial-reports/&lt;id&gt;/report.json</code>, or none</td></tr>
+    <tr><td><code>run</code>, <code>functional_job</code></td><td>Identifiers shown in the report header</td><td>none</td></tr>
+    <tr><td><code>focus</code></td><td>A requirement, entity or file to look at first</td><td>none</td></tr>
+  </table>
+</section>
+
+<section id="preflight">
+  <span class="step">Step 1</span>
+  <h2>Preflight</h2>
+  <p class="who">Done by the main conversation plus one script.</p>
+  <ol>
+    <li><b>Check there is something to review.</b> <code>generated-tests/manifest.json</code> must exist. If not, stop with "nothing to review - run npm run generate-tests first". This is a manual check, not part of the script.</li>
+    <li><b>Choose the in-product reports.</b> Use the handoff block's value, or on a manual run the newest report by folder name. Drop files that don't exist.</li>
+    <li><b>Create the run folder</b> <code>.adversarial-review/{YYYYMMDD-HHMM}_test_{branch}/</code>. The branch name comes from <code>git branch --show-current</code>, with <code>/</code> replaced by <code>-</code>.</li>
+    <li><b>Extract the "blind-safe" inputs</b> with <code>npx tsx scripts/adversarial-review-finalize.ts blind-inputs {generated_dir} {run_dir}</code>.</li>
+    <li><b>Optionally fetch live sources</b> (contracts and requirement text). This only happens when <code>REGISTRY_API_URL</code> and <code>REGISTRY_TOKEN</code> are set and point at a non-production stage. Otherwise <code>sources</code> is <code>none</code>.</li>
+  </ol>
+  <h3>What the script reads</h3>
+  <div class="grid">
+    <div class="box"><h4><code>generated-tests/manifest.json</code></h4>
+      Each test's entity. For conformance tests: source, contract id, content hash. For compat tests: the same three fields for publisher and consumer. For skipped entries: only the target, <b>never the skip reason</b>.</div>
+    <div class="box"><h4><code>generated-tests/functional/manifest.json</code></h4>
+      The requirement ids from every plan, and the requirement from every skipped entry.</div>
+  </div>
+  <p>Output: requirements, contracts (id and hash), skipped contracts and entities, all sorted. The same data is saved as <code>blind-inputs.json</code> in the run folder. Finalize later uses it to detect whether the generated tests changed during the review.</p>
+  <p>The script does <b>not</b> validate the manifests, verify hashes or check counts, and a missing file is treated as empty.</p>
+</section>
+
+<section id="blind">
+  <span class="step">Step 2</span>
+  <h2>Pass 1: Blind reviewer</h2>
+  <p class="who">Agent <code>adversarial-test-blind</code> &middot; tools: Read, Grep, Glob, Write (no shell) &middot; model: fable</p>
+  <p><b>Job:</b> work out what a correct test <i>should</i> check, without ever seeing the tests. This gives later passes an independent checklist.</p>
+  <div class="grid">
+    <div class="box"><h4 class="good">May read</h4>
+      <ul>
+        <li><code>specs/active/odcs-contract-registry/requirements.md</code>, <code>design.md</code>, <code>acceptance-criteria.md</code></li>
+        <li><code>packages/core/src/api-map.ts</code>, <code>sources.ts</code></li>
+        <li><code>{run_dir}/sources/**</code> (only if fetched)</li>
+      </ul></div>
+    <div class="box"><h4 class="bad">Must never open</h4>
+      <ul>
+        <li><code>generated-tests/**</code></li>
+        <li><code>packages/testgen/**</code>, <code>packages/functest/**</code>, <code>packages/adversary/**</code></li>
+        <li><code>adversarial-reports/**</code></li>
+        <li>other files in <code>.adversarial-review/</code></li>
+      </ul></div>
+  </div>
+  <p>If it opens a forbidden file by accident, it writes only <code>BLIND PASS COMPROMISED</code> and finalize refuses to continue.</p>
+  <h3>Output: <code>expected-behaviours.md</code></h3>
+  <ul>
+    <li>Rows numbered <code>X-01</code>, <code>X-02</code>, and so on. The <code>X-</code> prefix is mandatory.</li>
+    <li>Each row has a side (consumer or generator), the behaviour a correct test must check, a <b>verbatim quote</b> and its location. A row without a quote is left out.</li>
+    <li>Sections: behaviours, generator obligations (R-80..R-93, R-115..R-126, R-117b, R-119b, section 3.12), information gaps, discarded embedded instructions.</li>
+    <li>For skipped contracts it writes what the skip must record.</li>
+    <li>Ends with <code>PASS 1 DONE {count} items</code>.</li>
+  </ul>
+  <p><b>Live contracts:</b> it reads contract content only if <code>sources</code> is set. Otherwise it knows ids and hashes only.</p>
+</section>
+
+<section id="reconcile">
+  <span class="step">Step 3</span>
+  <h2>Pass 2: Reconcile reviewer</h2>
+  <p class="who">Agent <code>adversarial-test-reconcile</code> &middot; tools: Read, Grep, Glob, Bash (read-only), Write &middot; model: fable</p>
+  <p><b>Job:</b> attack the generated tests and the generator code, using the blind checklist as the yardstick.</p>
+  <h3>Reads</h3>
+  <ul>
+    <li><code>expected-behaviours.md</code> first, then everything under <code>generated-tests/</code></li>
+    <li>Generator source: <code>packages/testgen/src/**</code>, <code>packages/functest/src/**</code></li>
+    <li><code>packages/core/src/**</code>, <code>specs/**</code>, each in-product report, and <code>{run_dir}/sources/**</code> if set</li>
+  </ul>
+  <h3>Shell (read-only)</h3>
+  <p><code>git rev-parse --short HEAD</code>, <code>git log -1</code>, <code>npx vitest run &lt;path&gt;</code> and <code>node -e</code> for counting. If <code>node -e</code> is denied once, it must not retry and should count with Grep instead.</p>
+  <h3>Mandatory checks</h3>
+  <table>
+    <tr><th>#</th><th>Check</th><th>Rule</th></tr>
+    <tr><td>0</td><td>Put every blind item <code>X-nn</code> in exactly one list: <code>covered</code> (with the file and line that checks it) or <code>uncovered</code>.</td><td>AR-15</td></tr>
+    <tr><td>1</td><td>Every functional plan's trigger path and read-back path must exist in <code>API_MAP</code>. Each unmapped path is its own <b>Major</b> finding.</td><td>R-133e</td></tr>
+    <tr><td>2</td><td>An assertion on a field absent from the asserting service's contract is <b>Critical</b>, even if the test never runs. With live sources, also check the live contract.</td><td>R-133a</td></tr>
+    <tr><td>3</td><td>Any number it states must be computed (Grep <code>count</code> or command output) and quoted, never estimated.</td><td>-</td></tr>
+    <tr><td>4</td><td>Name the applicable section 3.12 rule in the evidence.</td><td>R-133a-e, R-134a-i, R-135, R-136</td></tr>
+  </table>
+  <h3>Free-form attack</h3>
+  <ul>
+    <li><b>Every generated test:</b> would it pass against a broken system, or fail against a correct one? Is every field, value, env var, path and wait grounded in the contracts and the API map?</li>
+    <li><b>The generators:</b> role assignment, ordering and determinism, cache keys, env-var handling, schema derivation, skip rules.</li>
+    <li><b>The in-product report:</b> for each critic or deterministic finding (<code>A-nn</code>) it believes is wrong, add a "needs your decision" item. Don't repeat ones it agrees with.</li>
+  </ul>
+  <h3>Output: <code>review.raw.json</code></h3>
+  <p>Findings (severity, target file and line, defect, failure scenario, evidence), needs-decision items, covered and uncovered lists. It writes every candidate finding and drops none itself. Ends with <code>PASS 2 DONE {count} findings</code>.</p>
+</section>
+
+<section id="verify">
+  <span class="step">Step 3b</span>
+  <h2>Pass 3: Verify reviewer</h2>
+  <p class="who">Agent <code>adversarial-finding-verify</code> &middot; tools: Read, Grep, Glob, Bash (read-only), Write &middot; skipped only if Pass 2 found nothing</p>
+  <p><b>Job:</b> try to <i>disprove</i> each finding against the real code. Pass 2 is another model and can be wrong.</p>
+  <ul>
+    <li><b>Reads:</b> <code>review.raw.json</code> and any repo file it needs: cited files in full, callers, tests, <code>specs/**</code>. It never reads <code>expected-behaviours.md</code>, so it stays independent of the blind pass.</li>
+    <li><b>Shell:</b> <code>git diff</code>, <code>git show</code>, <code>git log</code>, <code>git blame</code>, <code>git rev-parse</code>, <code>npx vitest run &lt;path&gt;</code>.</li>
+  </ul>
+  <h3>For each finding, in order</h3>
+  <ol>
+    <li>Open the cited code.</li>
+    <li>Check the claim: is the quoted text real, and is the line number right?</li>
+    <li>Try to refute the failure scenario: look for a guard, a validation, a caller that prevents it, an existing test, a spec sentence that makes it correct, or an input that cannot occur.</li>
+    <li>Decide:
+      <ul>
+        <li><span class="good">CONFIRMED</span>: traced to the end and it holds, with a verbatim quote.</li>
+        <li><span class="bad">REFUTED</span>: concrete counter-evidence found.</li>
+        <li><span class="warn">UNCLEAR</span>: could not be traced, or depends on something not visible (live behaviour, requirement text). When in doubt, UNCLEAR.</li>
+      </ul></li>
+  </ol>
+  <p>Output: <code>verification.json</code>, with one entry per finding plus notes. It adds no findings. Ends with <code>PASS 3 DONE {n} verified ({c} confirmed, {r} refuted, {u} unclear)</code>. If <code>review.raw.json</code> is edited afterwards, finalize ignores the older verification.</p>
+</section>
+
+<section id="finalize">
+  <span class="step">Step 4</span>
+  <h2>Finalize</h2>
+  <p class="who">Deterministic script, no AI: <code>npx tsx scripts/adversarial-review-finalize.ts finalize {run_dir}</code></p>
+  <h3>Refuses to continue if</h3>
+  <ul>
+    <li>the blind pass is missing or compromised, or uses a prefix other than <code>X-nn</code></li>
+    <li>the blind file was written after the reconcile pass</li>
+    <li><code>generated-tests</code> changed since the preflight snapshot (AR-16)</li>
+  </ul>
+  <h3>Otherwise it</h3>
+  <ul>
+    <li>runs a <b>citation audit</b> (AR-18) and lists every reference that points at nothing under "Citations not verified"</li>
+    <li>shows Pass 3's verdict beside each finding (AR-19). Refuted findings stay in the table and still count in the verdict</li>
+    <li>applies the <b>posture lint</b>, assigns ids (F-nn, D-nn) and applies the verdict rule</li>
+    <li>accounts for every blind item, and reports any item Pass 2 skipped as "not assessed"</li>
+    <li>writes <code>review.json</code>, <code>review.md</code> and <code>dropped.md</code> (items the lint removed, with reasons)</li>
+  </ul>
+  <p>Never hand-edit <code>review.raw.json</code>.</p>
+</section>
+
+<section id="report">
+  <span class="step">Step 5</span>
+  <h2>Report to the user</h2>
+  <ul>
+    <li>The verdict line, the counts, the "needs your decision" items and the Critical findings (id, target, one-line defect).</li>
+    <li>The "Citations not verified" list and any refuted findings, since they affect how far to trust a finding.</li>
+    <li>Links to <code>review.md</code> (and <code>dropped.md</code> if anything was dropped).</li>
+    <li>No fixes, commits or snapshot restores unless the user asks.</li>
+  </ul>
+</section>
+
+<section id="variant">
+  <h2>Variant: <code>adversarial-test-reconcile-update</code></h2>
+  <ul>
+    <li>Replaces steps 3 and 3b. One agent writes <code>review.raw.json</code> and then <code>verification.json</code> itself, refuting its own findings.</li>
+    <li>Not wired into any skill by default. The UI selects it with <code>variant: 'update'</code>.</li>
+    <li>Extra read-only commands: <code>git diff</code>, <code>git show</code>, <code>git blame</code>.</li>
+    <li><b>Trade-off:</b> one agent instead of two, but its verification is not independent of the agent that raised the findings.</li>
+  </ul>
+</section>
+
+<section id="comparison">
+  <h2>Comparison run, 2026-10-21</h2>
+  <p>Both agents reviewed the same <code>generated-tests/</code>, the same blind pass (66 items), the same in-product report (<code>adversarial-reports/1792004519469-j10h5l/report.json</code>) and <code>sources: none</code>.</p>
+  <ol>
+    <li>Preflight created two run folders: <code>20261021-1029_test_feat-adversarial-agents-cmp-std</code> and <code>...-cmp-upd</code>.</li>
+    <li>Pass 1 ran once, and its output was copied to the second folder.</li>
+    <li>Standard: Pass 2, then Pass 3, then finalize.</li>
+    <li>Update: <code>-update</code> agent, then finalize.</li>
+  </ol>
+  <table>
+    <tr><th></th><th>Standard</th><th><code>-update</code></th></tr>
+    <tr><td>Verdict</td><td class="good">PASS WITH NOTES</td><td class="bad">FAIL (Major)</td></tr>
+    <tr><td>Findings</td><td>0 Critical, 0 Major, 7 Minor</td><td>0 Critical, 4 Major, 3 Minor</td></tr>
+    <tr><td>Pass 3 verdicts</td><td>7 confirmed</td><td>3 confirmed, 1 refuted, 3 unclear</td></tr>
+    <tr><td>Blind items</td><td>59 covered, 7 uncovered</td><td>60 covered, 6 uncovered</td></tr>
+    <tr><td>Needs your decision</td><td>6</td><td>9</td></tr>
+    <tr><td>Citations not found</td><td>9 of 72</td><td>6 of 76</td></tr>
+    <tr><td>Approx. wall time</td><td>13 min + 4 min</td><td>25 min</td></tr>
+  </table>
+  <ul>
+    <li>The two runs share almost no findings. Each agent found things the other did not.</li>
+    <li>The <code>-update</code> verdict is FAIL partly because finalize counts its refuted Major. One confirmed Major remains (<code>packages/adversary/src/mutate-testgen.ts:71</code>).</li>
+    <li>Each agent was run once, so agent differences cannot be separated from run-to-run variation.</li>
+    <li>Both runs found the functional manifest had no plans (<code>plans: []</code>), so the unmapped-path and absent-field checks had nothing to run on.</li>
+  </ul>
+  <p><b>Recommendation:</b> use the standard chain as the default. Use <code>-update</code> as a second opinion and treat its findings as unverified until an independent Pass 3 checks them.</p>
+</section>
+
+<section id="gaps">
+  <h2>Known gaps</h2>
+  <ul>
+    <li>Preflight trusts the manifests and does not count or verify them. The blind pass said 171 requirement ids, but the manifest has 168.</li>
+    <li>With <code>sources: none</code>, neither the blind pass nor Pass 2 sees live contract fields or requirement text.</li>
+    <li>Nothing forces Pass 3 to cite the governing spec requirement or the contract schema.</li>
+    <li>The newest-report default can pick the wrong in-product report (the functest job's, not the testgen run's).</li>
+  </ul>
+</section>
+
+</main>
+<footer>Generated from the repository's skill and agent definitions. Report only: no tests, generators or generated files were changed.</footer>
+</body>
+</html>
