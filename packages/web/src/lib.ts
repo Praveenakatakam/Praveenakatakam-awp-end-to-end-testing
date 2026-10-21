@@ -118,7 +118,7 @@ export interface AdversarialFinding {
 }
 
 export interface AdversarialRunSummary {
-  reviewKind: 'test' | 'code';
+  reviewKind: 'test' | 'code' | 'requirements';
   run_dir: string;
   startedAt: string;
   scope: string;

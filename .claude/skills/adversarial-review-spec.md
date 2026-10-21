@@ -8,6 +8,7 @@ Shared reference for **`adversarial-test-review`** and **`adversarial-code-revie
   |---|---|---|---|
   | `adversarial-test-review` | `adversarial-test-blind` | `adversarial-test-reconcile` | `adversarial-finding-verify` |
   | `adversarial-code-review` | `adversarial-code-blind` | `adversarial-code-reconcile` | `adversarial-finding-verify` |
+  | `adversarial-requirements-review` | `adversarial-requirements-blind` | `adversarial-requirements-reconcile` | `adversarial-finding-verify` |
 
   All five agents run on **fable**, a different model from the code's author (Opus) and from the §3.11 synthesiser (Sonnet). Blind agents have **no shell**. Tasks T-50/T-51 are in `specs/active/odcs-contract-registry/tasks.md`.
 - **Product counterpart:** `specs/active/odcs-contract-registry/requirements.md` §3.12 (the in-product adversarial stage). These skills go deeper than it: they read source code and arbitrary diffs, and they run on the user's request after the CLI has written the tree.
@@ -74,7 +75,7 @@ Aggressively challenge code **before a human reviews it**, and find defects, bro
 
 ```
 .adversarial-review/                     (git-ignored)
-  {YYYYMMDD-HHMM}_{test|code}_{branch}/
+  {YYYYMMDD-HHMM}_{test|code|requirements}_{branch}/
     blind-inputs.json                    ← preflight (test review only): blind-safe inputs snapshot (AR-16)
     sources/                             ← preflight (test review only, optional): live contracts + requirements
     expected-behaviours.md               ← Pass 1 (blind)

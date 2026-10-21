@@ -207,7 +207,7 @@ interface FindingsState {
 }
 
 export function AdversarialView({ api }: { api: Api }) {
-  const [reviewKind, setReviewKind] = useState<'test' | 'code'>('test');
+  const [reviewKind, setReviewKind] = useState<'test' | 'code' | 'requirements'>('test');
   const [runsState, setRunsState] = useState<LoadState>('idle');
   const [runs, setRuns] = useState<AdversarialRunSummary[]>([]);
   const [runsError, setRunsError] = useState('');
@@ -257,6 +257,9 @@ export function AdversarialView({ api }: { api: Api }) {
         </button>
         <button aria-pressed={reviewKind === 'code'} disabled={reviewKind === 'code'} onClick={() => setReviewKind('code')}>
           Code review
+        </button>
+        <button aria-pressed={reviewKind === 'requirements'} disabled={reviewKind === 'requirements'} onClick={() => setReviewKind('requirements')}>
+          Requirements review
         </button>
       </nav>
 
