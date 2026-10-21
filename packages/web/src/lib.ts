@@ -96,6 +96,115 @@ export function groupBySource(entries: Entry[]): SourceGroup[] {
     .sort((a, b) => a.source.localeCompare(b.source));
 }
 
+// --- Adversarial review types and helpers (T-AR-04) ---
+
+export type VerificationStatus = 'ok' | 'stale' | 'invalid' | 'not_run';
+
+export interface FindingVerification {
+  verdict: 'CONFIRMED' | 'REFUTED' | 'UNCLEAR';
+  reason: string;
+  evidence?: string;
+}
+
+export interface AdversarialFinding {
+  id: string;
+  severity: 'Critical' | 'Major' | 'Minor';
+  target: string;
+  defect: string;
+  failureScenario: string;
+  evidence?: string;
+  inProductRef?: string;
+  verification?: FindingVerification;
+}
+
+export interface AdversarialRunSummary {
+  reviewKind: 'test' | 'code';
+  run_dir: string;
+  startedAt: string;
+  scope: string;
+  verdict: string;
+  countCritical: number;
+  countMajor: number;
+  countMinor: number;
+  verificationStatus: VerificationStatus;
+}
+
+export interface AdversarialFindingsResponse {
+  findings: AdversarialFinding[];
+  verificationStatus: VerificationStatus;
+}
+
+const SEVERITY_RANK = { Critical: 0, Major: 1, Minor: 2 } as const;
+
+/** Returns the display verdict for a finding given the run's verification status. */
+export function effectiveVerdict(
+  finding: AdversarialFinding,
+  verificationStatus: VerificationStatus,
+): 'CONFIRMED' | 'REFUTED' | 'UNCLEAR' | 'unverified' {
+  if (verificationStatus === 'ok' && finding.verification) {
+    return finding.verification.verdict;
+  }
+  return 'unverified';
+}
+
+/**
+ * Filter findings by active severity and verdict chip sets.
+ * Filter rule (R-25): show when
+ *   (no severity chip active OR chip matches) AND
+ *   (no verdict chip active OR chip matches effectiveVerdict)
+ */
+export function filterFindings(
+  findings: AdversarialFinding[],
+  severityFilters: Set<string>,
+  verdictFilters: Set<string>,
+  verificationStatus: VerificationStatus,
+): AdversarialFinding[] {
+  return findings.filter((f) => {
+    const severityOk = severityFilters.size === 0 || severityFilters.has(f.severity);
+    const ev = effectiveVerdict(f, verificationStatus);
+    const verdictOk = verdictFilters.size === 0 || verdictFilters.has(ev);
+    return severityOk && verdictOk;
+  });
+}
+
+/** Sort findings by a column. Severity desc (Critical first) when asc=false. Ties break by id natural ascending. */
+export function sortFindings(
+  findings: AdversarialFinding[],
+  col: keyof AdversarialFinding,
+  asc: boolean,
+): AdversarialFinding[] {
+  const naturalCompare = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+  return [...findings].sort((a, b) => {
+    let cmp: number;
+    if (col === 'severity') {
+      // lower rank = higher severity; asc=false (default) = Critical first = rank ascending (no negate)
+      cmp = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+      if (asc) cmp = -cmp;
+    } else {
+      cmp = naturalCompare(String(a[col] ?? ''), String(b[col] ?? ''));
+      if (!asc) cmp = -cmp;
+    }
+    if (cmp === 0) cmp = naturalCompare(a.id, b.id);
+    return cmp;
+  });
+}
+
+/** Format a run selector option label: local time + " — " + scope. */
+export function formatRunLabel(run: AdversarialRunSummary): string {
+  const dt = new Date(run.startedAt);
+  const local = dt.toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return `${local} — ${run.scope}`;
+}
+
 /**
  * Group cataloged requirements by source, then by spec sub-section (R-113).
  * Preserves the order of `reqs` as delivered — the read API returns requirements

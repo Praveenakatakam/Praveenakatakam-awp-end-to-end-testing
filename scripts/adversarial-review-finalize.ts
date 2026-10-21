@@ -23,9 +23,13 @@
  *
  * Read-only on the repo apart from the run folder; never invokes version control.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { POSTURE_PATTERNS } from '@registry/adversary';
 import { compareNatural } from '@registry/core';
 import { auditRun, specIds, type Issue } from './audit-references.js';
@@ -608,30 +612,121 @@ export function blindInputs(generatedDir: string): BlindInputs {
   };
 }
 
+// ---- Upload (T-AR-01) -------------------------------------------------------
+
+/** Resolve bucket/table from env vars (R-6), then .sst/outputs.json fallback. */
+export function resolveAdversarialConfig(): { bucket: string; table: string } {
+  const bucket = process.env['ADVERSARIAL_BUCKET'];
+  const table = process.env['ADVERSARIAL_TABLE'];
+  if (bucket && table) return { bucket, table };
+
+  const outputsPath = join(resolve('.'), '.sst', 'outputs.json');
+  if (!existsSync(outputsPath)) {
+    throw new Error('cannot resolve bucket/table: set ADVERSARIAL_BUCKET and ADVERSARIAL_TABLE, or deploy an SST stage first');
+  }
+  const outputs = JSON.parse(readFileSync(outputsPath, 'utf8')) as Record<string, Record<string, unknown>>;
+  let resolvedBucket: string | undefined;
+  let resolvedTable: string | undefined;
+  for (const stack of Object.values(outputs)) {
+    if (typeof stack['ContractsBucketName'] === 'string') resolvedBucket = stack['ContractsBucketName'];
+    if (typeof stack['RegistryTableName'] === 'string') resolvedTable = stack['RegistryTableName'];
+  }
+  if (!resolvedBucket || !resolvedTable) {
+    throw new Error('ContractsBucketName or RegistryTableName not found in .sst/outputs.json');
+  }
+  return { bucket: resolvedBucket, table: resolvedTable };
+}
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/**
+ * Upload a finalized run folder to S3 + DynamoDB (R-5, R-1a).
+ * Write order: review.json → verification.json (if present) → DynamoDB PutItem.
+ * Idempotent: re-uploading overwrites S3 objects and replaces the DynamoDB item.
+ */
+export async function uploadRun(runDir: string): Promise<void> {
+  const reviewPath = join(runDir, 'review.json');
+  if (!existsSync(reviewPath)) throw new Error(`review.json not found in ${runDir} — run finalize first`);
+
+  const reviewContent = readFileSync(reviewPath, 'utf8');
+  const review = JSON.parse(reviewContent) as FinalReview;
+  const reviewKind = review.skill === 'adversarial-test-review' ? 'test' : 'code';
+  const kindAttr = reviewKind === 'test' ? 'ADVERSARIAL_TEST' : 'ADVERSARIAL_CODE';
+  const runName = basename(resolve(runDir));
+  const reviewSha256 = sha256(reviewContent);
+
+  const { bucket, table } = resolveAdversarialConfig();
+  const s3Client = new S3Client({});
+  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+
+  const prefix = `adversarial-runs/${reviewKind}/${runName}`;
+
+  // R-1a write order: review.json first
+  await s3Client.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}/review.json`, Body: reviewContent, ContentType: 'application/json' }));
+
+  // verification.json next (if present)
+  let verificationSha256: string | undefined;
+  const verPath = join(runDir, 'verification.json');
+  if (existsSync(verPath)) {
+    const verContent = readFileSync(verPath, 'utf8');
+    verificationSha256 = sha256(verContent);
+    await s3Client.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}/verification.json`, Body: verContent, ContentType: 'application/json' }));
+  }
+
+  // DynamoDB PutItem (commit marker — last in write order)
+  const countSev = (s: string) => review.findings.filter((f) => f.severity === s).length;
+  const startedAt = review.pass1WrittenAt ?? review.finalizedAt ?? new Date().toISOString();
+  const verificationStatus = review.verification?.status ?? 'not_run';
+
+  await ddb.send(new PutCommand({
+    TableName: table,
+    Item: {
+      PK: `ADV#${kindAttr}`,
+      SK: runName,
+      kind: kindAttr,
+      reviewKind,
+      startedAt,
+      scope: review.scope,
+      verdict: review.verdict,
+      countCritical: countSev('Critical'),
+      countMajor: countSev('Major'),
+      countMinor: countSev('Minor'),
+      reviewSha256,
+      ...(verificationSha256 ? { verificationSha256 } : {}),
+      verificationStatus,
+    },
+  }));
+}
+
 // ---- CLI -------------------------------------------------------------------
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const [cmd, arg, runDirArg] = process.argv.slice(2);
-  try {
-    if (cmd === 'finalize' && arg) {
-      const r = finalizeRunDir(arg);
-      const sev = (s: string) => r.findings.filter((f) => f.severity === s).length;
-      const a = r.blindAccounting;
-      console.log(
-        `${r.verdict} — Critical ${sev('Critical')} · Major ${sev('Major')} · Minor ${sev('Minor')} · dropped by posture lint ${r.droppedByPostureLint} · unevidenced ${r.findings.filter((f) => f.unevidenced).length} · needs decision ${r.needsDecision.length}` +
-          (a ? ` · blind items ${a.total} (not assessed ${a.notAssessed.length})` : '')
-      );
-      console.log(join(arg, 'review.md'));
-    } else if (cmd === 'blind-inputs') {
-      const generatedDir = arg ?? 'generated-tests';
-      const inputs = runDirArg ? snapshotBlindInputs(generatedDir, runDirArg) : blindInputs(generatedDir);
-      console.log(JSON.stringify(inputs, null, 2));
-    } else {
-      console.error('usage: adversarial-review-finalize.ts finalize <run_dir> | blind-inputs [generated_dir] [run_dir]');
-      process.exit(2);
+  (async () => {
+    const [cmd, arg, runDirArg] = process.argv.slice(2);
+    try {
+      if (cmd === 'finalize' && arg) {
+        const r = finalizeRunDir(arg);
+        const sev = (s: string) => r.findings.filter((f) => f.severity === s).length;
+        const a = r.blindAccounting;
+        console.log(
+          `${r.verdict} — Critical ${sev('Critical')} · Major ${sev('Major')} · Minor ${sev('Minor')} · dropped by posture lint ${r.droppedByPostureLint} · unevidenced ${r.findings.filter((f) => f.unevidenced).length} · needs decision ${r.needsDecision.length}` +
+            (a ? ` · blind items ${a.total} (not assessed ${a.notAssessed.length})` : '')
+        );
+        console.log(join(arg, 'review.md'));
+      } else if (cmd === 'upload' && arg) {
+        await uploadRun(arg);
+        console.log(`uploaded ${basename(resolve(arg))}`);
+      } else if (cmd === 'blind-inputs') {
+        const generatedDir = arg ?? 'generated-tests';
+        const inputs = runDirArg ? snapshotBlindInputs(generatedDir, runDirArg) : blindInputs(generatedDir);
+        console.log(JSON.stringify(inputs, null, 2));
+      } else {
+        console.error('usage: adversarial-review-finalize.ts finalize <run_dir> | upload <run_dir> | blind-inputs [generated_dir] [run_dir]');
+        process.exit(2);
+      }
+    } catch (err) {
+      console.error(`[adversarial-review] ${(err as Error).message}`);
+      process.exit(1);
     }
-  } catch (err) {
-    console.error(`[adversarial-review] ${(err as Error).message}`);
-    process.exit(1);
-  }
+  })();
 }

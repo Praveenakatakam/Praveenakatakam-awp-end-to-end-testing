@@ -28,3 +28,7 @@ process.env.SST_Parameter_value_CONTRACT_PATH_PREFIX ??= 'docs/contracts/';
 // Config.Secrets (sst/node/config) — inline value skips the SSM fetch.
 process.env.SST_Secret_value_REGISTRY_DEMO_PASSWORD ??= 'test-password';
 process.env.SST_Secret_value_GITHUB_TOKEN ??= 'test-github-token';
+
+// Adversarial runs env vars (T-AR-03) — resolved by adversarialRuns.ts at import time.
+process.env.ADVERSARIAL_TABLE ??= 'Registry';
+process.env.ADVERSARIAL_BUCKET ??= 'Contracts';
