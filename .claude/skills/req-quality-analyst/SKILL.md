@@ -17,6 +17,11 @@ Adversarial quality review of software requirements, user stories, and acceptanc
 
 2. If inputs are insufficient to begin analysis (no text, no ticket, no path), ask the user for the requirement text before proceeding.
 
+3. **Missing or empty structured fields (Acceptance Criteria, Tech Notes, Outcome, Environment):** If the input is a ticket or exported issue where these fields are absent or contain only placeholder text (e.g., "Add text", "TBD", blank), do NOT stop analysis. Instead:
+   - Infer requirements from all populated content: Summary/title, Description, comments, attachments referenced, and any dependency links.
+   - Treat each empty structured field as a **HIGH RISK** finding (not a Blocker by itself), unless the absence makes the entire requirement surface unanalysable — in that case raise it as a Blocker only if there is truly nothing substantive to analyse.
+   - Proceed with the full taxonomy, adversarial, and completeness passes on the inferred requirement surface.
+
 ### Step 1a — Input Type Detection (conditional)
 
 After collecting inputs, determine the input type(s):
