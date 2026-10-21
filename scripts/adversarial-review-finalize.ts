@@ -650,14 +650,23 @@ export async function uploadRun(runDir: string): Promise<void> {
 
   const reviewContent = readFileSync(reviewPath, 'utf8');
   const review = JSON.parse(reviewContent) as FinalReview;
-  const reviewKind = review.skill === 'adversarial-test-review' ? 'test' : 'code';
+  const reviewKind = review.skill === 'adversarial-test-review' ? 'test'
+    : review.skill === 'adversarial-requirements-review' ? 'requirements'
+    : 'code';
   const kindAttr = reviewKind === 'test' ? 'ADVERSARIAL_TEST' : 'ADVERSARIAL_CODE';
   const runName = basename(resolve(runDir));
   const reviewSha256 = sha256(reviewContent);
 
   const { bucket, table } = resolveAdversarialConfig();
-  const s3Client = new S3Client({});
-  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  // Use env var credentials directly so the SDK never tries to resolve an MFA-gated profile.
+  const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN } = process.env;
+  if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
+    throw new Error('[adversarial-review] AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set. Export credentials with: aws configure export-credentials --profile <profile> --format json');
+  }
+  const credentials = { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY, sessionToken: AWS_SESSION_TOKEN };
+  const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'us-east-1';
+  const s3Client = new S3Client({ credentials, region });
+  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ credentials, region }));
 
   const prefix = `adversarial-runs/${reviewKind}/${runName}`;
 

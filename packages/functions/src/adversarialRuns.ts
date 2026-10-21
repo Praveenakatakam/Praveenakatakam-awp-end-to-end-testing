@@ -22,13 +22,13 @@ const BUCKET = process.env['ADVERSARIAL_BUCKET']!;
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
 
-const KIND_ATTR: Record<string, string> = { test: 'ADVERSARIAL_TEST', code: 'ADVERSARIAL_CODE' };
+const KIND_ATTR: Record<string, string> = { test: 'ADVERSARIAL_TEST', code: 'ADVERSARIAL_CODE', requirements: 'ADVERSARIAL_REQUIREMENTS' };
 
 /** GET /adversarial-runs?kind={test|code} (R-8, R-35). */
 export async function listAdversarialRuns(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const kind = event.queryStringParameters?.kind;
   const kindAttr = kind ? KIND_ATTR[kind] : undefined;
-  if (!kindAttr) return json(400, { error: 'bad_request', message: 'kind query parameter must be test or code' });
+  if (!kindAttr) return json(400, { error: 'bad_request', message: 'kind query parameter must be test, code, or requirements' });
 
   const result = await ddb.send(
     new QueryCommand({

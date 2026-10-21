@@ -29,9 +29,9 @@ export function createApi(token: string) {
     listCrawls: async () => (await (await req('/crawls')).json()).runs,
     refresh: async () => (await req('/refresh', { method: 'POST' })).json(),
     listRequirements: async (): Promise<RequirementEntry[]> => (await (await req('/requirements')).json()).items,
-    listAdversarialRuns: async (kind: 'test' | 'code'): Promise<AdversarialRunSummary[]> =>
+    listAdversarialRuns: async (kind: 'test' | 'code' | 'requirements'): Promise<AdversarialRunSummary[]> =>
       (await req(`/adversarial-runs?kind=${kind}`)).json(),
-    getAdversarialFindings: async (kind: 'test' | 'code', runDir: string): Promise<AdversarialFindingsResponse> =>
+    getAdversarialFindings: async (kind: 'test' | 'code' | 'requirements', runDir: string): Promise<AdversarialFindingsResponse> =>
       (await req(`/adversarial-runs/${kind}/${runDir}/findings`)).json(),
   };
 }
