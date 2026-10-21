@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { signIn, signOut, currentToken } from './auth.js';
 import { createApi, type Api } from './api.js';
 import { groupByEntity, applyEntityDivergence, groupBySource, groupRequirementsBySection, isWriter, type Entry, type EntityGroup, type RequirementEntry } from './lib.js';
+import { AdversarialView } from './adversarial.js';
 
 function SignIn({ onToken }: { onToken: (t: string) => void }) {
   const [username, setUsername] = useState('');
@@ -231,7 +232,7 @@ export default function App() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selected, setSelected] = useState<{ source: string; id: string } | null>(null);
   const [diff, setDiff] = useState<any>(null);
-  const [view, setView] = useState<'entity' | 'source' | 'requirements'>('entity');
+  const [view, setView] = useState<'entity' | 'source' | 'requirements' | 'adversarial'>('entity');
   const [crawlRunning, setCrawlRunning] = useState(false);
   const [crawlElapsed, setCrawlElapsed] = useState(0);
   const [crawlSummary, setCrawlSummary] = useState<any>(null);
@@ -330,8 +331,13 @@ export default function App() {
         <button aria-pressed={view === 'requirements'} disabled={view === 'requirements'} onClick={() => setView('requirements')}>
           Requirements
         </button>
+        <button aria-pressed={view === 'adversarial'} disabled={view === 'adversarial'} onClick={() => setView('adversarial')}>
+          Adversarial
+        </button>
       </nav>
-      {view === 'requirements' ? (
+      {view === 'adversarial' ? (
+        <AdversarialView api={api!} />
+      ) : view === 'requirements' ? (
         <RequirementsView api={api!} />
       ) : view === 'entity' ? (
         <ul aria-label="by-entity">

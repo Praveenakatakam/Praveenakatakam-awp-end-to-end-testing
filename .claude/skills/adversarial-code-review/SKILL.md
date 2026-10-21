@@ -33,7 +33,7 @@ Run them **one after the other, never in parallel** (AR-02), each as a fresh age
 1. Validate both ends of the range with `git rev-parse --verify`. If either fails, stop and report. **Never fall back to reviewing the whole repo.**
 2. Run `git diff --name-only {range}`. Exclude `generated-tests/**` (that belongs to `adversarial-test-review`) and `pnpm-lock.yaml`, and say so in the report.
 3. If the list is empty, stop and report "no changes in {range}". If the working tree has uncommitted changes, mention that they are **not** in `{range}` and ask whether to review them instead. Don't switch on your own.
-4. Create `run_dir` = `.adversarial-review/{YYYYMMDD-HHMM}_code_{branch}/`.
+4. Create `run_dir` = `.adversarial-review/{YYYYMMDD-HHMM}_code_{branch}/` where every `/` in `{branch}` is replaced with `-` **before** building the path (R-0 — makes `run_dir` a single path segment safe for S3 keys, DynamoDB sort keys, and URL paths; `adversarial-test-review` already does this).
 5. Governing spec ids: for each changed **path**, collect the ids (`R-nnn`, `D-nn`, `NFR-n`, `E-nn`) that `specs/active/odcs-contract-registry/design.md` and `specs/active/odcs-contract-registry/tasks.md` map to it. Use those docs only, never the changed file.
 
 ### Step 2 — Pass 1: `adversarial-code-blind`

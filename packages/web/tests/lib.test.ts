@@ -5,8 +5,14 @@ import {
   groupByEntity,
   groupBySource,
   groupRequirementsBySection,
+  sortFindings,
+  filterFindings,
+  effectiveVerdict,
+  formatRunLabel,
   type Entry,
   type RequirementEntry,
+  type AdversarialFinding,
+  type AdversarialRunSummary,
 } from '../src/lib.js';
 
 // Build a fake JWT with the given payload (header.payload.sig).
@@ -127,5 +133,117 @@ describe('groupRequirementsBySection (T-31 · R-113)', () => {
 
   it('returns an empty list when there are no requirements', () => {
     expect(groupRequirementsBySection([])).toEqual([]);
+  });
+});
+
+// --- Adversarial helpers (T-AR-04 · R-22, R-25, R-27) ---
+
+const f: (overrides: Partial<AdversarialFinding> & Pick<AdversarialFinding, 'id' | 'severity'>) => AdversarialFinding =
+  (o) => ({ target: 'f.ts:1', defect: 'd', failureScenario: 'fs', ...o });
+
+describe('effectiveVerdict (T-AR-04)', () => {
+  const withVerification = f({ id: 'F-01', severity: 'Critical', verification: { verdict: 'CONFIRMED', reason: 'r' } });
+  const withoutVerification = f({ id: 'F-02', severity: 'Major' });
+
+  it('returns the finding verdict when verificationStatus is ok', () => {
+    expect(effectiveVerdict(withVerification, 'ok')).toBe('CONFIRMED');
+  });
+  it('returns unverified when verificationStatus is stale', () => {
+    expect(effectiveVerdict(withVerification, 'stale')).toBe('unverified');
+  });
+  it('returns unverified when verificationStatus is invalid', () => {
+    expect(effectiveVerdict(withVerification, 'invalid')).toBe('unverified');
+  });
+  it('returns unverified when verification field is absent even if status is ok', () => {
+    expect(effectiveVerdict(withoutVerification, 'ok')).toBe('unverified');
+  });
+});
+
+describe('sortFindings (T-AR-04)', () => {
+  const findings: AdversarialFinding[] = [
+    f({ id: 'F-01', severity: 'Minor', verification: { verdict: 'CONFIRMED', reason: 'r' } }),
+    f({ id: 'F-02', severity: 'Critical', verification: { verdict: 'REFUTED', reason: 'r' } }),
+    f({ id: 'F-03', severity: 'Major' }),
+  ];
+  const naturalIds: AdversarialFinding[] = [
+    f({ id: 'F-10', severity: 'Minor' }),
+    f({ id: 'F-9', severity: 'Minor' }),
+    f({ id: 'F-1', severity: 'Minor' }),
+  ];
+
+  it('(a) sorts severity descending (Critical first) by default', () => {
+    const sorted = sortFindings(findings, 'severity', false);
+    expect(sorted.map((x) => x.severity)).toEqual(['Critical', 'Major', 'Minor']);
+  });
+  it('sorts severity ascending (Minor first) when asc=true', () => {
+    const sorted = sortFindings(findings, 'severity', true);
+    expect(sorted.map((x) => x.severity)).toEqual(['Minor', 'Major', 'Critical']);
+  });
+  it('(b) sorts id naturally ascending — F-1 F-9 F-10, not F-1 F-10 F-9', () => {
+    const sorted = sortFindings(naturalIds, 'id', true);
+    expect(sorted.map((x) => x.id)).toEqual(['F-1', 'F-9', 'F-10']);
+  });
+  it('breaks ties by id ascending', () => {
+    const tied = [
+      f({ id: 'F-03', severity: 'Major' }),
+      f({ id: 'F-01', severity: 'Major' }),
+      f({ id: 'F-02', severity: 'Major' }),
+    ];
+    expect(sortFindings(tied, 'severity', false).map((x) => x.id)).toEqual(['F-01', 'F-02', 'F-03']);
+  });
+  it('does not mutate the original array', () => {
+    const orig = [...findings];
+    sortFindings(findings, 'severity', false);
+    expect(findings).toEqual(orig);
+  });
+});
+
+describe('filterFindings (T-AR-04)', () => {
+  const findings: AdversarialFinding[] = [
+    f({ id: 'F-01', severity: 'Critical', verification: { verdict: 'CONFIRMED', reason: 'r' } }),
+    f({ id: 'F-02', severity: 'Critical', verification: { verdict: 'REFUTED', reason: 'r' } }),
+    f({ id: 'F-03', severity: 'Major' }),
+    f({ id: 'F-04', severity: 'Minor', verification: { verdict: 'UNCLEAR', reason: 'r' } }),
+  ];
+
+  it('(c) severity filter=Critical → only Critical rows', () => {
+    const result = filterFindings(findings, new Set(['Critical']), new Set(), 'ok');
+    expect(result.map((x) => x.id)).toEqual(['F-01', 'F-02']);
+  });
+  it('(d) verdict filter=unverified with stale → all findings (all unverified when stale)', () => {
+    const result = filterFindings(findings, new Set(), new Set(['unverified']), 'stale');
+    expect(result).toHaveLength(4);
+  });
+  it('(e) Critical severity + CONFIRMED verdict chips → AND logic: only Critical CONFIRMED', () => {
+    const result = filterFindings(findings, new Set(['Critical']), new Set(['CONFIRMED']), 'ok');
+    expect(result.map((x) => x.id)).toEqual(['F-01']);
+  });
+  it('(f) empty filter sets → all rows', () => {
+    expect(filterFindings(findings, new Set(), new Set(), 'ok')).toHaveLength(4);
+  });
+  it('verdict filter=unverified matches findings with no verification object', () => {
+    const result = filterFindings(findings, new Set(), new Set(['unverified']), 'ok');
+    expect(result.map((x) => x.id)).toEqual(['F-03']);
+  });
+});
+
+describe('formatRunLabel (T-AR-04)', () => {
+  it('formats startedAt in local time with scope appended', () => {
+    const run: AdversarialRunSummary = {
+      reviewKind: 'test',
+      run_dir: '20261021-1430_test_main',
+      startedAt: '2026-10-21T14:30:00Z',
+      scope: 'main',
+      verdict: 'PASS',
+      countCritical: 0,
+      countMajor: 0,
+      countMinor: 0,
+      verificationStatus: 'ok',
+    };
+    const label = formatRunLabel(run);
+    // Label ends with " — main" regardless of local timezone
+    expect(label).toMatch(/— main$/);
+    // Contains date portion from the ISO string
+    expect(label).toMatch(/2026/);
   });
 });

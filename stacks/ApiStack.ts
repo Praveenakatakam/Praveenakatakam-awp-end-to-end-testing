@@ -121,6 +121,47 @@ export function ApiStack({ stack }: StackContext) {
       'GET /requirements': 'packages/functions/src/read.requirements',
       'GET /requirements/{source}': 'packages/functions/src/read.requirementsForSource',
       'GET /requirements/{source}/{id}': 'packages/functions/src/read.requirement',
+      // Adversarial runs (reader). T-AR-02 · R-8, R-9, R-35.
+      // Opts out of defaults.function.bind (D-AR-9): uses explicit env vars + IAM grants.
+      'GET /adversarial-runs': {
+        function: {
+          handler: 'packages/functions/src/adversarialRuns.listAdversarialRuns',
+          bind: [],
+          environment: {
+            ADVERSARIAL_TABLE: registry.tableName,
+            ADVERSARIAL_BUCKET: contracts.bucketName,
+          },
+          permissions: [
+            new PolicyStatement({
+              effect: Effect.ALLOW,
+              actions: ['dynamodb:Query'],
+              resources: [registry.tableArn + '/index/byKind'],
+            }),
+          ],
+        },
+      },
+      'GET /adversarial-runs/{kind}/{run_dir}/findings': {
+        function: {
+          handler: 'packages/functions/src/adversarialRuns.getAdversarialFindings',
+          bind: [],
+          environment: {
+            ADVERSARIAL_TABLE: registry.tableName,
+            ADVERSARIAL_BUCKET: contracts.bucketName,
+          },
+          permissions: [
+            new PolicyStatement({
+              effect: Effect.ALLOW,
+              actions: ['dynamodb:GetItem'],
+              resources: [registry.tableArn],
+            }),
+            new PolicyStatement({
+              effect: Effect.ALLOW,
+              actions: ['s3:GetObject'],
+              resources: [contracts.bucketArn + '/adversarial-runs/*'],
+            }),
+          ],
+        },
+      },
     },
   });
 

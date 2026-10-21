@@ -265,6 +265,15 @@ importers:
 
   scripts:
     dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.600.0
+        version: 3.1095.0
+      '@aws-sdk/client-s3':
+        specifier: ^3.1094.0
+        version: 3.1095.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.600.0
+        version: 3.1095.0(@aws-sdk/client-dynamodb@3.1095.0)
       '@registry/adversary':
         specifier: '*'
         version: link:../packages/adversary
@@ -281,6 +290,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      aws-sdk-client-mock:
+        specifier: ^4.0.1
+        version: 4.1.0
       js-yaml:
         specifier: ^4.1.0
         version: 4.3.0

@@ -15,6 +15,20 @@ active:
     needed_by:
       - prompt-versioning-experiments
 
+  - slug: adversarial-results-ui
+    location: active/adversarial-results-ui/
+    description: >
+      New Adversarial Results tab in the SPA showing adversarial-test-review and
+      adversarial-code-review findings in a filterable, sortable table with
+      severity and verification-verdict columns, row detail drawer, and run
+      selector. Finalize script uploads runs to S3 + DynamoDB; a new reader-gated
+      API route serves them. Read-only v1; trigger-run and run-comparison deferred.
+    spec_version: "0.1.0"
+    status: requirements
+    depends_on:
+      - odcs-contract-registry
+    needed_by: []
+
 pending:
   - slug: prompt-versioning-experiments
     location: pending/prompt-versioning-experiments/
@@ -85,15 +99,5 @@ pending:
       - generation-run-audit
     needed_by: []
 
-  - slug: adversarial-results-ui
-    location: pending/adversarial-results-ui/
-    description: >
-      New Adversarial Results tab in the SPA showing adversarial-test-review and
-      adversarial-code-review findings in a filterable, sortable table with
-      severity and verification-verdict columns, row detail drawer, run selector,
-      and optional writer-triggered run initiation.
-    depends_on:
-      - odcs-contract-registry
-    needed_by: []
 
 archive: []

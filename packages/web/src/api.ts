@@ -3,7 +3,7 @@
  * on every call, matching the HTTP API's Lambda authorizer.
  */
 import { config } from './config.js';
-import type { Entry, RequirementEntry } from './lib.js';
+import type { Entry, RequirementEntry, AdversarialRunSummary, AdversarialFindingsResponse } from './lib.js';
 
 export class ApiError extends Error {
   constructor(public status: number) {
@@ -29,6 +29,10 @@ export function createApi(token: string) {
     listCrawls: async () => (await (await req('/crawls')).json()).runs,
     refresh: async () => (await req('/refresh', { method: 'POST' })).json(),
     listRequirements: async (): Promise<RequirementEntry[]> => (await (await req('/requirements')).json()).items,
+    listAdversarialRuns: async (kind: 'test' | 'code'): Promise<AdversarialRunSummary[]> =>
+      (await req(`/adversarial-runs?kind=${kind}`)).json(),
+    getAdversarialFindings: async (kind: 'test' | 'code', runDir: string): Promise<AdversarialFindingsResponse> =>
+      (await req(`/adversarial-runs/${kind}/${runDir}/findings`)).json(),
   };
 }
 
