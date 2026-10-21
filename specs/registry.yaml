@@ -85,4 +85,15 @@ pending:
       - generation-run-audit
     needed_by: []
 
+  - slug: adversarial-results-ui
+    location: pending/adversarial-results-ui/
+    description: >
+      New Adversarial Results tab in the SPA showing adversarial-test-review and
+      adversarial-code-review findings in a filterable, sortable table with
+      severity and verification-verdict columns, row detail drawer, run selector,
+      and optional writer-triggered run initiation.
+    depends_on:
+      - odcs-contract-registry
+    needed_by: []
+
 archive: []
