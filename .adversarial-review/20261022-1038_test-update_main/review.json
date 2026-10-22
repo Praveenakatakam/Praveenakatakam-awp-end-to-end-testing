@@ -1,0 +1,752 @@
+{
+  "skill": "adversarial-test-review",
+  "version": "0.8",
+  "model": "claude-fable-5-1",
+  "scope": "generated-tests @ fea19df",
+  "uncovered": [
+    {
+      "behaviour": "X-36",
+      "quote": "Each of the 172 requirement ids appears exactly once in the functional manifest",
+      "coveredBy": "generated-tests/functional/manifest.json has 168 `\"requirement\":` rows (Grep count) and `plans: []` (:6); the 172 figure cannot be reconciled from the tree — see needsDecision"
+    },
+    {
+      "behaviour": "X-37",
+      "quote": "jira-awp/BAWP-1551 and jira-awp/BAWP-2486 cannot have entered the catalog through R-100/R-101",
+      "coveredBy": "generated-tests/functional/manifest.json:672-679 skips both with `references no cataloged entity` (not a CRE-R-24 copy), but provenance is unverifiable from the repo (OQ-17 open, requirements.md:530)"
+    }
+  ],
+  "discardedInstructions": [],
+  "runName": "20261022-1038_test-update_main",
+  "pass1WrittenAt": "2026-10-22T14:48:30.593Z",
+  "finalizedAt": "2026-10-22T15:25:57.867Z",
+  "verdict": "FAIL — Major",
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "Major",
+      "target": "generated-tests/functional/manifest.json:101",
+      "defect": "The CRE-R-24 plan's trigger path `POST /api/create/review/advance` is in no API mapping for TaskPublished (R-133e); the plan was withheld, so the committed manifest keeps only the skip row and the unmapped path survives solely in the job report.",
+      "failureScenario": "The plan is cached (D-82) and re-emitted unchanged on the next job once its Critical clause findings are fixed; the trigger is then sent to a `create` write path nothing in `API_MAP` confirms exists, so the test fails at the trigger (or hits a different route) and never exercises propagation, while the manifest row that would show the path is absent from the tree.",
+      "evidence": "R-133e (requirements.md:343 `(e) a \\`trigger.path\\` or read-back \\`path\\` that is not present in any configured API mapping (OQ-15).`); packages/core/src/api-map.ts:34-44 — `API_MAP` has keys `publisher`, `consumer`, `get-ready` only, and :42 `TaskPublished: { path: '/api/grdy/assignments/getTasks', ...}` is the sole TaskPublished path; adversarial-reports/1792676514926-j6neyt/report.json:154 `\"defect\": \"The trigger POST /api/create/review/advance is in no API mapping for 'TaskPublished'.\"`; generated-tests/functional/manifest.json:101-102 `\"requirement\": \"awp-app-plane/CRE-R-24\", \"reason\": \"adversarial: A-01, A-02, A-03, A-04, A-05, A-06\"`; OQ-15 → (b), D-88 keeps this Major.",
+      "inProductRef": "A-08",
+      "verification": {
+        "verdict": "UNCLEAR",
+        "reason": "The R-133e violation itself is real: API_MAP has no `create` key and its only TaskPublished path is the get-ready read path, and the job report records the plan's trigger as POST /api/create/review/advance. The failure scenario cannot be traced to its end, though: the plan is withheld, so no committed file or manifest plan row carries the path; a cache hit reuses the identical plan (functest generate.ts:128-131) and validatePlan does not check clauses, so the plan is re-withheld for A-01…A-06 rather than 'fixed', and a re-synthesised plan may use a different path. The live create route table is not in the repo.",
+        "evidence": "packages/core/src/api-map.ts:34-44 `export const API_MAP: Record<string, Record<string, EntityApiTarget>> = { publisher: {...}, consumer: {...}, 'get-ready': { TaskPublished: { path: '/api/grdy/assignments/getTasks', ... } } };`; adversarial-reports/1792676514926-j6neyt/report.json:154 `\"defect\": \"The trigger POST /api/create/review/advance is in no API mapping for 'TaskPublished'.\"`; packages/functest/src/generate.ts:128 `if (cached && validatePlan(planBodyOf(cached), grounded).ok) {` :130 `plans.push({ ...cached, kind: 'functional', requirementIds: [label] });`"
+      }
+    },
+    {
+      "id": "F-02",
+      "severity": "Major",
+      "target": "generated-tests/functional/manifest.json:669",
+      "defect": "The XCT-R-11 plan's trigger path `POST /api/create/tasks/publish` is in no API mapping for TaskPublished (R-133e); it was withheld for A-11 alone, so this unmapped path is not among the reasons recorded in the committed skip row.",
+      "failureScenario": "Once the single Critical (A-11, `schemaVersion` on the consumer) is corrected and the plan is re-synthesised, nothing in the deterministic gate blocks it (R-133e is Major): the emitted test posts to `/api/create/tasks/publish`, a route the repo has no evidence the `create` service serves, and the suite fails at `expect(res.ok)` against a correct system or passes by exercising an unrelated endpoint.",
+      "evidence": "R-133e (requirements.md:343); packages/core/src/api-map.ts:34-44 (no `create` key); adversarial-reports/1792676514926-j6neyt/report.json:210 `\"defect\": \"The trigger POST /api/create/tasks/publish is in no API mapping for 'TaskPublished'.\"`; generated-tests/functional/manifest.json:669-670 `\"requirement\": \"awp-app-plane/XCT-R-11\", \"reason\": \"adversarial: A-11\"`; packages/adversary/src/review.ts:194 `const critical = deterministic.filter((f) => f.target.ref === ref && f.severity === 'Critical').map((f) => f.id);` — only Critical ids enter the skip reason.",
+      "inProductRef": "A-12",
+      "verification": {
+        "verdict": "UNCLEAR",
+        "reason": "Confirmed parts: API_MAP has no `create` key; the report records POST /api/create/tasks/publish for XCT-R-11; review.ts withholds only on Critical ids and grounding.ts rates R-133e Major, so an unmapped trigger alone never blocks emission. Not traceable: the plan is withheld and absent from the tree, and whether a re-synthesised plan (needed to remove A-11) still names this path is future LLM output; whether the create service serves it is live behaviour not visible in the repo.",
+        "evidence": "packages/adversary/src/review.ts:194 `const critical = deterministic.filter((f) => f.target.ref === ref && f.severity === 'Critical').map((f) => f.id);`; packages/adversary/src/grounding.ts:226-228 `finding( 'R-133e', 'Major',`; adversarial-reports/1792676514926-j6neyt/report.json:210 `\"defect\": \"The trigger POST /api/create/tasks/publish is in no API mapping for 'TaskPublished'.\"`; generated-tests/functional/manifest.json:669-670 `\"requirement\": \"awp-app-plane/XCT-R-11\", \"reason\": \"adversarial: A-11\"`"
+      }
+    },
+    {
+      "id": "F-03",
+      "severity": "Minor",
+      "target": "packages/functest/src/emit.ts:108",
+      "defect": "The functional emitter renders env-var names with dot access (`process.env.${pub.baseUrlEnv}`), and the conventional stem for an unmapped source (`envStem`) only guarantees `[A-Z0-9_]`, not a valid identifier, so a source label starting with a digit yields a syntactically invalid test file.",
+      "failureScenario": "ENTITY_FLOWS gains a flow whose publisher is a domain labelled `3rd-party` (unmapped, OQ-15): `envStem('3rd-party')` → `3RD_PARTY`, and the emitted file contains `const publisherBase = process.env.3RD_PARTY_API_URL;`, which is a SyntaxError — Vitest fails to load the file, so the suite errors rather than skipping (R-83a/D-26 'never fails without live creds' is broken) and R-134/R-133d regexes over the file text no longer match the shape they expect. The §3.9 emitter uses bracket access (`process.env[\"...\"]`) and is not affected.",
+      "evidence": "packages/functest/src/emit.ts:108 `const publisherBase = process.env.${pub.baseUrlEnv};` :109-111 same for the other three; packages/functest/src/plan.ts:323-325 `export function envStem(source: string): string { return source.toUpperCase().replace(/[^A-Z0-9]+/g, '_'); }` :346 `{ role, source, baseUrlEnv: \\`${envStem(source)}_API_URL\\`, tokenEnv: \\`${envStem(source)}_TOKEN\\`, recordsAt: '', mapped: false }`; contrast packages/testgen/src/emit.ts:24 `const baseUrl = process.env[${JSON.stringify(t.target.baseUrlEnv)}];`",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The emitter interpolates the env name after `process.env.` (dot access) on all four lines, and `envStem` only upper-cases and replaces non-[A-Z0-9] runs with `_`, so a source label beginning with a digit yields e.g. `process.env.3RD_PARTY_API_URL`, which is not a valid JavaScript member expression (identifiers cannot start with a digit) and makes the emitted file fail to parse instead of skipping. No guard exists: source labels are the ODCS `domain` string (metadata.ts:52, unsanitised), stampPlan applies envStem to any unmapped source, and validatePlan only checks that the source is in the grounded set. The trigger requires a digit-leading domain declared in ENTITY_FLOWS, which no current flow has, so the defect holds with a narrow trigger. The §3.9 emitter is unaffected because it uses bracket access.",
+        "evidence": "packages/functest/src/emit.ts:108 `const publisherBase = process.env.${pub.baseUrlEnv};`; packages/functest/src/plan.ts:323-325 `export function envStem(source: string): string { return source.toUpperCase().replace(/[^A-Z0-9]+/g, '_'); }` :346 `: { role, source, baseUrlEnv: \\`${envStem(source)}_API_URL\\`, tokenEnv: \\`${envStem(source)}_TOKEN\\`, recordsAt: '', mapped: false };`; packages/core/src/metadata.ts:52 `domain: str(doc.domain),`; contrast packages/testgen/src/emit.ts:24 `const baseUrl = process.env[${JSON.stringify(t.target.baseUrlEnv)}];`"
+      }
+    },
+    {
+      "id": "F-04",
+      "severity": "Minor",
+      "target": "packages/testgen/src/derive-schema.ts:62",
+      "defect": "`KNOWN_FORMATS` is a strict subset of what `ajv-formats` registers, so a contract `logicalTypeOptions.format` that Ajv could enforce (`url`, `uri-template`, `json-pointer`, `relative-json-pointer`, `iso-date-time`, `iso-time`, `int32`, `int64`, `float`, `double`, `byte`, `binary`, `password`) is silently dropped from the derived conformance schema.",
+      "failureScenario": "A get-ready property `resultsPackageLocation: { logicalType: string, logicalTypeOptions: { format: url } }` is added to the TaskPublished projection; deriveConstraints drops `format`, the embedded schema says only `type: string`, and a live record carrying `resultsPackageLocation: \"not a url\"` passes the conformance test although it violates a declared, Ajv-enforceable constraint (R-83c: 'each property's logicalTypeOptions that Ajv can enforce').",
+      "evidence": "packages/testgen/src/derive-schema.ts:62 `const KNOWN_FORMATS = new Set(['date', 'time', 'date-time', 'duration', 'uri', 'uri-reference', 'email', 'hostname', 'ipv4', 'ipv6', 'uuid', 'regex']);` :76 `if (typeof o.format === 'string' && KNOWN_FORMATS.has(o.format)) out.format = o.format;`; node_modules/ajv-formats/dist/formats.js:20 `\"uri-template\": /^(?:...)*$/i,` :23 `url: /^(?:https?|ftp):\\/\\/...` :34 `\"json-pointer\": /^(?:\\/(?:[^~/]|~0|~1)*)*$/,` :42 `int32: { type: \"number\", validate: validateInt32 },` :14 `\"iso-date-time\": fmtDef(getDateTime(), compareIsoDateTime),`; R-83c (requirements.md:163 `format (only formats ajv-formats registers, e.g. uuid, date-time)`).",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Traced end to end: `deriveConstraints` copies `format` only when it is in KNOWN_FORMATS (12 names), while the emitted conformance test calls `addFormats(new Ajv({ allErrors: true }))` with no options, which registers every name in ajv-formats' `formatNames` (index.js:8-15), and `fullFormats` includes `url`, `uri-template`, `json-pointer`, `relative-json-pointer`, `iso-time`, `iso-date-time`, `int32`, `int64`, `float`, `double`, `byte` (formats.js:13-14, 20, 23, 34, 37, 40-48). A contract `format: url` is therefore dropped although Ajv would have compiled and enforced it, and a record with a non-URL string passes the embedded schema's bare `type: string`. No live contract in the tree uses one of these formats, so the trigger is narrow.",
+        "evidence": "packages/testgen/src/derive-schema.ts:62 `const KNOWN_FORMATS = new Set(['date', 'time', 'date-time', 'duration', 'uri', 'uri-reference', 'email', 'hostname', 'ipv4', 'ipv6', 'uuid', 'regex']);` :76 `if (typeof o.format === 'string' && KNOWN_FORMATS.has(o.format)) out.format = o.format;`; generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:80 `const validate = addFormats(new Ajv({ allErrors: true })).compile(schema);`; node_modules/ajv-formats/dist/index.js:14 `const list = opts.formats || formats_1.formatNames;` :31-32 `for (const f of list) ajv.addFormat(f, fs[f]);`; node_modules/ajv-formats/dist/formats.js:23 `url: /^(?:https?|ftp):\\/\\/...` :34 `\"json-pointer\": /^(?:\\/(?:[^~/]|~0|~1)*)*$/,` :42 `int32: { type: \"number\", validate: validateInt32 },`"
+      }
+    },
+    {
+      "id": "F-05",
+      "severity": "Minor",
+      "target": "packages/testgen/src/generate.ts:78",
+      "defect": "When one source carries two valid contracts whose `schema[0].name` is the same entity, the compat variant is picked by catalog input order (`variants.find(...)`) and both contracts receive the same conformance file path, so the output depends on input order and one emitted file silently overwrites the other.",
+      "failureScenario": "Catalog: `get-ready/urn:bawp:get-ready:assignments-api` and a second get-ready contract `urn:bawp:get-ready:tasks-feed` both with `schema[0].name: TaskPublished`. generate.ts:52-61 pushes two conformance entries; :115 renders both to `conformance/get-ready.TaskPublished.generated.test.ts`; scripts/generate-tests.ts:131-135 writes the second over the first, so the manifest lists two tests but the tree holds one, and the compat consumer at :79 is whichever contract the read API returned first — a re-crawl that reorders items changes the committed compat test with no catalog change (R-88).",
+      "evidence": "packages/testgen/src/generate.ts:78 `const pub = variants.find((v) => v.source === roles.publisher)!;` :79 `const con = variants.find((v) => v.source === roles.consumer)!;` :115 `? { path: \\`conformance/${t.source}.${t.entity}.generated.test.ts\\`, contents: emitConformanceTest(t, i) }`; scripts/generate-tests.ts:131-135 `for (const f of artifacts.files) { const full = join(destDir, f.path); ... writeFileSync(full, f.contents);`; R-88 (requirements.md:188); R-92 layout `conformance/<source>.<entity>.generated.test.ts` (requirements.md:189). Same pattern in packages/functest/src/ground.ts:148 `const canonical = variants.find((c) => c.source === roles.publisher)!;`.",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Traced end to end: the entity is `schema[0].name` with no same-source uniqueness (metadata.ts:30-40); the conformance loop runs once per catalog contract and the file path is built from `${t.source}.${t.entity}` only, so two valid same-source contracts naming the same entity produce two manifest entries and one path, and the CLI's write loop writes both to that path in sequence (last wins). The compat variant choice at :78-79 is `variants.find(...)` over the unsorted catalog filter, so it follows input order. No dedupe exists in scripts/generate-tests.ts:91-109 or generate.ts:38-62; the only duplicate handling in packages/functions/src concerns requirement/contract ids (refresh.ts:7, :163). The trigger is absent from today's catalog (every source/entity pair in generated-tests/manifest.json is unique), so the severity 'narrow trigger' is right.",
+        "evidence": "packages/testgen/src/generate.ts:115 `? { path: \\`conformance/${t.source}.${t.entity}.generated.test.ts\\`, contents: emitConformanceTest(t, i) }`; :67 `const variants = catalog.filter((c) => c.entity === entity);` :78 `const pub = variants.find((v) => v.source === roles.publisher)!;`; scripts/generate-tests.ts:131-134 `for (const f of artifacts.files) { const full = join(destDir, f.path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, f.contents);`; packages/core/src/metadata.ts:34-35 `const name = str(first?.name); if (name) return name;`"
+      }
+    }
+  ],
+  "needsDecision": [
+    {
+      "id": "D-01",
+      "item": "X-36 requirement count: the blind pass states 172 requirement ids; the committed functional manifest carries 168",
+      "detail": "Grep count of `\"requirement\": \"` over generated-tests/functional/manifest.json = 168 (159 `references no cataloged entity` + 7 `no API mapping for entity` + 2 `adversarial:`), and `plans` is `[]` (functional/manifest.json:6). The finalize `blind-inputs` builder derives requirement ids from exactly `plans[].requirementIds` and `skipped[].requirement` (scripts/adversarial-review-finalize.ts:604-605), which on this manifest yields 168, not 172. blind-inputs.json was not read (not permitted for Pass 2). Decide whether the blind pass miscounted or the preflight snapshot saw a different manifest; if the latter, finalize's AR-16 check should refuse.",
+      "evidence": "Grep pattern `\"requirement\": \"` on generated-tests/functional/manifest.json → 168; pattern `\"reason\": \"references no cataloged entity\"` → 159; pattern `\"reason\": \"no API mapping for entity` → 7; pattern `\"reason\": \"adversarial:` → 2; scripts/adversarial-review-finalize.ts:604 `for (const p of functional?.plans ?? []) for (const id of p.requirementIds ?? []) requirements.add(id);` :605 `for (const s of functional?.skipped ?? []) if (s.requirement) requirements.add(s.requirement);`"
+    },
+    {
+      "id": "D-02",
+      "item": "X-37 / OQ-17: provenance of `jira-awp/BAWP-1551` and `jira-awp/BAWP-2486` is still unverifiable",
+      "detail": "`SOURCES` defines only `awp-app-plane` (packages/core/src/sources.ts:19-21), yet the manifest skips two `jira-awp/*` ids with reason `references no cataloged entity` (functional/manifest.json:672-679). Whether those ids are legitimate catalog entries or leaked from a different stage cannot be decided from this repo; the spec keeps OQ-17 open (requirements.md:530). Not a test defect, but it blocks a truthful X-36/X-88 partition check.",
+      "evidence": "packages/core/src/sources.ts:19-21 `export const SOURCES: SourceConfig[] = [ { label: 'awp-app-plane', ... } ];`; generated-tests/functional/manifest.json:673 `\"requirement\": \"jira-awp/BAWP-1551\",`; requirements.md:530 `OQ-17 — Provenance of \\`jira-awp\\` requirements (OPEN, 2026-10-14)`"
+    },
+    {
+      "id": "D-03",
+      "item": "Handoff listed only the §3.11 job report; the paired §3.9 run report exists on disk and was not passed in",
+      "detail": "`in_product_reports` named only adversarial-reports/1792676514926-j6neyt/report.json (the functest job). adversarial-reports/1792676477717-l7axmi/report.json is the testgen run for the same tree (generator `testgen`, tier `executed`, 4 compat entities, 0 findings). R-144 says the CLI writes a report for every mode and the handoff block carries `in_product_reports` for the run and the job; decide whether the handoff is incomplete or whether the §3.9 report is intentionally out of scope for this update run. X-84 was assessed against the on-disk file.",
+      "evidence": "adversarial-reports/1792676477717-l7axmi/report.json:2 `\"generator\": \"testgen\",` :36 `\"tier\": \"executed\",` :60-64 `\"entity\": \"TaskPublished\", \"applicable\": true, \"total\": 17, \"killed\": 17, \"survivors\": []`"
+    },
+    {
+      "id": "D-04",
+      "item": "git status shows 7 generated files modified, but the content diff is empty (line endings only)",
+      "detail": "`git diff --numstat -- generated-tests` printed nothing (no changed lines), while git status lists manifest.json, functional/manifest.json, the four compat files and the conformance file as modified; the only warnings were `LF will be replaced by CRLF`. The regenerated tree is therefore content-identical to HEAD (R-88 no-op holds on bytes the generator writes), but the repo has no .gitattributes pinning eol, so every regeneration on Windows shows as a full-tree change. Decide whether line-ending churn counts as an R-88 violation for the committed artifacts.",
+      "evidence": "command `git diff --numstat -- generated-tests` → (no output); `git diff --ignore-cr-at-eol --numstat -- generated-tests` → (no output); Read of C:\\...\\.gitattributes → `File does not exist`"
+    },
+    {
+      "id": "D-05",
+      "item": "Disagree with critic findings C-19, C-15 and C-08: they describe spec-mandated behaviour as defects",
+      "detail": "C-19 says `recordsOf` returning `[]` for an unrecognised envelope masks a malformed read-back; R-117b's last bullet and R-83 prescribe exactly this (record in body, `result.data`, or `result.data.json`; anything else is 'not found' and the test fails, not passes). C-15 and C-08 say `typeMatches(..., true)` / `exists` on `standards` pass on null; R-117b says `matchesType` and `exists` accept null precisely where the asserting contract marks the field nullable, and the get-ready contract marks `standards`, `description`, `duration` nullable. These three are Minor/Major critic items, report-only, and should not be read as defects of the emitter.",
+      "evidence": "requirements.md:270 `the read-back SHALL find its record in the body, or in a tRPC envelope (\\`result.data\\`, \\`result.data.json\\`), when the mapped \\`recordsAt\\` is empty.`; requirements.md:268 `\\`exists\\` SHALL fail on \\`null\\` unless the asserting service's contract marks the field nullable`; requirements.md:264 `accepts null only where the asserting service's contract marks the field nullable (\\`customProperties nullable=\"true\"\\`)`; packages/adversary/tests/__fixtures__/calibration/live-20261009/get-ready.assignments-api.odcs.yaml:114-119 `- name: standards ... customProperties: - property: nullable value: \"true\"`"
+    }
+  ],
+  "covered": [
+    {
+      "behaviour": "X-01",
+      "by": "generated-tests/manifest.json:400-410 (publisher create/urn:bawp:create:content-events, consumer get-ready/urn:bawp:get-ready:assignments-api); generated-tests/compat/TaskPublished.generated.test.ts:3-4"
+    },
+    {
+      "behaviour": "X-02",
+      "by": "generated-tests/manifest.json:77-88; generated-tests/compat/ClassAssignment.generated.test.ts:3-4"
+    },
+    {
+      "behaviour": "X-03",
+      "by": "generated-tests/manifest.json:174-185; generated-tests/compat/ResultPackage.generated.test.ts:3-4"
+    },
+    {
+      "behaviour": "X-04",
+      "by": "generated-tests/manifest.json:283-294 (publisher score, consumer report); generated-tests/compat/StudentTaskScoredEvent.generated.test.ts:3-4; packages/core/src/api-map.ts:78"
+    },
+    {
+      "behaviour": "X-05",
+      "by": "generated-tests/compat/TaskPublished.generated.test.ts:115-118 (`for (const req of consumerRequired)` → `publisherProps.has(name)`); packages/testgen/src/emit.ts:86-89"
+    },
+    {
+      "behaviour": "X-06",
+      "by": "generated-tests/compat/TaskPublished.generated.test.ts:114 (entity in describe), :118 `missing '${name}' in publisher`, :121 `type mismatch on '${req.name}'`"
+    },
+    {
+      "behaviour": "X-07",
+      "by": "packages/testgen/src/emit.ts:86-88 — only `consumerRequired` entries produce an `it`; publisher-only props are never iterated"
+    },
+    {
+      "behaviour": "X-08",
+      "by": "packages/testgen/src/compat.ts:61 `.filter((p) => p.required)`, :80 strict inequality; generated-tests/compat/TaskPublished.generated.test.ts:121 `.toBe(req.logicalType)`"
+    },
+    {
+      "behaviour": "X-09",
+      "by": "generated-tests/compat/TaskPublished.generated.test.ts:120; packages/testgen/src/compat.ts:74-79 (`type undeclared`)"
+    },
+    {
+      "behaviour": "X-10",
+      "by": "packages/core/src/schema-model.ts:72-79 (`${prefix}${p.name}`, `[].` for items, `required = ancestorsRequired && p.required === true`)"
+    },
+    {
+      "behaviour": "X-11",
+      "by": "packages/core/src/schema-model.ts:124-139 (`resolveItemsProperties`, whole-word sibling, schema.slice(1)); generated-tests/manifest.json:457-483 (create items[].* resolved) vs :415-434 (get-ready consumerRequired has no items[].*)"
+    },
+    {
+      "behaviour": "X-12",
+      "by": "packages/testgen/src/emit.ts:69-73 (`fieldMap[req.name] ?? req.name` only when mapped); Grep `fieldMap` over generated-tests/manifest.json → 0"
+    },
+    {
+      "behaviour": "X-13",
+      "by": "generated-tests/compat/{TaskPublished:7-28, ClassAssignment:7-36, ResultPackage:7-44, StudentTaskScoredEvent:7-24} non-empty `consumerRequired`; adversarial-reports/1792676477717-l7axmi/report.json:37-66 `applicable: true` for all four; packages/adversary/src/vacuity.ts:216-217"
+    },
+    {
+      "behaviour": "X-14",
+      "by": "generated-tests/manifest.json:77-88, 174-185, 283-294, 400-410 (both variants with contentHash/declaredVersion); hashes equal the live blobs per packages/adversary/tests/__fixtures__/calibration/live-20261009/README.md:4"
+    },
+    {
+      "behaviour": "X-15",
+      "by": "generated-tests/compat/TaskPublished.generated.test.ts:5 (only `vitest` import), :7-112 embedded literals"
+    },
+    {
+      "behaviour": "X-16",
+      "by": "packages/testgen/src/generate.ts:80-87 (`variant invalid (...)` skip)"
+    },
+    {
+      "behaviour": "X-17",
+      "by": "generated-tests/manifest.json:5-17; generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:7-8, :66, :81"
+    },
+    {
+      "behaviour": "X-18",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:9, :78 `describe.skipIf(!ready)`"
+    },
+    {
+      "behaviour": "X-19",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:88-92 (`record #${i} ${JSON.stringify(rec)} violates ... ${JSON.stringify(validate.errors)}`)"
+    },
+    {
+      "behaviour": "X-20",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:87 `expect(records.length, ...).toBeGreaterThan(0)`"
+    },
+    {
+      "behaviour": "X-21",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:70-75 (`asArray(body) ?? asArray(data) ?? asArray(data?.json) ?? []`) with :87 failing on `[]`"
+    },
+    {
+      "behaviour": "X-22",
+      "by": "packages/testgen/src/derive-schema.ts:108-112 (nested `properties`/`items` recursion); the live get-ready TaskPublished declares no nested structure, so this tree's schema (manifest.json:18-72) has none to check"
+    },
+    {
+      "behaviour": "X-23",
+      "by": "packages/testgen/src/derive-schema.ts:62-95 (`deriveConstraints`, KNOWN_FORMATS gate, `new RegExp` try/catch); generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:36-39 `minItems: 1`, :46-49 `format: uuid`"
+    },
+    {
+      "behaviour": "X-24",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:64 `\"additionalProperties\": true`; packages/testgen/src/derive-schema.ts:120"
+    },
+    {
+      "behaviour": "X-25",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:21-26, :27-32, :40-45 (`[\"string\",\"null\"]`, `[\"integer\",\"null\"]`, `[\"array\",\"null\"]`); packages/testgen/src/derive-schema.ts:101-104"
+    },
+    {
+      "behaviour": "X-26",
+      "by": "generated-tests/manifest.json:10-17 (`contentHash` 078a5a3b3bf884b2ffc61472fbfd98b39c703e78, `declaredVersion` 1.0.0, `target` {path, baseUrlEnv, tokenEnv, recordsAt})"
+    },
+    {
+      "behaviour": "X-27",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:7-8, :81-83 (`Authorization: Bearer ${token}`, `${baseUrl}/api/grdy/assignments/getTasks`); no PUBLISHER_/CONSUMER_ token in the file"
+    },
+    {
+      "behaviour": "X-28",
+      "by": "packages/testgen/src/generate.ts:39-42 (`validation: invalid` skip before any emission)"
+    },
+    {
+      "behaviour": "X-29",
+      "by": "package.json:28-29 (`\"ajv\": \"^8.18.0\"`, `\"ajv-formats\": \"^3.0.1\"` at the repo root)"
+    },
+    {
+      "behaviour": "X-30",
+      "by": "generated-tests/manifest.json:530-574 — seven `kind: conformance` skips with `no API mapping for entity '...'` for create, deliver×2, frontend, report, score×2 (plus :550-559 for the two skipped contracts)"
+    },
+    {
+      "behaviour": "X-31",
+      "by": "generated-tests/manifest.json:550-554 (`get-ready/urn:bawp:get-ready:session-registration`, `no API mapping for entity 'SessionEventDetail'`)"
+    },
+    {
+      "behaviour": "X-32",
+      "by": "generated-tests/manifest.json:555-559 (`onboard/urn:bawp:onboard:catalog-events`, `no API mapping for entity 'CdcEnvelope'`) and :520-524 (compat CdcEnvelope `single-source (onboard only)`)"
+    },
+    {
+      "behaviour": "X-33",
+      "by": "generated-tests/manifest.json:520-524 `\"reason\": \"single-source (onboard only)\"`; packages/testgen/src/generate.ts:69-71, :74-76"
+    },
+    {
+      "behaviour": "X-34",
+      "by": "generated-tests/manifest.json:525-529 `\"reason\": \"single-source (get-ready only)\"`; no compat file exists for SessionEventDetail"
+    },
+    {
+      "behaviour": "X-35",
+      "by": "generated-tests/manifest.json:4-518 (1 conformance + 4 compat entries) alongside :519-575 (11 skips)"
+    },
+    {
+      "behaviour": "X-38",
+      "by": "generated-tests/functional/manifest.json:109-119, :149-151, :561-563, :661-667 (`no API mapping for entity 'ClassAssignment'|'ResultPackage'|'StudentTaskScoredEvent'`); packages/functest/src/ground.ts:135-137"
+    },
+    {
+      "behaviour": "X-39",
+      "by": "packages/functest/src/plan.ts:307-312 (`role inversion` rejection); both plans in the report have trigger source create (report.json:142, :154, :210)"
+    },
+    {
+      "behaviour": "X-40",
+      "by": "packages/functest/src/plan.ts:141-148 (`additionalProperties: false`, `payload: { type: 'object' }` required) — a v1 `payloadShape` body fails `validateBody`"
+    },
+    {
+      "behaviour": "X-41",
+      "by": "packages/adversary/src/grounding.ts:123-151 (R-133b, severity by `triggerMapped`); report.json:131-143 A-07 Major for `reviewStep`"
+    },
+    {
+      "behaviour": "X-42",
+      "by": "packages/functest/src/plan.ts:261-265 (`timeoutSeconds >= 1`, `pollIntervalSeconds` in 1…timeoutSeconds); PLAN_SCHEMA :160-165 readBack shape"
+    },
+    {
+      "behaviour": "X-43",
+      "by": "packages/adversary/src/grounding.ts:234-247 (read-back path vs mapped path); report.json has no read-back R-133e finding for either plan"
+    },
+    {
+      "behaviour": "X-44",
+      "by": "packages/functest/src/plan.ts:256-260 (matchFrom must be a payload key); packages/functest/src/emit.ts:157 `at(r, opts.matchOn) === opts.value`, :183 `value: at(payload, matchFrom ?? matchOn)`"
+    },
+    {
+      "behaviour": "X-45",
+      "by": "packages/adversary/src/grounding.ts:50-63, :81-106 (whole dotted path via `flatSchemasBySource`); report.json:187-199 A-11 on `schemaVersion`"
+    },
+    {
+      "behaviour": "X-46",
+      "by": "packages/functest/src/plan.ts:231-236; packages/functest/src/emit.ts:47-56 (emitter throws on a non-payload `expected.path`)"
+    },
+    {
+      "behaviour": "X-47",
+      "by": "packages/functest/src/emit.ts:128-133 (`typeMatches`: null → nullable, `number` accepts `integer`); plan.ts:247-249 literal-only `matchesType`"
+    },
+    {
+      "behaviour": "X-48",
+      "by": "packages/adversary/src/text.ts:24-62 (`normalized` strips ticks/emphasis, straightens quotes, collapses whitespace; case and words kept); report.json A-01…A-06"
+    },
+    {
+      "behaviour": "X-49",
+      "by": "packages/adversary/src/vacuity.ts:115-127 (R-134d Critical gate)"
+    },
+    {
+      "behaviour": "X-50",
+      "by": "packages/functest/src/plan.ts:252-255 (consumer assertions require consumer read-back); packages/functest/src/emit.ts:178-189 (`pollUntil` and `toBeDefined()` precede the assertions block)"
+    },
+    {
+      "behaviour": "X-51",
+      "by": "packages/functest/src/emit.ts:166-191 renders only `describe.skipIf` + one `it` with real `expect`; packages/adversary/src/vacuity.ts:86-102 (R-134b)"
+    },
+    {
+      "behaviour": "X-52",
+      "by": "packages/functest/src/emit.ts:170-174 `body: JSON.stringify(payload)`"
+    },
+    {
+      "behaviour": "X-53",
+      "by": "packages/adversary/src/vacuity.ts:57-84 (`FIELD_EXPECT`, R-134a)"
+    },
+    {
+      "behaviour": "X-54",
+      "by": "packages/functest/src/emit.ts:62-68 (`.toBeDefined()` + `.not.toBeNull()` unless nullable)"
+    },
+    {
+      "behaviour": "X-55",
+      "by": "packages/functest/src/emit.ts:175 (`published = { ...payload, ...(responseBody is a JSON object ? responseBody : {}) }`)"
+    },
+    {
+      "behaviour": "X-56",
+      "by": "packages/functest/src/emit.ts:135-139 (`recordsOf`: body, `result.data`, `result.data.json`)"
+    },
+    {
+      "behaviour": "X-57",
+      "by": "packages/functest/src/plan.ts:342-347 (`mapped` target vs `${envStem(source)}_API_URL`, `mapped: false`); packages/functest/src/emit.ts:108-111"
+    },
+    {
+      "behaviour": "X-58",
+      "by": "packages/functest/src/emit.ts:170 (`${publisherBase}` for the trigger), :85-87 + :179 (read-back on the role's own base); packages/adversary/src/grounding.ts:195-222 (R-133d second clause)"
+    },
+    {
+      "behaviour": "X-59",
+      "by": "packages/functest/src/plan.ts:221-230 (`PLAIN_URL_PATH`); packages/functest/src/emit.ts:170, :179 (`JSON.stringify(plan.trigger.path)`, `JSON.stringify(readBack.path)`)"
+    },
+    {
+      "behaviour": "X-60",
+      "by": "packages/adversary/src/vacuity.ts:160-177 (R-134g); report.json A-09, A-10, A-13"
+    },
+    {
+      "behaviour": "X-61",
+      "by": "packages/adversary/src/vacuity.ts:141-158 (R-134f over `segmentClauses`); report.json carries no R-134f finding for either plan"
+    },
+    {
+      "behaviour": "X-62",
+      "by": "packages/adversary/src/mutate-functest.ts:51-54 (MP-corrupt killed only by `equals` from trigger.payload); report.json:503-520 survivors `MP-corrupt:items`"
+    },
+    {
+      "behaviour": "X-63",
+      "by": "packages/adversary/src/mutate-functest.ts:57, :65-75 (M-noprop; Critical when surviving)"
+    },
+    {
+      "behaviour": "X-64",
+      "by": "packages/functest/src/emit.ts:112-113, :166 (`describe.skipIf(!ready)` over all four env vars)"
+    },
+    {
+      "behaviour": "X-65",
+      "by": "packages/functest/src/generate.ts:168-172 (`fileSlug`: bare id after `/`, `-${entity}`, lower-cased); plan.ts:348 keeps `source/id` in requirementIds"
+    },
+    {
+      "behaviour": "X-66",
+      "by": "packages/functest/src/emit.ts:17-18, :103-105 (header names manifest plan # and requirement ids)"
+    },
+    {
+      "behaviour": "X-67",
+      "by": "packages/functest/src/plan.ts:359-367 (`kind: 'functional'`, `inputHash`, `planSchemaVersion`, `targets`) spread over the body's setup/trigger/propagation/assertions"
+    },
+    {
+      "behaviour": "X-68",
+      "by": "generated-tests/functional/manifest.json:6 `\"plans\": []`, :100-103 and :668-671 (`adversarial: A-…`), :688-691 (`\"withheld\": true`, no `file`); packages/adversary/src/review.ts:233-240"
+    },
+    {
+      "behaviour": "X-69",
+      "by": "generated-tests/functional/manifest.json — Grep counts: `references no cataloged entity` 159, `no API mapping for entity` 7, `adversarial:` 2 (= 168 rows, all recognised R-121/R-129 causes)"
+    },
+    {
+      "behaviour": "X-70",
+      "by": "packages/functest/src/plan.ts:295-306 (`hallucinated target` for entity and source)"
+    },
+    {
+      "behaviour": "X-71",
+      "by": "packages/core/src/compare.ts:12-39 (`compareCodePoint`, `compareNatural`); packages/testgen/src/generate.ts:104-106, :118; packages/functest/src/generate.ts:112, :153-154; Grep `localeCompare|Date.now|new Date|Math.random` over packages/testgen/src → 0"
+    },
+    {
+      "behaviour": "X-72",
+      "by": "Grep `Date\\.now|new Date|Math\\.random|localeCompare` → testgen/src: none; functest/src: only emit.ts:151-152 inside the emitted test's runtime poll string, not generation. Manifests carry no timestamp/run id (manifest.json:1-4; functional/manifest.json:1-5)"
+    },
+    {
+      "behaviour": "X-73",
+      "by": "packages/testgen/src/generate.ts:104-108 (conformance then compat, each code-point sorted) and :124-126 (`JSON.stringify(manifest, null, 2)`)"
+    },
+    {
+      "behaviour": "X-74",
+      "by": "scripts/generate-tests.ts:122-138 (`rmSync` conformance/ and compat/, then write); packages/testgen/src/generate.ts:115-116 path layout"
+    },
+    {
+      "behaviour": "X-75",
+      "by": "generated-tests/manifest.json:10, :80, :86, :177, :183, :286, :292, :403, :409 hashes; live blobs `506cbba…`/`078a5a3…` per calibration/live-20261009/README.md:4"
+    },
+    {
+      "behaviour": "X-76",
+      "by": "packages/core/src/api-map.ts:87-97 (`resolveRoles`); packages/testgen/src/generate.ts:73-77"
+    },
+    {
+      "behaviour": "X-77",
+      "by": "packages/testgen/src/generate.ts:98 `...(Object.keys(result.fieldMap).length ? { fieldMap: result.fieldMap } : {})`; Grep `fieldMap` over generated-tests/manifest.json → 0"
+    },
+    {
+      "behaviour": "X-78",
+      "by": "generated-tests/manifest.json:519-575 (`{kind, target, reason}` for all 11 skips); packages/testgen/src/manifest.ts:95-100, :54-64, :79-91"
+    },
+    {
+      "behaviour": "X-79",
+      "by": "generated-tests/manifest.json:576-578 `\"adversarial\": { \"findings\": [] }` (no verdict/timestamp); packages/adversary/src/review.ts:105-107, :233-246"
+    },
+    {
+      "behaviour": "X-80",
+      "by": "packages/adversary/src/review.ts:12-13 and :110-112 (`withheld: []` for testgen); all four compat + conformance files are present in the tree"
+    },
+    {
+      "behaviour": "X-81",
+      "by": "packages/functest/src/ground.ts:159-174 (hash over text, contentHashes, apiTargets, modelId, promptVersion, planSchemaVersion, roles, fieldMap); packages/functest/src/generate.ts:125-132 (cache hit re-validated with `validatePlan`)"
+    },
+    {
+      "behaviour": "X-82",
+      "by": "packages/functest/src/plan.ts:338-341 `['consumer', ctx.roles.consumer], ['publisher', body.trigger.source]`"
+    },
+    {
+      "behaviour": "X-83",
+      "by": "vitest.config.ts:13 `exclude: ['**/node_modules/**', 'packages/web/**', 'generated-tests/**']`; packages/web/vite.config.ts:11 `include: ['tests/**/*.test.{ts,tsx}']`"
+    },
+    {
+      "behaviour": "X-84",
+      "by": "adversarial-reports/1792676477717-l7axmi/report.json:36 `\"tier\": \"executed\"`, :37-66 (4 entities, all mutants killed, `survivors: []`); generated-tests/manifest.json:576-578 (no generator finding)"
+    },
+    {
+      "behaviour": "X-85",
+      "by": "generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:7-8 and packages/functest/src/emit.ts:108-111 read tokens from `process.env` only; manifests carry env-var names, not values (manifest.json:14-15)"
+    },
+    {
+      "behaviour": "X-86",
+      "by": "packages/core/src/schema-model.ts:130-137 (`expanding.has(object.properties) ? undefined : object.properties`), :76-78"
+    },
+    {
+      "behaviour": "X-87",
+      "by": "packages/core/src/api-map.ts:89-92 (declared flow when both declared sources carry the entity); packages/testgen/src/generate.ts:73-79 (one compat over the declared pair regardless of extra sources)"
+    },
+    {
+      "behaviour": "X-88",
+      "by": "generated-tests/functional/manifest.json:6 `\"plans\": []` with 168 skipped rows (Grep); withheld CRE-R-24 and XCT-R-11 appear only in `skipped` (:101, :669)"
+    },
+    {
+      "behaviour": "X-89",
+      "by": "scripts/generate-tests.ts:218-233 (`rmSync(join(destDir, 'functional'))` then write under functional/)"
+    },
+    {
+      "behaviour": "X-90",
+      "by": "packages/functest/src/emit.ts:80-192 (pure function of the plan; no clock/random); packages/functest/src/generate.ts:159-165 (`planOrder` before render)"
+    },
+    {
+      "behaviour": "X-91",
+      "by": "packages/adversary/src/review.ts:236-246 (`block.findings` = deterministic only); generated-tests/functional/manifest.json:681-865 holds only `A-01`…`A-13`, no `C-nn`, no verdict"
+    },
+    {
+      "behaviour": "X-92",
+      "by": "generated-tests/compat/TaskPublished.generated.test.ts:1-2 and generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:1-2 (`GENERATED — DO NOT EDIT`, `Manifest test #n`)"
+    },
+    {
+      "behaviour": "X-93",
+      "by": "packages/testgen/src/derive-schema.ts:23-46 (`jsonType`, date→string+format), :55 (`required`), :98-107 (`enum` from `enumValues`)"
+    }
+  ],
+  "droppedByPostureLint": 0,
+  "malformed": 0,
+  "blindAccounting": {
+    "total": 93,
+    "covered": [
+      "X-01",
+      "X-02",
+      "X-03",
+      "X-04",
+      "X-05",
+      "X-06",
+      "X-07",
+      "X-08",
+      "X-09",
+      "X-10",
+      "X-11",
+      "X-12",
+      "X-13",
+      "X-14",
+      "X-15",
+      "X-16",
+      "X-17",
+      "X-18",
+      "X-19",
+      "X-20",
+      "X-21",
+      "X-22",
+      "X-23",
+      "X-24",
+      "X-25",
+      "X-26",
+      "X-27",
+      "X-28",
+      "X-29",
+      "X-30",
+      "X-31",
+      "X-32",
+      "X-33",
+      "X-34",
+      "X-35",
+      "X-38",
+      "X-39",
+      "X-40",
+      "X-41",
+      "X-42",
+      "X-43",
+      "X-44",
+      "X-45",
+      "X-46",
+      "X-47",
+      "X-48",
+      "X-49",
+      "X-50",
+      "X-51",
+      "X-52",
+      "X-53",
+      "X-54",
+      "X-55",
+      "X-56",
+      "X-57",
+      "X-58",
+      "X-59",
+      "X-60",
+      "X-61",
+      "X-62",
+      "X-63",
+      "X-64",
+      "X-65",
+      "X-66",
+      "X-67",
+      "X-68",
+      "X-69",
+      "X-70",
+      "X-71",
+      "X-72",
+      "X-73",
+      "X-74",
+      "X-75",
+      "X-76",
+      "X-77",
+      "X-78",
+      "X-79",
+      "X-80",
+      "X-81",
+      "X-82",
+      "X-83",
+      "X-84",
+      "X-85",
+      "X-86",
+      "X-87",
+      "X-88",
+      "X-89",
+      "X-90",
+      "X-91",
+      "X-92",
+      "X-93"
+    ],
+    "uncovered": [
+      "X-36",
+      "X-37"
+    ],
+    "notAssessed": [],
+    "unknown": []
+  },
+  "citationAudit": {
+    "checked": 101,
+    "hard": [
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #1",
+        "ref": "or read-back \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #4",
+        "ref": "{ role, source, baseUrlEnv: \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #4",
+        "ref": ", tokenEnv: \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "\"uri-template\": /^(?:",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "url: /^(?:https?|ftp):\\/\\/",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "\"json-pointer\": /^(?:\\/(?:[^~/]|~0|~1)*)*$/,",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "int32: { type: \"number\", validate: validateInt32 },",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "\"iso-date-time\": fmtDef(getDateTime(), compareIsoDateTime),",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "format (only formats ajv-formats registers, e.g. uuid, date-time)",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "uri-template",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "json-pointer",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main finding #5",
+        "ref": "iso-date-time",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #1",
+        "ref": "plans[].requirementIds",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #1",
+        "ref": "no API mapping for entity` → 7; pattern `",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #2",
+        "ref": "OQ-17 — Provenance of \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #3",
+        "ref": "\"generator\": \"testgen\",",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #3",
+        "ref": "\"tier\": \"executed\",",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #3",
+        "ref": "\"entity\": \"TaskPublished\", \"applicable\": true, \"total\": 17, \"killed…",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #4",
+        "ref": "LF will be replaced by CRLF",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #4",
+        "ref": "File does not exist",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #5",
+        "ref": "the read-back SHALL find its record in the body, or in a tRPC envel…",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #5",
+        "ref": "), when the mapped \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #5",
+        "ref": "SHALL fail on \\",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1038_test-update_main decision #5",
+        "ref": "accepts null only where the asserting service's contract marks the …",
+        "problem": "quoted text not found anywhere in the repo"
+      }
+    ],
+    "soft": 11
+  },
+  "verification": {
+    "status": "ok",
+    "model": "claude-fable-5-1",
+    "confirmed": 3,
+    "refuted": 0,
+    "unclear": 2,
+    "notVerified": 0
+  }
+}

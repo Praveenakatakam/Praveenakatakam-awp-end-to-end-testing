@@ -1,0 +1,40 @@
+{
+  "model": "claude-fable-5-1",
+  "findings": [
+    {
+      "index": 0,
+      "verdict": "UNCLEAR",
+      "reason": "The R-133e violation itself is real: API_MAP has no `create` key and its only TaskPublished path is the get-ready read path, and the job report records the plan's trigger as POST /api/create/review/advance. The failure scenario cannot be traced to its end, though: the plan is withheld, so no committed file or manifest plan row carries the path; a cache hit reuses the identical plan (functest generate.ts:128-131) and validatePlan does not check clauses, so the plan is re-withheld for A-01…A-06 rather than 'fixed', and a re-synthesised plan may use a different path. The live create route table is not in the repo.",
+      "evidence": "packages/core/src/api-map.ts:34-44 `export const API_MAP: Record<string, Record<string, EntityApiTarget>> = { publisher: {...}, consumer: {...}, 'get-ready': { TaskPublished: { path: '/api/grdy/assignments/getTasks', ... } } };`; adversarial-reports/1792676514926-j6neyt/report.json:154 `\"defect\": \"The trigger POST /api/create/review/advance is in no API mapping for 'TaskPublished'.\"`; packages/functest/src/generate.ts:128 `if (cached && validatePlan(planBodyOf(cached), grounded).ok) {` :130 `plans.push({ ...cached, kind: 'functional', requirementIds: [label] });`"
+    },
+    {
+      "index": 1,
+      "verdict": "UNCLEAR",
+      "reason": "Confirmed parts: API_MAP has no `create` key; the report records POST /api/create/tasks/publish for XCT-R-11; review.ts withholds only on Critical ids and grounding.ts rates R-133e Major, so an unmapped trigger alone never blocks emission. Not traceable: the plan is withheld and absent from the tree, and whether a re-synthesised plan (needed to remove A-11) still names this path is future LLM output; whether the create service serves it is live behaviour not visible in the repo.",
+      "evidence": "packages/adversary/src/review.ts:194 `const critical = deterministic.filter((f) => f.target.ref === ref && f.severity === 'Critical').map((f) => f.id);`; packages/adversary/src/grounding.ts:226-228 `finding( 'R-133e', 'Major',`; adversarial-reports/1792676514926-j6neyt/report.json:210 `\"defect\": \"The trigger POST /api/create/tasks/publish is in no API mapping for 'TaskPublished'.\"`; generated-tests/functional/manifest.json:669-670 `\"requirement\": \"awp-app-plane/XCT-R-11\", \"reason\": \"adversarial: A-11\"`"
+    },
+    {
+      "index": 2,
+      "verdict": "CONFIRMED",
+      "reason": "Traced end to end: the entity is `schema[0].name` with no same-source uniqueness (metadata.ts:30-40); the conformance loop runs once per catalog contract and the file path is built from `${t.source}.${t.entity}` only, so two valid same-source contracts naming the same entity produce two manifest entries and one path, and the CLI's write loop writes both to that path in sequence (last wins). The compat variant choice at :78-79 is `variants.find(...)` over the unsorted catalog filter, so it follows input order. No dedupe exists in scripts/generate-tests.ts:91-109 or generate.ts:38-62; the only duplicate handling in packages/functions/src concerns requirement/contract ids (refresh.ts:7, :163). The trigger is absent from today's catalog (every source/entity pair in generated-tests/manifest.json is unique), so the severity 'narrow trigger' is right.",
+      "evidence": "packages/testgen/src/generate.ts:115 `? { path: \\`conformance/${t.source}.${t.entity}.generated.test.ts\\`, contents: emitConformanceTest(t, i) }`; :67 `const variants = catalog.filter((c) => c.entity === entity);` :78 `const pub = variants.find((v) => v.source === roles.publisher)!;`; scripts/generate-tests.ts:131-134 `for (const f of artifacts.files) { const full = join(destDir, f.path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, f.contents);`; packages/core/src/metadata.ts:34-35 `const name = str(first?.name); if (name) return name;`"
+    },
+    {
+      "index": 3,
+      "verdict": "CONFIRMED",
+      "reason": "The emitter interpolates the env name after `process.env.` (dot access) on all four lines, and `envStem` only upper-cases and replaces non-[A-Z0-9] runs with `_`, so a source label beginning with a digit yields e.g. `process.env.3RD_PARTY_API_URL`, which is not a valid JavaScript member expression (identifiers cannot start with a digit) and makes the emitted file fail to parse instead of skipping. No guard exists: source labels are the ODCS `domain` string (metadata.ts:52, unsanitised), stampPlan applies envStem to any unmapped source, and validatePlan only checks that the source is in the grounded set. The trigger requires a digit-leading domain declared in ENTITY_FLOWS, which no current flow has, so the defect holds with a narrow trigger. The §3.9 emitter is unaffected because it uses bracket access.",
+      "evidence": "packages/functest/src/emit.ts:108 `const publisherBase = process.env.${pub.baseUrlEnv};`; packages/functest/src/plan.ts:323-325 `export function envStem(source: string): string { return source.toUpperCase().replace(/[^A-Z0-9]+/g, '_'); }` :346 `: { role, source, baseUrlEnv: \\`${envStem(source)}_API_URL\\`, tokenEnv: \\`${envStem(source)}_TOKEN\\`, recordsAt: '', mapped: false };`; packages/core/src/metadata.ts:52 `domain: str(doc.domain),`; contrast packages/testgen/src/emit.ts:24 `const baseUrl = process.env[${JSON.stringify(t.target.baseUrlEnv)}];`"
+    },
+    {
+      "index": 4,
+      "verdict": "CONFIRMED",
+      "reason": "Traced end to end: `deriveConstraints` copies `format` only when it is in KNOWN_FORMATS (12 names), while the emitted conformance test calls `addFormats(new Ajv({ allErrors: true }))` with no options, which registers every name in ajv-formats' `formatNames` (index.js:8-15), and `fullFormats` includes `url`, `uri-template`, `json-pointer`, `relative-json-pointer`, `iso-time`, `iso-date-time`, `int32`, `int64`, `float`, `double`, `byte` (formats.js:13-14, 20, 23, 34, 37, 40-48). A contract `format: url` is therefore dropped although Ajv would have compiled and enforced it, and a record with a non-URL string passes the embedded schema's bare `type: string`. No live contract in the tree uses one of these formats, so the trigger is narrow.",
+      "evidence": "packages/testgen/src/derive-schema.ts:62 `const KNOWN_FORMATS = new Set(['date', 'time', 'date-time', 'duration', 'uri', 'uri-reference', 'email', 'hostname', 'ipv4', 'ipv6', 'uuid', 'regex']);` :76 `if (typeof o.format === 'string' && KNOWN_FORMATS.has(o.format)) out.format = o.format;`; generated-tests/conformance/get-ready.TaskPublished.generated.test.ts:80 `const validate = addFormats(new Ajv({ allErrors: true })).compile(schema);`; node_modules/ajv-formats/dist/index.js:14 `const list = opts.formats || formats_1.formatNames;` :31-32 `for (const f of list) ajv.addFormat(f, fs[f]);`; node_modules/ajv-formats/dist/formats.js:23 `url: /^(?:https?|ftp):\\/\\/...` :34 `\"json-pointer\": /^(?:\\/(?:[^~/]|~0|~1)*)*$/,` :42 `int32: { type: \"number\", validate: validateInt32 },`"
+    }
+  ],
+  "notes": [
+    "packages/adversary/src/mutate-functest.ts:37-41 builds the R-136 mutant set from `pubNames.has(p.name)` on raw names and ignores the flow's field map, so a consumer-required property satisfied by a renamed publisher property would get no mutant; no live effect today because every ENTITY_FLOWS entry has no `fields` (packages/core/src/api-map.ts:69-79).",
+    "packages/functest/src/ground.ts:46-52 `ContractInput` carries no `validation` flag, so functest grounding cannot by itself exclude `validation: invalid` contracts the way testgen does (packages/testgen/src/generate.ts:39-42); whether the worker filters them before calling `ground` was not checked (packages/functions/src is outside this pass's read set).",
+    "Finding 0's failure scenario is internally weak as written: a cache hit reuses the identical plan (packages/functest/src/generate.ts:128-131), so its clause findings cannot be 'fixed' without a hash change and re-synthesis. The R-133e defect stands independently of that scenario."
+  ]
+}
