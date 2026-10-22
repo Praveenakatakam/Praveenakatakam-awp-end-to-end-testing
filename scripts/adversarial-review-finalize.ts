@@ -653,7 +653,8 @@ export async function uploadRun(runDir: string): Promise<void> {
   const reviewKind = review.skill === 'adversarial-test-review' ? 'test'
     : review.skill === 'adversarial-requirements-review' ? 'requirements'
     : 'code';
-  const kindAttr = reviewKind === 'test' ? 'ADVERSARIAL_TEST' : 'ADVERSARIAL_CODE';
+  const KIND_ATTR: Record<string, string> = { test: 'ADVERSARIAL_TEST', code: 'ADVERSARIAL_CODE', requirements: 'ADVERSARIAL_REQUIREMENTS' };
+  const kindAttr = KIND_ATTR[reviewKind] ?? 'ADVERSARIAL_CODE';
   const runName = basename(resolve(runDir));
   const reviewSha256 = sha256(reviewContent);
 
