@@ -726,6 +726,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       } else if (cmd === 'upload' && arg) {
         await uploadRun(arg);
         console.log(`uploaded ${basename(resolve(arg))}`);
+      } else if (cmd === 'upload-all' && arg) {
+        const stagesPath = join(resolve('.'), 'scripts', 'adversarial-stages.json');
+        if (!existsSync(stagesPath)) throw new Error('scripts/adversarial-stages.json not found');
+        const stages = JSON.parse(readFileSync(stagesPath, 'utf8')) as Array<{ stage: string; table: string; bucket: string }>;
+        for (const s of stages) {
+          process.env['ADVERSARIAL_TABLE'] = s.table;
+          process.env['ADVERSARIAL_BUCKET'] = s.bucket;
+          await uploadRun(arg);
+          console.log(`[${s.stage}] uploaded ${basename(resolve(arg))}`);
+        }
+        delete process.env['ADVERSARIAL_TABLE'];
+        delete process.env['ADVERSARIAL_BUCKET'];
       } else if (cmd === 'blind-inputs') {
         const generatedDir = arg ?? 'generated-tests';
         const inputs = runDirArg ? snapshotBlindInputs(generatedDir, runDirArg) : blindInputs(generatedDir);

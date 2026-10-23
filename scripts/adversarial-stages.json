@@ -1,0 +1,12 @@
+[
+  {
+    "stage": "dev",
+    "table": "dev-awp-end-to-end-testing-Registry",
+    "bucket": "dev-awp-end-to-end-testing-contractsbucket5c11ddfa-73j8hyk3xpeg"
+  },
+  {
+    "stage": "pkatakam",
+    "table": "pkatakam-awp-end-to-end-testing-Registry",
+    "bucket": "pkatakam-awp-end-to-end-te-contractsbucket5c11ddfa-ttgypxhh21q8"
+  }
+]
