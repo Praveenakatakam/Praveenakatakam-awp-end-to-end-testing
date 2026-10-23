@@ -1,0 +1,1329 @@
+{
+  "skill": "adversarial-code-review",
+  "version": "0.5",
+  "model": "claude-fable-5-1",
+  "scope": "aa82ba8~1...HEAD @ fea19df",
+  "uncovered": [
+    {
+      "behaviour": "X-28",
+      "quote": "The job is marked `failed` with the (redacted) Bedrock error recorded on the job record; **no** partial artifacts are produced",
+      "coveredBy": "broken — see finding on packages/functest/src/generate.ts:138 (job succeeds with partial artifacts, unredacted skip reason)"
+    },
+    {
+      "behaviour": "X-62",
+      "quote": "The Lambda SHALL be opted out of the `ApiStack` `defaults.function.bind`",
+      "coveredBy": "bind: [] is present (stacks/ApiStack.ts:129, :146) but s3:ListBucket is missing and no infra test asserts any of it — see finding on stacks/ApiStack.ts:156"
+    },
+    {
+      "behaviour": "X-65",
+      "quote": "Each object SHALL contain exactly: reviewKind, run_dir, startedAt, scope, verdict, countCritical, countMajor, countMinor, verificationStatus",
+      "coveredBy": "projection is explicit (adversarialRuns.ts:44-54) but 400 code, 502 on GSI failure, case/kind set and nextToken deviate — see findings on adversarialRuns.ts:31, :33, :25, :56"
+    },
+    {
+      "behaviour": "X-66",
+      "quote": "Compute SHA-256 of the received review.json bytes; compare to reviewSha256 in the DynamoDB item. If they differ → return 409",
+      "coveredBy": "order and codes deviate: 404 for invalid input, catch-all 404 on S3, unguarded JSON.parse, SHA skipped when absent — see findings on adversarialRuns.ts:63, :81, :93, :86"
+    },
+    {
+      "behaviour": "X-67",
+      "quote": "Validate that kind ∈ {test,code} and run_dir matches the R-0 pattern; if not → 400.",
+      "coveredBy": "not implemented — finding on adversarialRuns.ts:63"
+    },
+    {
+      "behaviour": "X-68",
+      "quote": "The list route SHALL return at most 100 runs newest-first, plus a nextToken cursor when more exist.",
+      "coveredBy": "Limit 100 + ScanIndexForward false present (adversarialRuns.ts:39-40); nextToken and Load more absent — finding on adversarialRuns.ts:56; needsDecision on R-8 vs R-35"
+    },
+    {
+      "behaviour": "X-70",
+      "quote": "PK=ADV#{kind} … startedAt = the pass1WrittenAt or finalizedAt ISO-8601 timestamp from review.json",
+      "coveredBy": "PK prefix wrong, run_dir/model attributes missing, wall-clock fallback — findings on scripts/adversarial-review-finalize.ts:694, :691"
+    },
+    {
+      "behaviour": "X-71",
+      "quote": "SHALL print to stderr which steps succeeded and what failed (including the run_dir), and SHALL exit with a non-zero code.",
+      "coveredBy": "only the SDK message is printed — finding on scripts/adversarial-review-finalize.ts:738"
+    },
+    {
+      "behaviour": "X-72",
+      "quote": "IF neither source resolves THEN the script SHALL print a warning to stderr with guidance and exit with code 3. A deliberate skip is expressed with --no-upload, which exits with code 0.",
+      "coveredBy": "key names are right (finalize.ts:631-632, stacks/StorageStack.ts:60-63) but exit code is 1 and --no-upload does not exist — finding on scripts/adversarial-review-finalize.ts:717"
+    },
+    {
+      "behaviour": "X-81",
+      "quote": ".adversarial-review/ (git-ignored)",
+      "coveredBy": "spec and repo disagree — finding on .gitignore:16; needsDecision"
+    },
+    {
+      "behaviour": "X-82",
+      "quote": "review.raw.json is never hand-edited",
+      "coveredBy": "not verified: the committed run folders 20261021-1148_test_main and 20261021-1533_requirements_main were not diffed against the finalize rules in this pass"
+    },
+    {
+      "behaviour": "X-90",
+      "quote": "Verdict values SHALL be displayed as: CONFIRMED, REFUTED, UNCLEAR, or — (when the finding's embedded verification object is absent or verificationStatus is stale or invalid)",
+      "coveredBy": "table logic in packages/web/src/lib.ts:141-149 is right but renders 'unverified' not '—', and the drawer shows stale verdicts — findings on adversarial.tsx:56, :150"
+    },
+    {
+      "behaviour": "X-92",
+      "quote": "{startedAt formatted in the viewer's local time as YYYY-MM-DD HH:MM zzz} — {scope}",
+      "coveredBy": "format differs — finding on packages/web/src/lib.ts:196"
+    },
+    {
+      "behaviour": "X-93",
+      "quote": "The SPA SHALL discard any response that arrives after the user has changed the selected kind or run",
+      "coveredBy": "kind switch does not invalidate the findings request — Critical finding on packages/web/src/adversarial.tsx:243"
+    },
+    {
+      "behaviour": "X-94",
+      "quote": "the SPA SHALL display the message \"No {kind} review runs yet.\" and SHALL NOT issue a findings request",
+      "coveredBy": "no findings request is issued (adversarial.tsx:239 only via onChange) but the message text is wrong — finding on adversarial.tsx:268"
+    },
+    {
+      "behaviour": "X-95",
+      "quote": "Verification data is {stale | invalid} — re-run Pass 3 for current verdicts.",
+      "coveredBy": "banner absent — finding on packages/web/src/adversarial.tsx:56"
+    },
+    {
+      "behaviour": "X-96",
+      "quote": "WHEN the user presses Escape while the drawer is open, the SPA SHALL close it and return focus to the row that opened it.",
+      "coveredBy": "Escape closes (adversarial.tsx:25-30) but no focus management and kind change leaves the drawer open — findings on adversarial.tsx:34, :222"
+    },
+    {
+      "behaviour": "X-97",
+      "quote": "The raw finding as formatted JSON, rendered as plain text in a <pre>",
+      "coveredBy": "no <pre>, label 'In-product ref', Pass 3 fields shown regardless of status — findings on adversarial.tsx:34, :56"
+    },
+    {
+      "behaviour": "X-98",
+      "quote": "IF a run-list or findings API call returns 403 THEN the SPA SHALL display \"You do not have access to adversarial results.\"",
+      "coveredBy": "not implemented, no Retry — finding on packages/web/src/adversarial.tsx:267"
+    },
+    {
+      "behaviour": "X-101",
+      "quote": "Every implementation task T-nn has a paired test task T-nna immediately after it",
+      "coveredBy": "T-AR-03 has no T-AR-03a assertions in stacks/tests/ApiStack.test.ts; T-AR-01a/T-AR-02a/T-AR-08a/T-AR-09a are partial — findings on stacks/ApiStack.ts:156, finalize-upload.test.ts:154, adversarialRuns.test.ts:101, adversarial.test.tsx:121. (The adversary package does have tests in the range; see needsDecision on the changed_files list.)"
+    },
+    {
+      "behaviour": "X-105",
+      "quote": "(e) SHA mismatch → 409; (f) review.json not parseable → 422; … (i) S3 non-NoSuchKey error → 502; (j) GSI query fails → 502",
+      "coveredBy": "(c),(f),(i),(j) absent and (h) vacuous — Critical finding on packages/functions/tests/adversarialRuns.test.ts:101"
+    },
+    {
+      "behaviour": "X-106",
+      "quote": "(c) S3 put fails → DynamoDB not called, exit non-zero; (d) DynamoDB fails after S3 success → exit non-zero; (e) no config → no AWS calls, exit 3; (f) --no-upload → no AWS calls, exit 0",
+      "coveredBy": "absent — finding on scripts/tests/finalize-upload.test.ts:154"
+    },
+    {
+      "behaviour": "X-107",
+      "quote": "(f) Lambda not included in the default bind policy; (g) StorageStack Outputs has ContractsBucketName and RegistryTableName",
+      "coveredBy": "no T-AR-03a test exists — finding on stacks/ApiStack.ts:156"
+    },
+    {
+      "behaviour": "X-108",
+      "quote": "(g) response arrives after kind switch → discarded, not rendered; (h) empty run list → selectedRun = null, no crash",
+      "coveredBy": "(g) untested and the behaviour is broken; (h) partially (test (e)) — finding on packages/web/tests/adversarial.test.tsx:121"
+    },
+    {
+      "behaviour": "X-111",
+      "quote": "Agents must update it when creating stubs, promoting specs, or archiving completed features.",
+      "coveredBy": "stub present in both pending/ and active/ — finding on specs/pending/adversarial-results-ui/stub.md"
+    }
+  ],
+  "discardedInstructions": [],
+  "runName": "20261022-1210_code_main",
+  "pass1WrittenAt": "2026-10-22T16:18:47.909Z",
+  "finalizedAt": "2026-10-22T16:43:59.977Z",
+  "verdict": "FAIL — Critical",
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "Critical",
+      "target": "packages/functest/src/generate.ts:138",
+      "defect": "A Bedrock access-denied (or any) synthesiser failure is recorded as a per-requirement skip whose reason embeds the raw SDK message, and the job is persisted as `succeeded` with partial artifacts, contradicting E-46 and NFR-2.",
+      "failureScenario": "Deploy to an account without the Sonnet model grant and trigger a functional job: every un-cached requirement is skipped with reason `LLM synthesis failed: User: arn:aws:sts::<account>:assumed-role/... is not authorized to perform bedrock:InvokeModel`, the job record is written with status `succeeded` and `skips` carrying that text (functional-gen.ts:169-187), cached plans are emitted as a partial artifact set, and the CLI writes them to generated-tests/functional/.",
+      "evidence": "packages/functest/src/generate.ts:137-139 `skipped.push({ requirement: label, reason: `LLM synthesis failed: ${(err as Error).message}` });` (unchanged since aa82ba8~1:123); packages/functions/src/functional-gen.ts:136, :147, :169-187; specs/active/odcs-contract-registry/requirements.md:488 (E-46)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The Bedrock client throws the SDK error unredacted, generateFunctionalPlans turns it into a skip carrying err.message, and runFunctionalJob then writes status 'succeeded' with those skips and the cached plans' artifacts; only a throw outside the loop reaches the 'failed' branch.",
+        "evidence": "packages/functest/src/generate.ts:138 `skipped.push({ requirement: label, reason: `LLM synthesis failed: ${(err as Error).message}` });`; packages/functions/src/functional-gen.ts:171 `status: 'succeeded',` and :183 `skips: skipped,`; packages/functions/src/llm.ts:60 `const res = await client.send(` (no catch/redact)"
+      }
+    },
+    {
+      "id": "F-02",
+      "severity": "Critical",
+      "target": "packages/functions/tests/adversarialRuns.test.ts:101",
+      "defect": "The handler tests are green against a handler that collapses every S3 error into 404, never validates run_dir, and crashes on a corrupt review.json: scenarios (c) kind=CODE, (f) 422, (i) 502 S3 and (j) 502 GSI from T-AR-02a are absent and (h) rejects with a generic Error the code never inspects.",
+      "failureScenario": "Replace the S3 `catch {}` with a handler that returns 404 for AccessDenied and throws on corrupt JSON (the current code): all 11 tests still pass, because no test sends a non-NoSuchKey error, a non-JSON body, a failing QueryCommand, or an upper-case kind.",
+      "evidence": "packages/functions/tests/adversarialRuns.test.ts:101 `s3.on(GetObjectCommand).rejects(new Error('NoSuchKey'));`; packages/functions/src/adversarialRuns.ts:78-83, :93; specs/active/adversarial-results-ui/tasks.md T-AR-02a (c),(f),(i),(j)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The 11 tests send only a NoSuchKey-named Error, valid JSON bodies, resolving QueryCommand mocks and lower-case kinds; T-AR-02a (c) kind=CODE, (f) 422, (i) 502 S3, (j) 502 GSI have no test, and the handler's bare catch and unguarded JSON.parse are never exercised.",
+        "evidence": "packages/functions/tests/adversarialRuns.test.ts:101 `s3.on(GetObjectCommand).rejects(new Error('NoSuchKey'));`; packages/functions/src/adversarialRuns.ts:81 `} catch {`; specs/active/adversarial-results-ui/tasks.md:41 `(c) `kind=CODE` (wrong case) → 400; … (f) `review.json` not parseable → 422; … (i) S3 non-NoSuchKey error → 502; (j) GSI query fails → 502`"
+      }
+    },
+    {
+      "id": "F-03",
+      "severity": "Critical",
+      "target": "packages/web/src/adversarial.tsx:243",
+      "defect": "A findings request in flight when the user switches review kind is not invalidated, so its response is rendered under the new kind (R-29 stale-response guard is incomplete).",
+      "failureScenario": "On the Test review tab select a run → immediately click Code review. The kind effect (lines 222-237) resets findingsState and bumps runsRequestId but never increments findingsRequestId; when the test-run findings resolve, `findingsRequestId.current !== id` is false, so the table shows the test review's findings under the Code review tab with no run selected.",
+      "evidence": "packages/web/src/adversarial.tsx:222-237 (no findingsRequestId increment), :244 `findingsRequestId.current !== id`; specs/active/adversarial-results-ui/requirements.md:145 (R-29)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The kind effect bumps runsRequestId and resets findingsState but never touches findingsRequestId, so a findings promise started under the previous kind still matches its id and is applied; findingsState 'loaded' then renders the table under the new kind.",
+        "evidence": "packages/web/src/adversarial.tsx:223 `const id = ++runsRequestId.current;` … :227 `setFindingsState({ state: 'idle', findings: [], verificationStatus: 'not_run' });` (no findingsRequestId change); :244 `if (findingsRequestId.current !== id) return;`"
+      }
+    },
+    {
+      "id": "F-04",
+      "severity": "Major",
+      "target": "packages/functions/src/adversarialRuns.ts:25",
+      "defect": "A `requirements` review kind is accepted by the API, written by the upload and offered as a sub-tab, while the governing adversarial-results-ui spec (R-0, R-1, R-8a, R-9) defines kind as exactly test or code and the run_dir pattern as `(test|code)`.",
+      "failureScenario": "`20261021-1533_requirements_main` fails the R-0 pattern the spec tells the API to validate (R-9 step 1 → 400), yet the handler serves it; a consumer validating the documented `reviewKind: 'test' | 'code'` union rejects the list response.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:25; scripts/adversarial-review-finalize.ts:654-656; packages/web/src/adversarial.tsx:261; specs/active/adversarial-results-ui/requirements.md:37, :80, :85; specs/active/adversarial-results-ui/design.md:116",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "KIND_ATTR accepts `requirements` in the handler, uploadRun emits it, and the SPA offers it, while R-0's pattern and R-8a/R-9 admit only test|code; the committed folder 20261021-1533_requirements_main is served despite failing the pattern the API is told to validate.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:25 `const KIND_ATTR: Record<string, string> = { test: 'ADVERSARIAL_TEST', code: 'ADVERSARIAL_CODE', requirements: 'ADVERSARIAL_REQUIREMENTS' };`; specs/active/adversarial-results-ui/requirements.md:37 `matches the pattern `^\\d{8}-\\d{4}_(test|code)_[A-Za-z0-9._-]+$``"
+      }
+    },
+    {
+      "id": "F-05",
+      "severity": "Major",
+      "target": "packages/functions/src/adversarialRuns.ts:33",
+      "defect": "A failing byKind GSI query is not caught, so the list route returns an API Gateway 500 instead of 502 `list_unavailable` (R-8b).",
+      "failureScenario": "DynamoDB throttles the GSI: `await ddb.send(` rejects, the Lambda throws, the SPA receives 500 with no `error` field and cannot distinguish an outage from a bug.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:33-42 `await ddb.send(` with no try/catch; specs/active/adversarial-results-ui/requirements.md:82 (R-8b)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The QueryCommand await has no try/catch, so a rejected query propagates out of the handler as an unhandled Lambda error rather than the R-8b 502 body.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:33 `const result = await ddb.send(`; specs/active/adversarial-results-ui/requirements.md:82 `IF the `byKind` GSI query for one kind fails, THEN the API SHALL return HTTP 502 `{\"error\":\"list_unavailable\"}``"
+      }
+    },
+    {
+      "id": "F-06",
+      "severity": "Major",
+      "target": "packages/functions/src/adversarialRuns.ts:63",
+      "defect": "The findings route returns 404 instead of 400 for an invalid kind or missing run_dir, and never validates run_dir against the R-0 pattern before interpolating it into the S3 key and the DynamoDB sort key.",
+      "failureScenario": "GET /adversarial-runs/test/..%2Fother%2Fx/findings (API Gateway decodes the segment) reaches GetItem with SK `../other/x` and GetObject with key `adversarial-runs/test/../other/x/review.json`; a caller probing for runs gets 404 for malformed input rather than the spec's 400, and the key shape guarantee the IAM prefix relies on is enforced only by luck of S3 not normalising `..`.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:63 returns notFound() for both conditions; :69 and :76 interpolate run_dir with no pattern check; specs/active/adversarial-results-ui/requirements.md:85 (R-9 step 1 → 400)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Invalid kind and missing run_dir both return notFound() (404) and run_dir is interpolated into the DynamoDB key and S3 key with no R-0 pattern check, where R-9 step 1 requires 400; the %2F-decoding half of the scenario depends on API Gateway behaviour I cannot observe, but the code-level claims hold.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:63 `if (!kindAttr || !run_dir) return notFound();`; :76 `const s3Key = `adversarial-runs/${kind}/${run_dir}/review.json`;`; specs/active/adversarial-results-ui/requirements.md:85 `1. Validate that `kind` ∈ `{\"test\",\"code\"}` and `run_dir` matches the R-0 pattern; if not → 400.`"
+      }
+    },
+    {
+      "id": "F-07",
+      "severity": "Major",
+      "target": "packages/functions/src/adversarialRuns.ts:81",
+      "defect": "Every S3 error (AccessDenied, throttling, timeout) is mapped to 404 `not_found`, and the stack grants no s3:ListBucket, so a missing object surfaces as AccessDenied and a real outage is indistinguishable from a missing run (R-9 step 3 requires 502 for non-NoSuchKey errors).",
+      "failureScenario": "S3 throttles or the bucket policy changes: the SPA shows 'Failed to load findings' for a run that exists and whose DynamoDB item was just listed; the operator concludes the artifact was never uploaded and re-runs `upload`, which also cannot fix a permission problem.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:78-83 bare `catch {` → notFound(...); stacks/ApiStack.ts:148-163 grants s3:GetObject only; specs/active/adversarial-results-ui/requirements.md:87, :100-101 (R-12 s3:ListBucket)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The catch is untyped and returns 404 for any S3 rejection, and the stack grants only s3:GetObject on the prefix (no s3:ListBucket), the exact condition R-12 names as needed to tell NoSuchKey from AccessDenied.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:81-82 `} catch {` / `return notFound(`review.json for run ${run_dir} not found in S3`);`; stacks/ApiStack.ts:159-160 `actions: ['s3:GetObject'],` / `resources: [contracts.bucketArn + '/adversarial-runs/*'],`; specs/active/adversarial-results-ui/requirements.md:101 `- `s3:ListBucket` on `ContractsBucket` with `s3:prefix` condition `adversarial-runs/` (needed for distinguishing NoSuchKey from AccessDenied)`"
+      }
+    },
+    {
+      "id": "F-08",
+      "severity": "Major",
+      "target": "packages/functions/src/adversarialRuns.ts:93",
+      "defect": "review.json is parsed with an unguarded JSON.parse and `findings` is never checked to be an array, so a corrupt artifact crashes the Lambda (500) instead of returning 422 `artifact_corrupt`.",
+      "failureScenario": "A truncated upload (S3 PutObject interrupted after the DynamoDB item was written on a re-upload) leaves a non-JSON review.json whose SHA happens to be absent from the item (`storedSha` undefined skips the check): JSON.parse throws, API Gateway returns 500, the SPA shows a generic error, nothing names the run as corrupt.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:93 `const review = JSON.parse(reviewContent) as {` with no try/catch; :99 returns review.findings unchecked; specs/active/adversarial-results-ui/requirements.md:87",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "JSON.parse has no try/catch and `findings` is returned without an array check, so a non-JSON body reaching that line throws out of the handler; the SHA gate is skipped when the item lacks reviewSha256, which is the only way a corrupt body gets past step 4 (uploadRun always writes the hash, so the trigger needs an item not written by this script).",
+        "evidence": "packages/functions/src/adversarialRuns.ts:86 `if (storedSha) {`; :93 `const review = JSON.parse(reviewContent) as {`; :99 `return json(200, { findings: review.findings, verificationStatus });`"
+      }
+    },
+    {
+      "id": "F-09",
+      "severity": "Major",
+      "target": "packages/web/src/adversarial.tsx:56",
+      "defect": "The stale/invalid verification banner (R-24) is absent and the drawer renders Pass 3 verdict/reason whenever `finding.verification` exists, ignoring `verificationStatus`, so a stale run shows CONFIRMED in the detail view (R-30).",
+      "failureScenario": "A run whose verification.json was older than review.raw.json (status `stale`): the table shows `unverified`, the user opens the drawer and reads `Verification verdict: CONFIRMED` with its reason, and no banner says the verification is stale.",
+      "evidence": "packages/web/src/adversarial.tsx:56 `{finding.verification && (`; FindingDetail (:46) receives only `finding`; no banner text in the file; specs/active/adversarial-results-ui/requirements.md:135 (R-24), :154-155 (R-30)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "FindingDetail takes only `finding` and renders the verification block whenever the sub-object exists; the file contains no banner text and no reference to stale/invalid status, so a stale run's drawer shows the embedded verdict.",
+        "evidence": "packages/web/src/adversarial.tsx:46 `export function FindingDetail({ finding }: { finding: AdversarialFinding }) {`; :56 `{finding.verification && (`; Grep for `stale|invalid|re-run Pass 3` in the file matches only the comment at :218"
+      }
+    },
+    {
+      "id": "F-10",
+      "severity": "Major",
+      "target": "packages/web/src/adversarial.tsx:226",
+      "defect": "The SPA never defaults `selectedRun` to `runs[0]` and never issues a findings request on load; the user sees a placeholder `— select a run —` option (R-18 not implemented).",
+      "failureScenario": "Open the Adversarial view with ten runs available: no findings table appears until the user manually picks a run; the newest run's verdict is never shown by default.",
+      "evidence": "packages/web/src/adversarial.tsx:226 `setSelectedRunDir(null);`, :228-231 set runs without selecting; selectRun (:239) is reached only from RunSelector onChange (:186); specs/active/adversarial-results-ui/requirements.md:121 (R-18)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "After the run list resolves the effect only calls setRuns/setRunsState; selectedRunDir stays null and selectRun is reachable only from the select's onChange, so no findings request is made until the user picks a run.",
+        "evidence": "packages/web/src/adversarial.tsx:226 `setSelectedRunDir(null);`; :230-231 `setRuns(result);` / `setRunsState('loaded');`; :186 `onChange={(e) => { if (e.target.value) onSelect(e.target.value); }}`; specs/active/adversarial-results-ui/requirements.md:121 `The SPA SHALL default to the most recent run (`runs[0]`) when a sub-tab is opened.`"
+      }
+    },
+    {
+      "id": "F-11",
+      "severity": "Major",
+      "target": "packages/web/src/adversarial.tsx:267",
+      "defect": "A 403 is rendered as `Failed to load runs: API 403` instead of 'You do not have access to adversarial results.', and no Retry control exists for either region (R-28, R-34).",
+      "failureScenario": "A user outside reader/writer opens the tab: they see a raw status code; a transient network error on the findings request leaves `Failed to load findings: …` with no way to retry other than re-selecting the run.",
+      "evidence": "packages/web/src/adversarial.tsx:267 `Failed to load runs: {runsError}`, :274; packages/web/src/api.ts:10 ApiError message is `API ${status}`; specs/active/adversarial-results-ui/requirements.md:143 (R-28), :166 (R-34)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "ApiError's message is `API ${status}`, the view renders that message verbatim for the runs region, and the file has no Retry control (Grep for `Retry` returns nothing).",
+        "evidence": "packages/web/src/api.ts:10 `super(`API ${status}`);`; packages/web/src/adversarial.tsx:267 `{runsState === 'error' && <p role=\"alert\">Failed to load runs: {runsError}</p>}`; :274 `{findingsState.state === 'error' && <p role=\"alert\">Failed to load findings: {findingsState.error}</p>}`"
+      }
+    },
+    {
+      "id": "F-12",
+      "severity": "Major",
+      "target": "packages/web/tests/adversarial.test.tsx:121",
+      "defect": "The SPA tests do not exercise R-18 (newest run selected), R-24 (banner), R-28 (Retry), R-29 (stale response discarded), R-32 (Escape/focus) or sort order; the sort 'smoke test' asserts only that a row is still visible.",
+      "failureScenario": "The missing R-18/R-24/R-28/R-29 behaviours (findings above) ship with a fully green web suite; a reversed sort comparator would also pass lines 121-128.",
+      "evidence": "packages/web/tests/adversarial.test.tsx:121-128; no `rejects` with status 403, no deferred-resolution promise, no `keyboard('{Escape}')` in the file; specs/active/adversarial-results-ui/tasks.md T-AR-08a (d),(g),(h), T-AR-09a (a),(d),(f),(g)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The web test file has no 403 case, no deferred promise for a stale response, no Escape keypress, no stale banner assertion, and the sort test only checks F-01 is still present after two clicks.",
+        "evidence": "packages/web/tests/adversarial.test.tsx:124-127 `// Click severity sort twice — should not throw and table should still be visible` … `expect(screen.getByText('F-01')).toBeInTheDocument();`; specs/active/adversarial-results-ui/tasks.md:76 `(g) response arrives after kind switch → discarded, not rendered`"
+      }
+    },
+    {
+      "id": "F-13",
+      "severity": "Major",
+      "target": "scripts/adversarial-review-finalize.ts:694",
+      "defect": "The DynamoDB partition key is written as `ADV#ADVERSARIAL_TEST` / `ADV#ADVERSARIAL_CODE` instead of the spec's `ADV#test` / `ADV#code`, and the handler reads the same wrong prefix, so the stored model contradicts R-2 and the R-7 LeadingKeys condition.",
+      "failureScenario": "An operator provisions the R-7 principal with `dynamodb:LeadingKeys` = [`ADV#test`, `ADV#code`] as written in the spec: every PutItem from the finalize script is denied, review.json is already in S3 (R-1a order), and the run is half-uploaded. Any tool or migration keyed on the documented `ADV#test` finds no items.",
+      "evidence": "scripts/adversarial-review-finalize.ts:694 and packages/functions/src/adversarialRuns.ts:69 both build `PK: `ADV#${kindAttr}``; specs/active/adversarial-results-ui/requirements.md:48 `PK = ADV#{kind}` (e.g. `ADV#test`); specs/active/adversarial-results-ui/design.md:39",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Both the upload and the handler build the PK from the GSI attribute value, not the API-facing kind, while R-2 and design §2.2 specify ADV#test / ADV#code and R-7's LeadingKeys list uses those literals.",
+        "evidence": "scripts/adversarial-review-finalize.ts:694 `PK: `ADV#${kindAttr}`,` with :656 `{ test: 'ADVERSARIAL_TEST', … }`; packages/functions/src/adversarialRuns.ts:69 `Key: { PK: `ADV#${kindAttr}`, SK: run_dir },`; specs/active/adversarial-results-ui/requirements.md:48 `- `PK = ADV#{kind}` (e.g. `ADV#test`)`; design.md:39 `| `PK` | `ADV#{kind}` | e.g. `ADV#test`, `ADV#code` |`"
+      }
+    },
+    {
+      "id": "F-14",
+      "severity": "Major",
+      "target": "scripts/adversarial-review-finalize.ts:717",
+      "defect": "`finalize` never uploads, there is no `--no-upload` flag, and every failure exits 1 — R-1 (upload on successful finalize), R-6 (exit 3 when config is unresolvable, exit 0 on --no-upload) are not implemented.",
+      "failureScenario": "A developer follows SKILL.md Step 4 (`finalize {run_dir}`) and reports the verdict; the run never appears in the SPA because no upload happened. Running `upload` without ADVERSARIAL_BUCKET set exits 1, indistinguishable from an S3 failure, instead of the documented 3.",
+      "evidence": "scripts/adversarial-review-finalize.ts:717-740; .claude/skills/adversarial-code-review/SKILL.md:72; specs/active/adversarial-results-ui/requirements.md:43 (R-1), :66 (R-6)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The `finalize` branch only writes review.json/review.md and prints; uploadRun is called only under `upload`; no `--no-upload` is parsed; every error exits 1. R-1 ties upload to finalize completion and R-6 specifies exit 3 / exit 0.",
+        "evidence": "scripts/adversarial-review-finalize.ts:717-718 `if (cmd === 'finalize' && arg) {` / `const r = finalizeRunDir(arg);`; :726-727 `} else if (cmd === 'upload' && arg) {` / `await uploadRun(arg);`; :739 `process.exit(1);`; specs/active/adversarial-results-ui/requirements.md:43 `WHEN `adversarial-review-finalize` completes successfully for a run, the finalize script SHALL upload`"
+      }
+    },
+    {
+      "id": "F-15",
+      "severity": "Major",
+      "target": "scripts/adversarial-review-finalize.ts:738",
+      "defect": "On an upload failure the script prints only the SDK message and exits 1; it does not say which steps succeeded or name the run_dir (R-3), so a half-uploaded run is invisible.",
+      "failureScenario": "PutObject for review.json succeeds, PutCommand is throttled: stderr shows `[adversarial-review] <ThrottlingException text>`; nothing says review.json is already in S3 with no DynamoDB commit marker, and a later `upload` is the only way to notice.",
+      "evidence": "scripts/adversarial-review-finalize.ts:737-740; uploadRun (647-709) keeps no completed-step list; specs/active/adversarial-results-ui/requirements.md:58 (R-3)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "uploadRun keeps no record of completed steps and the CLI catch prints only the error message, so a failure after the S3 put leaves no stderr statement of what was written or which run_dir it concerns.",
+        "evidence": "scripts/adversarial-review-finalize.ts:738 `console.error(`[adversarial-review] ${(err as Error).message}`);`; specs/active/adversarial-results-ui/requirements.md:58 `SHALL print to stderr which steps succeeded and what failed (including the `run_dir`)`"
+      }
+    },
+    {
+      "id": "F-16",
+      "severity": "Major",
+      "target": "scripts/audit-references.ts:27",
+      "defect": "The citation-audit PATH regex has no `tsx` extension and no trailing boundary, so `packages/web/src/adversarial.tsx:245` is extracted as `packages/web/src/adversarial.ts` (line dropped) and reported as a hard 'file does not exist' — a false fabrication signal for every .tsx citation (AR-18).",
+      "failureScenario": "This very run cites packages/web/src/adversarial.tsx and packages/web/tests/adversarial.test.tsx; finalize's 'Citations not verified' section will list them as NOT FOUND although the files exist, telling the reader to distrust correct findings.",
+      "evidence": "scripts/audit-references.ts:27 extension alternation `(?:ts|mjs|md|json|yaml|yml|txt)` followed by an optional `:line` only; scripts/tests/audit-references.test.ts:20-27 has no .tsx case",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The extension alternation lacks `tsx` and nothing anchors the end, so on `packages/web/src/adversarial.tsx:245` the greedy class backtracks to `…adversarial` + `.ts`, the optional `:line` group fails on the following `x`, and the captured path `packages/web/src/adversarial.ts` does not exist, yielding a hard 'file does not exist'; the test fixture has no .tsx case.",
+        "evidence": "scripts/audit-references.ts:27 `const PATH = /(?<![A-Za-z0-9_./-])((?:packages|scripts|specs|docs|stacks|generated-tests|\\.claude)\\/[A-Za-z0-9_./@-]+\\.(?:ts|mjs|md|json|yaml|yml|txt))(?::(\\d+)(?:-(\\d+))?)?/g;`; :120-121 `if (!existsSync(abs)) {` / `issues.push({ severity: 'hard', where, ref: c.path, problem: 'file does not exist' });`; scripts/tests/audit-references.test.ts:21 `pathsIn('packages/core/src/compare.ts:12 and scripts/adversary-exec.ts:3-9, plus specs/README.md')`"
+      }
+    },
+    {
+      "id": "F-17",
+      "severity": "Major",
+      "target": "scripts/tests/finalize-upload.test.ts:154",
+      "defect": "The upload tests prove neither write ordering across clients nor failure handling: T-AR-01a (c) S3 failure → no DynamoDB put, (d) DynamoDB failure → non-zero exit, (e) exit 3, (f) --no-upload, (g) idempotent re-upload are all absent, and (g) as written pins the non-spec PK `ADV#ADVERSARIAL_TEST`.",
+      "failureScenario": "Reorder uploadRun to PutItem first and S3 after: every test still passes (aws-sdk-client-mock records calls per client, and no test checks interleaving or a rejected PutObjectCommand).",
+      "evidence": "scripts/tests/finalize-upload.test.ts:154 `expect(item['PK']).toBe('ADV#ADVERSARIAL_TEST');`; no `.rejects(` on PutObjectCommand or PutCommand in the file; specs/active/adversarial-results-ui/tasks.md T-AR-01a (c)–(g)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Every mock resolves; no test rejects PutObjectCommand or PutCommand, no test checks cross-client ordering, and (g) pins the non-spec PK; T-AR-01a (c)–(g) have no counterpart in the file.",
+        "evidence": "scripts/tests/finalize-upload.test.ts:20-21 `ddb.on(PutCommand).resolves({});` / `s3.on(PutObjectCommand).resolves({});`; :154 `expect(item['PK']).toBe('ADV#ADVERSARIAL_TEST');`; specs/active/adversarial-results-ui/tasks.md:32 `(c) S3 put fails → DynamoDB not called, exit non-zero; (d) DynamoDB fails after S3 success → exit non-zero; (e) no config → no AWS calls, exit 3; (f) `--no-upload` → no AWS calls, exit 0; (g) re-upload same run_dir`"
+      }
+    },
+    {
+      "id": "F-18",
+      "severity": "Major",
+      "target": "stacks/ApiStack.ts:156",
+      "defect": "The adversarial-runs Lambda is granted GetItem, Query and GetObject but not the R-12 `s3:ListBucket` with prefix condition, and `stacks/tests/ApiStack.test.ts` carries none of the T-AR-03a assertions (routes, four grants, no default bind) — a T-AR-03 change with no T-AR-03a test.",
+      "failureScenario": "Remove `bind: []` from either new route or change `{run_dir}` to `{run_dir+}`: the infra suite stays green. At runtime GetObject on a missing key returns 403 AccessDenied rather than NoSuchKey because ListBucket is absent, so NoSuchKey can never be distinguished (the handler then hides it as 404).",
+      "evidence": "stacks/ApiStack.ts:149-163 (two statements for the findings function: dynamodb:GetItem, s3:GetObject); stacks/tests/ApiStack.test.ts:100-122 asserts only CRITIC_MODEL_ID/threshold and bedrock grants; specs/active/adversarial-results-ui/requirements.md:97-103 (R-12); specs/active/adversarial-results-ui/tasks.md T-AR-03a",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The findings function's permissions are two statements (dynamodb:GetItem, s3:GetObject) with no s3:ListBucket, and stacks/tests/ApiStack.test.ts contains no assertion on either adversarial route, grant, or bind opt-out even though the file was changed in the range.",
+        "evidence": "stacks/ApiStack.ts:151-162 `permissions: [` … `actions: ['dynamodb:GetItem'],` … `actions: ['s3:GetObject'],` … `],`; stacks/tests/ApiStack.test.ts:100 `it('configures the adversarial critic on the functional worker (T-45a · R-139, D-77, D-81)', () => {` is the last describe block and no test mentions `adversarial-runs`; specs/active/adversarial-results-ui/tasks.md:50 `(e) `s3:ListBucket` with prefix condition; (f) Lambda not included in the default bind policy`"
+      }
+    },
+    {
+      "id": "F-19",
+      "severity": "Minor",
+      "target": ".gitignore:16",
+      "defect": "`.adversarial-review/` is no longer ignored and run folders are committed, while the shared spec §4 still declares the folder git-ignored.",
+      "failureScenario": "A later blind pass, which has Read/Grep, can open `.adversarial-review/20261021-1148_test_main/review.md` and read Pass 2 findings about the same code it is supposed to assess blind; the `BLIND PASS COMPROMISED` tripwire depends on the agent noticing.",
+      "evidence": ".gitignore:16-18 (adversarial-reports/, .adversarial-tmp/ only); .claude/skills/adversarial-review-spec.md:77 `.adversarial-review/                     (git-ignored)`; git ls-files .adversarial-review lists tracked files",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "`git ls-files .adversarial-review` lists five committed run folders including review.md and expected-behaviours.md, while the shared spec §4 labels the folder git-ignored; the range's .gitignore change (removing `.claude`) does not add an entry for it.",
+        "evidence": ".claude/skills/adversarial-review-spec.md:77 `.adversarial-review/                     (git-ignored)`; .gitignore:16-18 `# Adversarial review (§3.12): executed-tier scratch — never committed (R-130, R-144)` / `adversarial-reports/` / `.adversarial-tmp/`; `git ls-files .adversarial-review` → `.adversarial-review/20261021-1148_test_main/review.md` (among 29 tracked files)"
+      }
+    },
+    {
+      "id": "F-20",
+      "severity": "Minor",
+      "target": "packages/adversary/src/grounding.ts:111",
+      "defect": "A `matchesType` literal `number` on a property the contract declares `integer` is reported as a Critical contradiction and withholds the plan, although R-117b and the emitter accept an integer for `number`.",
+      "failureScenario": "The LLM asserts `matchesType number` on get-ready `totalItemCount` (integer): grounding fires R-133a Critical, the plan is withheld, yet the emitted check would have passed on every correct response.",
+      "evidence": "packages/adversary/src/grounding.ts:109-111 `if (have && want !== have) {`; packages/functest/src/emit.ts:132 `return actual === declared || (declared === \"number\" && actual === \"integer\");`",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Grounding compares wireType('number') to wireType('integer') and raises a Critical on inequality, while the emitter's typeMatches explicitly accepts an integer value for a declared `number`; the two stages disagree. R-117b itself is silent on integer⊂number, so whether grounding or the emitter is right is the open decision already raised.",
+        "evidence": "packages/adversary/src/grounding.ts:109-111 `const want = wireType(String(a.expected.value));` / `const have = wireType(prop.logicalType);` / `if (have && want !== have) {` → :114 `'Critical',`; packages/functest/src/emit.ts:132 `return actual === declared || (declared === \"number\" && actual === \"integer\");`"
+      }
+    },
+    {
+      "id": "F-21",
+      "severity": "Minor",
+      "target": "packages/adversary/src/mutate-functest.ts:39",
+      "defect": "The §3.11 static mutation ignores the flow's field map: a consumer-required property renamed across the flow is excluded because `pubNames.has(p.name)` tests the consumer name, so its MP-mutants are never generated and the score is inflated.",
+      "failureScenario": "Flow `fields: { taskId: 'id' }`, consumer requires `id`, plan asserts nothing about `id`: no `MP-drop:id` mutant exists, the score counts only the other fields, and a plan blind to the correlation field clears the 0.5 threshold.",
+      "evidence": "packages/adversary/src/mutate-functest.ts:39 `.filter((p) => p.required && pubNames.has(p.name))`; compare packages/adversary/src/mutate-testgen.ts:116-119 which maps names",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "GroundedContext carries a required `fieldMap` (publisher → consumer) but scorePlan never reads it and filters consumer properties by `pubNames.has(p.name)` on the consumer name, so a renamed required field produces no MP-mutants; mutate-testgen does the mapping that is missing here.",
+        "evidence": "packages/adversary/src/mutate-functest.ts:39 `.filter((p) => p.required && pubNames.has(p.name))`; packages/functest/src/ground.ts:76 `fieldMap: Record<string, string>;`; packages/adversary/src/mutate-testgen.ts:117-119 `const pubNameOf = (conName: string) => conToPub.get(conName) ?? conName;` … `.filter((p) => p.required === true && pubNames.has(pubNameOf(p.name)))`"
+      }
+    },
+    {
+      "id": "F-22",
+      "severity": "Minor",
+      "target": "packages/adversary/src/review.ts:145",
+      "defect": "`fileFor` falls back to `files[index]` when header matching fails, attributing a plan's attacks to whichever file sits at the same position.",
+      "failureScenario": "Two plans whose emitted headers were edited (or a plan with an unusual requirementIds join) make the match miss; R-133d/R-134 findings for plan A are computed over plan B's file and A is withheld on B's defects.",
+      "evidence": "packages/adversary/src/review.ts:142-146",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "fileFor falls back to the file at the plan's index when neither the requirement-id header nor the inputHash header matches, so a header miss attributes a different plan's file.",
+        "evidence": "packages/adversary/src/review.ts:145 `return files.find((f) => f.contents.includes(own) && f.contents.includes(hash)) ?? files.find((f) => f.contents.includes(hash)) ?? files[index];`"
+      }
+    },
+    {
+      "id": "F-23",
+      "severity": "Minor",
+      "target": "packages/adversary/src/text.ts:21",
+      "defect": "`wireType` and `otherType` compare ODCS logicalType case-sensitively while compat/derive-schema lower-case it (T-59 F-09), so a contract declaring `String`/`Timestamp` yields a false R-133a Critical and a no-op M2 mutant.",
+      "failureScenario": "Publisher property `logicalType: String`: M2 sets it to 'string' (otherType sees it is not 'string'), compat lower-cases both sides to equal types, the mutant stays green, and a Critical generator finding is raised against a correct generator. A plan asserting `matchesType: string` on a `String` property is withheld as contradicting the contract.",
+      "evidence": "packages/adversary/src/text.ts:21 `return STRING_WIRE_TYPES.has(logicalType) ? 'string' : logicalType;`; packages/adversary/src/mutate-testgen.ts:106 `const otherType = (t: string | undefined) => (t === 'string' ? 'integer' : 'string');`; packages/testgen/src/compat.ts:58-59",
+      "verification": {
+        "verdict": "UNCLEAR",
+        "reason": "The mutation half is defeated: the ODCS schema restricts property logicalType to a lowercase enum, so a `String` contract is `invalid`, testgen skips its compat pair, the baseline is never green and no M2 mutant is built. The grounding half is not defeated — buildFunctionalInputs passes every entry regardless of validation and wireType compares case-sensitively — but whether an ODCS-invalid contract is meant to be grounded at all is not settled by the code I read.",
+        "evidence": "packages/core/resources/odcs-v3.1.0.schema.json:1540 `\"enum\": [\"string\", \"date\", \"timestamp\", \"time\", \"number\", \"integer\", \"object\", \"array\", \"boolean\"]`; packages/testgen/src/generate.ts:80 `if (pub.validation !== 'valid' || con.validation !== 'valid') {`; packages/functions/src/functional-gen.ts:78-80 `const entries = await repo.listEntries();` … `for (const e of entries) {` (no validation filter); packages/adversary/src/text.ts:21 `return STRING_WIRE_TYPES.has(logicalType) ? 'string' : logicalType;`"
+      }
+    },
+    {
+      "id": "F-24",
+      "severity": "Minor",
+      "target": "packages/functions/src/adversarialRuns.ts:31",
+      "defect": "Error codes differ from the spec: 400 returns `bad_request` instead of `invalid_kind`, 409 returns `integrity_mismatch` instead of `run_inconsistent`.",
+      "failureScenario": "A client written to the spec switches on `error === 'invalid_kind'` / `'run_inconsistent'` and treats both responses as unknown errors.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:31, :89; specs/active/adversarial-results-ui/requirements.md:80 (R-8a), :88 (R-9 step 4)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The error strings in the handler are `bad_request` and `integrity_mismatch`; the spec names `invalid_kind` and `run_inconsistent`.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:31 `return json(400, { error: 'bad_request', …` and :89 `return json(409, { error: 'integrity_mismatch', …`; specs/active/adversarial-results-ui/requirements.md:80 `HTTP 400 `{\"error\":\"invalid_kind\"}`` and :88 `return 409 `{\"error\":\"run_inconsistent\"}``"
+      }
+    },
+    {
+      "id": "F-25",
+      "severity": "Minor",
+      "target": "packages/functions/src/adversarialRuns.ts:56",
+      "defect": "The list route returns a bare array with no `nextToken`, and the SPA has no 'Load more', so the 101st run is unreachable (R-35).",
+      "failureScenario": "After 100 uploaded runs of one kind, the oldest ones can never be selected in the SPA and nothing signals truncation.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:56 `return json(200, runs);`; specs/active/adversarial-results-ui/requirements.md:168 (R-35)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The handler returns the bare mapped array and ignores LastEvaluatedKey; neither api.ts nor adversarial.tsx has a cursor or 'Load more' (R-8's 'JSON array' wording conflicts with R-35, already raised as a decision item, but the absence of pagination is real).",
+        "evidence": "packages/functions/src/adversarialRuns.ts:56 `return json(200, runs);`; specs/active/adversarial-results-ui/requirements.md:168 `plus a `nextToken` cursor when more exist. The run selector SHALL load additional pages on scroll or via a \"Load more\" control.`"
+      }
+    },
+    {
+      "id": "F-26",
+      "severity": "Minor",
+      "target": "packages/functions/src/adversarialRuns.ts:86",
+      "defect": "The SHA-256 integrity check is skipped entirely when the DynamoDB item carries no `reviewSha256`, so an item written without the hash serves unverified bytes as if checked.",
+      "failureScenario": "A hand-written or migrated item without `reviewSha256` plus a tampered review.json: `if (storedSha) {` is false, the handler returns 200 with the tampered findings.",
+      "evidence": "packages/functions/src/adversarialRuns.ts:86 `if (storedSha) {`; specs/active/adversarial-results-ui/requirements.md:88",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The hash comparison is wrapped in `if (storedSha)`, so an item with no reviewSha256 bypasses step 4 entirely and the body is served as-is.",
+        "evidence": "packages/functions/src/adversarialRuns.ts:86-87 `if (storedSha) {` / `const actualSha = createHash('sha256').update(reviewContent).digest('hex');`"
+      }
+    },
+    {
+      "id": "F-27",
+      "severity": "Minor",
+      "target": "packages/testgen/src/generate.ts:78",
+      "defect": "When one source carries two contracts for the same entity, the compat pair takes the first variant in catalog order, so the committed compat output depends on DynamoDB result order (R-88).",
+      "failureScenario": "Two `create` contracts both named TaskPublished with different schemas: successive runs pick different publishers as `listEntries` ordering shifts, producing a non-empty diff on an unchanged catalog.",
+      "evidence": "packages/testgen/src/generate.ts:78 `const pub = variants.find((v) => v.source === roles.publisher)!;`; packages/functions/src/generate.ts:37-52 preserves repo order",
+      "verification": {
+        "verdict": "UNCLEAR",
+        "reason": "The code path is as described — the catalog comes from an unsorted DynamoDB Scan with no sort before generateArtifacts, and `variants.find` takes the first match — but the trigger needs one source to hold two contracts whose schema[0].name is the same entity; nothing I found forbids or dedupes that, yet R-83's 'one per {source, entity}' and the conformance file path `conformance/${source}.${entity}` assume it never happens, and I cannot show Scan order actually varies between runs.",
+        "evidence": "packages/testgen/src/generate.ts:78 `const pub = variants.find((v) => v.source === roles.publisher)!;`; packages/functions/src/repository.ts:286 `new ScanCommand({`; packages/functions/src/generate.ts:37 `const entries = await repo.listEntries();` (no sort); packages/core/src/schema-model.ts:96 `const entity = typeof first?.name === 'string' ? first.name : '';`"
+      }
+    },
+    {
+      "id": "F-28",
+      "severity": "Minor",
+      "target": "packages/web/src/App.tsx:334",
+      "defect": "The Adversarial nav button is rendered unconditionally; R-13a's hiding of the button for a user who receives 403 is not implemented.",
+      "failureScenario": "A signed-in user in neither group keeps seeing and clicking a tab that always errors.",
+      "evidence": "packages/web/src/App.tsx:334-336; specs/active/adversarial-results-ui/requirements.md:109 (R-13a)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The Adversarial nav button is rendered with no condition on group membership or a prior 403.",
+        "evidence": "packages/web/src/App.tsx:334-336 `<button aria-pressed={view === 'adversarial'} disabled={view === 'adversarial'} onClick={() => setView('adversarial')}>` / `Adversarial` / `</button>`; specs/active/adversarial-results-ui/requirements.md:109 `SHALL NOT display the Adversarial nav button.`"
+      }
+    },
+    {
+      "id": "F-29",
+      "severity": "Minor",
+      "target": "packages/web/src/adversarial.tsx:34",
+      "defect": "The drawer moves no focus in, returns no focus to the opening row on close, has no raw-JSON `<pre>`, and labels the in-product reference 'In-product ref' rather than 'In-product reference' (R-30…R-32).",
+      "failureScenario": "A keyboard user presses Detail, the dialog opens with focus still on the row behind the backdrop; Escape closes it; focus is wherever the browser left it. The raw finding JSON the spec promises is never shown.",
+      "evidence": "packages/web/src/adversarial.tsx:34-39, :55; specs/active/adversarial-results-ui/requirements.md:149-160",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The Drawer has no focus call, no ref to the opening row, no <pre>, and labels the reference 'In-product ref' (Grep for `focus|<pre` in the file returns nothing).",
+        "evidence": "packages/web/src/adversarial.tsx:34 `<div role=\"dialog\" aria-modal=\"true\" aria-label=\"Finding detail\" …`; :55 `{finding.inProductRef && <><dt>In-product ref</dt><dd>{finding.inProductRef}</dd></>}`; specs/active/adversarial-results-ui/requirements.md:153 `- `inProductRef` labelled \"In-product reference\" (if present)`"
+      }
+    },
+    {
+      "id": "F-30",
+      "severity": "Minor",
+      "target": "packages/web/src/adversarial.tsx:150",
+      "defect": "Column order is ID, Severity, Target, Defect, Verdict (spec: ID, Severity, Verdict, Target, Defect), only three columns sort, and the verdict cell shows `unverified` instead of `—` (R-21, R-23, R-27).",
+      "failureScenario": "The 'unverified' chip label and the table cell agree with each other but neither matches the documented `—` rendering; a Defect-sorted view is impossible.",
+      "evidence": "packages/web/src/adversarial.tsx:152-157; packages/web/src/lib.ts:148 returns 'unverified'; specs/active/adversarial-results-ui/requirements.md:129, :133, :141",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The header row is ID, Severity, Target, Defect, Verdict with sort buttons on only three headers, and the cell shows effectiveVerdict's 'unverified' rather than the spec's em dash.",
+        "evidence": "packages/web/src/adversarial.tsx:152-156 `<th><button onClick={() => handleSort('id')}>ID</button></th>` … `<th>Defect</th>` / `<th>Verdict</th>`; packages/web/src/lib.ts:147 `return 'unverified';`; specs/active/adversarial-results-ui/requirements.md:129 `columns: ID (`F-nn`), Severity, Verdict, Target, and Defect.`"
+      }
+    },
+    {
+      "id": "F-31",
+      "severity": "Minor",
+      "target": "packages/web/src/adversarial.tsx:222",
+      "defect": "Changing the review kind resets runs and findings but not `drawerFinding`, so an open drawer survives the kind switch (R-33).",
+      "failureScenario": "Open a finding's drawer on the Test tab, click Code review behind the backdrop (the backdrop covers the screen, but Escape/close still leave the stale drawer visible over a view with no findings loaded).",
+      "evidence": "packages/web/src/adversarial.tsx:222-227 (no setDrawerFinding(null)); :216; specs/active/adversarial-results-ui/requirements.md:162 (R-33)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The kind effect resets runs, selection and findings but never calls setDrawerFinding(null), and the sub-tab buttons remain keyboard-reachable because the dialog traps no focus, so the drawer survives a kind change.",
+        "evidence": "packages/web/src/adversarial.tsx:224-227 `setRunsState('loading');` / `setRuns([]);` / `setSelectedRunDir(null);` / `setFindingsState({ … });` (no drawer reset); :216 `const [drawerFinding, setDrawerFinding] = useState<AdversarialFinding | null>(null);`; specs/active/adversarial-results-ui/requirements.md:162 `WHEN the selected (kind, run) changes, the SPA SHALL close the open drawer`"
+      }
+    },
+    {
+      "id": "F-32",
+      "severity": "Minor",
+      "target": "packages/web/src/adversarial.tsx:255",
+      "defect": "Sub-tab labels are 'Test review' / 'Code review' rather than the spec's 'Test Review' / 'Code Review', plus an undocumented 'Requirements review' tab.",
+      "failureScenario": "An accessibility test or user script written from R-14 (`getByRole('button', { name: 'Test Review' })`) finds no element.",
+      "evidence": "packages/web/src/adversarial.tsx:256, :259, :262; specs/active/adversarial-results-ui/requirements.md:111 (R-14)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Button labels are 'Test review' / 'Code review' plus 'Requirements review'; R-14 names 'Test Review' and 'Code Review' and Testing Library string name matching is case-sensitive by default.",
+        "evidence": "packages/web/src/adversarial.tsx:256 `Test review`, :259 `Code review`, :262 `Requirements review`; specs/active/adversarial-results-ui/requirements.md:111 `display two sub-tabs: \"Test Review\" and \"Code Review\".`"
+      }
+    },
+    {
+      "id": "F-33",
+      "severity": "Minor",
+      "target": "packages/web/src/adversarial.tsx:268",
+      "defect": "The empty-state text is 'No {kind} review runs found.' instead of the spec's 'No {kind} review runs yet.', and the test asserts the wrong string.",
+      "failureScenario": "packages/web/tests/adversarial.test.tsx:200 matches /no test review runs found/i, so it stays green on the deviation and would fail if the text were corrected to the spec.",
+      "evidence": "packages/web/src/adversarial.tsx:268 `No {reviewKind} review runs found.`; specs/active/adversarial-results-ui/requirements.md:119 (R-17); packages/web/tests/adversarial.test.tsx:200",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The rendered empty-state text ends in 'found.' while R-17 says 'yet.', and the only test for it asserts the 'found' wording.",
+        "evidence": "packages/web/src/adversarial.tsx:268 `No {reviewKind} review runs found.`; packages/web/tests/adversarial.test.tsx:200 `screen.getByText(/no test review runs found/i)`; specs/active/adversarial-results-ui/requirements.md:119 `display the message \"No {kind} review runs yet.\"`"
+      }
+    },
+    {
+      "id": "F-34",
+      "severity": "Minor",
+      "target": "packages/web/src/lib.ts:196",
+      "defect": "`formatRunLabel` uses `toLocaleString` with 2-digit parts, which yields `10/21/2026, 14:30` (en-US) with no timezone abbreviation, not the R-19 format `YYYY-MM-DD HH:MM zzz`.",
+      "failureScenario": "Two users in different locales see differently ordered date parts and no zone; the only test asserts the label matches /2026/ and ends with the scope, so any format passes.",
+      "evidence": "packages/web/src/lib.ts:195-208; packages/web/tests/lib.test.ts:245-247; specs/active/adversarial-results-ui/requirements.md:123 (R-19)",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "formatRunLabel passes no timeZoneName option and lets the locale choose part order, so the output is not `YYYY-MM-DD HH:MM zzz`; the only test matches /2026/ and the trailing scope.",
+        "evidence": "packages/web/src/lib.ts:197-204 `const local = dt.toLocaleString(undefined, {` … `hour12: false,` / `});`; packages/web/tests/lib.test.ts:245 `expect(label).toMatch(/— main$/);` and :247 `expect(label).toMatch(/2026/);`; specs/active/adversarial-results-ui/requirements.md:123 `{startedAt formatted in the viewer's local time as YYYY-MM-DD HH:MM zzz} — {scope}`"
+      }
+    },
+    {
+      "id": "F-35",
+      "severity": "Minor",
+      "target": "scripts/adversarial-review-finalize.ts:259",
+      "defect": "AR-15's 'ids Pass 2 cites that Pass 1 never wrote' is computed from uncovered, covered, finding defect and evidence only; an X-nn cited in a failureScenario or in a needsDecision detail is never checked.",
+      "failureScenario": "Pass 2 writes `see X-99` in a decision item for a blind pass with 50 rows: no 'Unknown blind items cited' decision is raised.",
+      "evidence": "scripts/adversarial-review-finalize.ts:259-263; .claude/skills/adversarial-review-spec.md:66",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The `cited` set is built from uncovered, covered, finding.defect and finding.evidence only; failureScenario and needsDecision text are not scanned for X-nn ids.",
+        "evidence": "scripts/adversarial-review-finalize.ts:259-263 `const cited = new Set([` / `...uncoveredIds,` / `...coveredIds,` / `...(raw.findings ?? []).flatMap((f) => [...xIds(f?.defect), ...xIds(f?.evidence)]),` / `]);`"
+      }
+    },
+    {
+      "id": "F-36",
+      "severity": "Minor",
+      "target": "scripts/adversarial-review-finalize.ts:654",
+      "defect": "`RawReview.skill` is typed as the two-member union, so comparing `review.skill` to 'adversarial-requirements-review' is a TS2367 non-overlapping comparison, and `renderReviewMarkdown` titles a requirements review 'Adversarial test review'.",
+      "failureScenario": "`tsc` over scripts/ fails on line 654; at runtime a requirements run's review.md header reads `# Adversarial test review — …` because line 350 maps every non-code skill to 'test'.",
+      "evidence": "scripts/adversarial-review-finalize.ts:47 `'adversarial-test-review' | 'adversarial-code-review'`; :654; :350",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "FinalReview inherits RawReview.skill as a two-literal union, so after the first ternary narrows it to 'adversarial-code-review' the comparison to 'adversarial-requirements-review' has no overlap (TS2367), and the root tsconfig includes scripts/**; renderReviewMarkdown maps every non-code skill to 'test'.",
+        "evidence": "scripts/adversarial-review-finalize.ts:47 `skill: 'adversarial-test-review' | 'adversarial-code-review';`; :654 `: review.skill === 'adversarial-requirements-review' ? 'requirements'`; :350 `const kind = r.skill === 'adversarial-code-review' ? 'code' : 'test';`; tsconfig.json:15 `\"include\": [\"sst.config.ts\", \"stacks/**/*.ts\", \"packages/**/*.ts\", \"scripts/**/*.ts\", \".sst/types/**/*.ts\"]`"
+      }
+    },
+    {
+      "id": "F-37",
+      "severity": "Minor",
+      "target": "scripts/adversarial-review-finalize.ts:664",
+      "defect": "`uploadRun` refuses to run unless static AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are exported and bypasses the SDK default provider chain, contrary to the task text and pushing users toward long-lived keys in the shell environment.",
+      "failureScenario": "A developer authenticated with `aws sso login --profile cm-qa-sso` (AWS_PROFILE set) runs `upload`: it throws before any AWS call with a message telling them to export credentials, so the only working path is dumping SSO-derived keys into env vars.",
+      "evidence": "scripts/adversarial-review-finalize.ts:663-667; specs/active/adversarial-results-ui/tasks.md T-AR-01 row `Credentials via standard SDK provider chain.`",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "uploadRun throws before any AWS call unless both static key env vars are set and then passes an explicit credentials object, bypassing the provider chain the task row and design §3.2 require.",
+        "evidence": "scripts/adversarial-review-finalize.ts:664-665 `if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {` / `throw new Error('[adversarial-review] AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set. …`; specs/active/adversarial-results-ui/tasks.md:31 `Credentials via standard SDK provider chain.`; design.md:73 `AWS credentials: standard SDK provider chain (`AWS_PROFILE` env var or default profile)`"
+      }
+    },
+    {
+      "id": "F-38",
+      "severity": "Minor",
+      "target": "scripts/adversarial-review-finalize.ts:691",
+      "defect": "The DynamoDB item omits the `run_dir` and `model` attributes R-2 lists, and `startedAt` falls back to wall-clock time when review.json lacks both timestamps.",
+      "failureScenario": "A review.json produced by an older finalize (no pass1WrittenAt/finalizedAt) is uploaded twice: each PutItem gets a different `startedAt`, so the run moves in the newest-first list between re-uploads, contradicting R-3a idempotency.",
+      "evidence": "scripts/adversarial-review-finalize.ts:688 `const startedAt = review.pass1WrittenAt ?? review.finalizedAt ?? new Date().toISOString();`; :693-707; specs/active/adversarial-results-ui/requirements.md:52-53",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "The Item literal has no `run_dir` or `model` attribute and startedAt falls back to the current wall-clock time when both review.json timestamps are absent, which makes two uploads of such a file produce different sort keys.",
+        "evidence": "scripts/adversarial-review-finalize.ts:688 `const startedAt = review.pass1WrittenAt ?? review.finalizedAt ?? new Date().toISOString();`; :693-707 Item keys are PK, SK, kind, reviewKind, startedAt, scope, verdict, countCritical, countMajor, countMinor, reviewSha256, verificationSha256, verificationStatus; specs/active/adversarial-results-ui/requirements.md:53 `- `run_dir`, `scope` (= `review.json.scope` verbatim), `verdict` (= `review.json.verdict`), `countCritical`, `countMajor`, `countMinor`, `model``"
+      }
+    },
+    {
+      "id": "F-39",
+      "severity": "Minor",
+      "target": "scripts/audit-references.ts:187",
+      "defect": "`auditRepo` scans only .ts/.mjs/.md, so spec ids and paths cited inside .tsx sources (packages/web/src/adversarial.tsx, App.tsx) are never audited.",
+      "failureScenario": "A fabricated `R-999` in a .tsx comment passes `npx tsx scripts/audit-references.ts repo` with 'no fabricated references'.",
+      "evidence": "scripts/audit-references.ts:187 `if (!/\\.(ts|mjs|md)$/.test(r)) return false;`",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "auditRepo's file filter accepts only .ts, .mjs and .md, so .tsx sources are never scanned for ids or paths.",
+        "evidence": "scripts/audit-references.ts:187 `if (!/\\.(ts|mjs|md)$/.test(r)) return false;`"
+      }
+    },
+    {
+      "id": "F-40",
+      "severity": "Minor",
+      "target": "specs/pending/adversarial-results-ui/stub.md",
+      "defect": "The promoted spec exists in both specs/pending/ and specs/active/ while the registry indexes it once as active.",
+      "failureScenario": "`/start-feature` or a health check that walks specs/pending/ offers to promote an already-active spec; two stubs drift.",
+      "evidence": "specs/pending/adversarial-results-ui/stub.md and specs/active/adversarial-results-ui/stub.md both present; specs/registry.yaml:18-19",
+      "verification": {
+        "verdict": "CONFIRMED",
+        "reason": "Both specs/pending/adversarial-results-ui/stub.md and specs/active/adversarial-results-ui/stub.md exist, the registry lists the slug once under active, and the start-feature command instructs that the pending folder be deleted once the active requirements are written.",
+        "evidence": "Glob `specs/*/adversarial-results-ui/*` → `specs\\pending\\adversarial-results-ui\\stub.md` and `specs\\active\\adversarial-results-ui\\stub.md`; specs/registry.yaml:18-19 `- slug: adversarial-results-ui` / `location: active/adversarial-results-ui/`; .claude/commands/start-feature.md:51 `instruction to delete `specs/pending/<slug>/` after writing `specs/active/<slug>/requirements.md``"
+      }
+    }
+  ],
+  "needsDecision": [
+    {
+      "id": "D-01",
+      "item": "A third review kind `requirements` is wired into the API, the upload and the SPA, but the governing spec still defines kind as test|code",
+      "detail": "packages/functions/src/adversarialRuns.ts:25, scripts/adversarial-review-finalize.ts:654-656 and packages/web/src/adversarial.tsx:261 accept/emit `requirements`, and commit cf5f477 adds a requirements-review skill, yet specs/active/adversarial-results-ui/requirements.md v0.2.0 R-0 (run_dir pattern `(test|code)`), R-1, R-2, R-8a and R-9 admit only test and code. Either the spec must move (and R-7's LeadingKeys list grow) or the code is out of spec. Findings below treat the spec as the oracle.",
+      "evidence": "specs/active/adversarial-results-ui/requirements.md:37, :80, :85; .claude/skills/adversarial-review-spec.md:11 lists adversarial-requirements-review"
+    },
+    {
+      "id": "D-02",
+      "item": "Does `finalize` have to upload, or is `upload` a separate manual step?",
+      "detail": "R-1 says WHEN finalize completes successfully the script SHALL upload. scripts/adversarial-review-finalize.ts:717-728 uploads only under the `upload` subcommand, and .claude/skills/adversarial-code-review/SKILL.md:72 runs only `finalize`, so no run reaches the SPA unless a human remembers a second command. Also no `--no-upload` flag exists (R-6).",
+      "evidence": "specs/active/adversarial-results-ui/requirements.md:43, :66; scripts/adversarial-review-finalize.ts:717-740"
+    },
+    {
+      "id": "D-03",
+      "item": "R-8 'a JSON array' vs R-35 `nextToken` cursor: which response shape is the list route's contract?",
+      "detail": "The handler returns a bare array (adversarialRuns.ts:56) and the SPA consumes an array (adversarial.tsx:230). R-35's cursor and 'Load more' control are absent on both sides. The spec is internally inconsistent; a decision is needed before this is counted as a defect.",
+      "evidence": "specs/active/adversarial-results-ui/requirements.md:78, :168"
+    },
+    {
+      "id": "D-04",
+      "item": "R-7 least-privilege upload principal is not in the range",
+      "detail": "No IAM user/role granting s3:PutObject on adversarial-runs/* and dynamodb:PutItem with a LeadingKeys condition appears in stacks/ or in the diff. If it is meant to be configured manually, R-7 should say so; note that any LeadingKeys condition written as the spec says (`ADV#test`, `ADV#code`) would deny the items the script actually writes (`ADV#ADVERSARIAL_TEST`).",
+      "evidence": "specs/active/adversarial-results-ui/requirements.md:70-74; scripts/adversarial-review-finalize.ts:694"
+    },
+    {
+      "id": "D-05",
+      "item": "E-46 vs R-120 when Bedrock denies the synthesiser",
+      "detail": "packages/functest/src/generate.ts:137-139 (a line that predates this range: aa82ba8~1 line 123) turns every LLM throw, including AccessDenied, into a per-requirement skip, so a job with Bedrock access denied is persisted as `succeeded` with cached plans and N skips whose reason carries the raw SDK message. E-46 says the job is `failed`, the error redacted, and no partial artifacts are produced. One of the two rules has to give; this range made the skip list more visible (manifest.skipped, job.skips, review stage) without resolving it.",
+      "evidence": "specs/active/odcs-contract-registry/requirements.md:289 (R-120), :488 (E-46); packages/functions/src/functional-gen.ts:147-187"
+    },
+    {
+      "id": "D-06",
+      "item": "`.adversarial-review/` is tracked (commit fea19df) while the shared spec §4 still calls it git-ignored",
+      "detail": "Tracked run folders put earlier reviews' `expected-behaviours.md` and `review.md` about the same code within reach of later blind passes (which have Read/Grep). If tracking is the intended policy, the spec and the blind-agent read rules need an explicit exclusion; if not, .gitignore needs the entry back.",
+      "evidence": ".claude/skills/adversarial-review-spec.md:77; .gitignore:16-18; git ls-files .adversarial-review"
+    },
+    {
+      "id": "D-07",
+      "item": "changed_files handed to both passes omits files that are in `git diff --name-only aa82ba8~1...HEAD`",
+      "detail": "packages/adversary/tests/{attacks,calibration.answer-key,calibration.fixtures,core,critic,critic-cache-shape,mutation,post-review,post-review-2,review}.test.ts, packages/adversary/tests/calibration.ts, packages/adversary/tsconfig.json and several calibration fixtures (e.g. testgen/create-get-ready/catalog.json) are in the range but not in the list. Pass 1's X-101 premise that the adversary package has no test changes is therefore wrong; those tests exist and were read here.",
+      "evidence": "git diff --stat aa82ba8~1...HEAD -- packages/adversary/tests"
+    },
+    {
+      "id": "D-08",
+      "item": "Is a `matchesType: number` literal on a property declared `integer` a R-133a contradiction?",
+      "detail": "packages/adversary/src/grounding.ts:109-111 reports it as Critical (and the plan is withheld), while R-117b and the emitter's typeMatches (packages/functest/src/emit.ts:132) accept an integer for `number`. If integer ⊂ number is the intended reading, grounding withholds valid plans.",
+      "evidence": "packages/adversary/src/grounding.ts:111; packages/functest/src/emit.ts:132"
+    }
+  ],
+  "covered": [
+    {
+      "behaviour": "X-01",
+      "by": "packages/testgen/src/compat.ts:50-73 (consumer-required ⊆ publisher by role); packages/testgen/src/generate.ts:73-88 (roles from resolveRoles, pub/con by role)"
+    },
+    {
+      "behaviour": "X-02",
+      "by": "packages/testgen/src/compat.ts:72-85 (entity.path + reason; extra publisher properties never checked)"
+    },
+    {
+      "behaviour": "X-03",
+      "by": "packages/testgen/src/compat.ts:74-85; packages/testgen/src/emit.ts:90-92"
+    },
+    {
+      "behaviour": "X-04",
+      "by": "packages/testgen/src/compat.ts:36-45 (longest mapped prefix), :69-70"
+    },
+    {
+      "behaviour": "X-05",
+      "by": "packages/core/src/schema-model.ts:68-83 (required = own ∧ ancestors; dotted/[] paths)"
+    },
+    {
+      "behaviour": "X-06",
+      "by": "packages/core/src/schema-model.ts:124-140 (whole-word, same document, items.properties wins, cycle guard)"
+    },
+    {
+      "behaviour": "X-07",
+      "by": "packages/core/src/api-map.ts:87-97"
+    },
+    {
+      "behaviour": "X-08",
+      "by": "packages/core/src/api-map.ts:70 (TaskPublished flow has no fields)"
+    },
+    {
+      "behaviour": "X-09",
+      "by": "packages/core/src/compare.ts:1-39 is a new comparator module; packages/core/src/schema-model.ts:93-111 normalizeContractSchema unchanged in shape; packages/core/tests/compare.test.ts"
+    },
+    {
+      "behaviour": "X-10",
+      "by": "packages/testgen/src/generate.ts:38-51, :69-87 (skip + continue in every case)"
+    },
+    {
+      "behaviour": "X-11",
+      "by": "packages/testgen/src/generate.ts:75"
+    },
+    {
+      "behaviour": "X-12",
+      "by": "packages/testgen/src/generate.ts:102-106, :118; packages/testgen/src/derive-schema.ts:54; packages/core/src/compare.ts:12-14; no Date/Math.random in packages/testgen/src"
+    },
+    {
+      "behaviour": "X-13",
+      "by": "packages/testgen/src/generate.ts:97-98; packages/testgen/src/manifest.ts:89-90"
+    },
+    {
+      "behaviour": "X-14",
+      "by": "packages/testgen/src/manifest.ts:54-100; packages/testgen/src/generate.ts:52-61, :89-99"
+    },
+    {
+      "behaviour": "X-15",
+      "by": "packages/testgen/src/emit.ts:33-38 (recordsAt / body / tRPC envelope), :50 (fails on zero records)"
+    },
+    {
+      "behaviour": "X-16",
+      "by": "packages/testgen/src/emit.ts:24-26, :41 (describe.skipIf on mapped env names)"
+    },
+    {
+      "behaviour": "X-17",
+      "by": "packages/testgen/src/emit.ts:12, :18-19; packages/functest/src/emit.ts:17-18, :103-105 (no timestamp)"
+    },
+    {
+      "behaviour": "X-18",
+      "by": "packages/testgen/src/emit.ts:73, :88-92"
+    },
+    {
+      "behaviour": "X-19",
+      "by": "packages/testgen/src/derive-schema.ts:61-95 (KNOWN_FORMATS, regex try/catch), :97-121"
+    },
+    {
+      "behaviour": "X-20",
+      "by": "package.json devDependencies ajv ^8.18.0 / ajv-formats ^3.0.1; scripts/tests/generated-test-deps.test.ts:35-45"
+    },
+    {
+      "behaviour": "X-21",
+      "by": "packages/functions/src/generate.ts:36-109 (listEntries only, review before persist, summary with counts/skipped)"
+    },
+    {
+      "behaviour": "X-22",
+      "by": "packages/functions/src/generate.ts:60-61, :88; packages/functions/src/functional-gen.ts:141-167"
+    },
+    {
+      "behaviour": "X-23",
+      "by": "packages/adversary/src/review.ts:105-107, :233-246 (block = findings only); packages/functions/src/generate.ts:61"
+    },
+    {
+      "behaviour": "X-24",
+      "by": "packages/adversary/src/review.ts:190-197, :233-240; packages/functions/src/functional-gen.ts:147-166"
+    },
+    {
+      "behaviour": "X-25",
+      "by": "packages/adversary/src/review.ts:199-231 (critic feeds report only); packages/functions/tests/functional-gen.adversarial.test.ts:177-188"
+    },
+    {
+      "behaviour": "X-26",
+      "by": "packages/adversary/src/critic.ts:192-215 (failed/unavailable, redactReason); packages/adversary/src/review.ts:208-221"
+    },
+    {
+      "behaviour": "X-27",
+      "by": "packages/functions/src/functional-gen.ts:169-199 (status succeeded regardless of verdict; failed only on throw) — the Bedrock-denied half is X-28, uncovered"
+    },
+    {
+      "behaviour": "X-29",
+      "by": "packages/functions/src/critic-llm.ts:88-105 (BedrockRuntimeClient, no key); packages/functions/src/llm.ts; packages/adversary/src/critic.ts:107-121"
+    },
+    {
+      "behaviour": "X-30",
+      "by": "packages/adversary/src/prompts.ts:14-15, :21, :37"
+    },
+    {
+      "behaviour": "X-31",
+      "by": "packages/adversary/src/critic.ts:162-164; packages/functions/src/critic-llm.ts:85; packages/adversary/src/review.ts:224"
+    },
+    {
+      "behaviour": "X-32",
+      "by": "packages/adversary/src/critic.ts:72-92, :172-187"
+    },
+    {
+      "behaviour": "X-33",
+      "by": "packages/adversary/src/posture-lint.ts:17-26, :58-70"
+    },
+    {
+      "behaviour": "X-34",
+      "by": "packages/adversary/src/finding.ts:60-82; packages/adversary/src/review.ts:188, :228"
+    },
+    {
+      "behaviour": "X-35",
+      "by": "packages/adversary/src/verdict.ts:10-15"
+    },
+    {
+      "behaviour": "X-36",
+      "by": "packages/adversary/src/grounding.ts:50-63, :86-106"
+    },
+    {
+      "behaviour": "X-37",
+      "by": "packages/adversary/src/grounding.ts:124-151"
+    },
+    {
+      "behaviour": "X-38",
+      "by": "packages/adversary/src/text.ts:24-62"
+    },
+    {
+      "behaviour": "X-39",
+      "by": "packages/adversary/src/grounding.ts:167-247"
+    },
+    {
+      "behaviour": "X-40",
+      "by": "packages/adversary/src/vacuity.ts:64-181 (a)–(g), :200-230 (h),(i)"
+    },
+    {
+      "behaviour": "X-41",
+      "by": "packages/adversary/src/mutate-testgen.ts:108-184, :206-255; packages/adversary/src/review.ts:70-79"
+    },
+    {
+      "behaviour": "X-42",
+      "by": "packages/adversary/src/mutate-functest.ts:31-89"
+    },
+    {
+      "behaviour": "X-43",
+      "by": "packages/adversary/src/review.ts:100, :106-118; packages/adversary/src/report.ts:26-98"
+    },
+    {
+      "behaviour": "X-44",
+      "by": "packages/adversary/tests/calibration.answer-key.test.ts:55-88"
+    },
+    {
+      "behaviour": "X-45",
+      "by": "packages/functest/src/plan.ts:224-267, :282-292"
+    },
+    {
+      "behaviour": "X-46",
+      "by": "packages/functest/src/emit.ts:129-133; packages/functest/src/plan.ts:352-358"
+    },
+    {
+      "behaviour": "X-47",
+      "by": "packages/functest/src/plan.ts:307-312, :337-349; packages/functest/src/ground.ts:139-151"
+    },
+    {
+      "behaviour": "X-48",
+      "by": "packages/functest/src/plan.ts:348, :361; packages/functest/src/generate.ts:130, :168-172"
+    },
+    {
+      "behaviour": "X-49",
+      "by": "packages/functest/src/ground.ts:159-174"
+    },
+    {
+      "behaviour": "X-50",
+      "by": "packages/functest/src/ground.ts:169-171"
+    },
+    {
+      "behaviour": "X-51",
+      "by": "packages/functest/src/generate.ts:125-132, :148-149"
+    },
+    {
+      "behaviour": "X-52",
+      "by": "packages/functest/src/generate.ts:134-146"
+    },
+    {
+      "behaviour": "X-53",
+      "by": "packages/functest/src/ground.ts:115-142"
+    },
+    {
+      "behaviour": "X-54",
+      "by": "packages/functest/src/emit.ts:62-76, :135-139, :170-175"
+    },
+    {
+      "behaviour": "X-55",
+      "by": "packages/functest/src/emit.ts:108-111; packages/functest/src/plan.ts:342-347"
+    },
+    {
+      "behaviour": "X-56",
+      "by": "packages/functest/src/emit.ts:50-55"
+    },
+    {
+      "behaviour": "X-57",
+      "by": "packages/functest/src/emit.ts:17-18, :103-105; packages/functest/src/generate.ts:159-165"
+    },
+    {
+      "behaviour": "X-58",
+      "by": "packages/functions/src/llm-prompt.ts (v3 block with Flow line and Field correspondence); packages/functions/src/functional-gen.ts:42; packages/functions/src/llm.ts:41-43"
+    },
+    {
+      "behaviour": "X-59",
+      "by": "packages/functions/src/read.ts:95-99, :110, :120, :135, :145"
+    },
+    {
+      "behaviour": "X-60",
+      "by": "packages/functions/src/read.ts:108, :118, :133, :143 (notFound)"
+    },
+    {
+      "behaviour": "X-61",
+      "by": "stacks/ApiStack.ts:124-164 (new GET routes live in the same authorizer-guarded routes map; authorizer untouched in range)"
+    },
+    {
+      "behaviour": "X-63",
+      "by": "stacks/ApiStack.ts:126, :143 (`{run_dir}` single segment), :129, :146 (bind: [])"
+    },
+    {
+      "behaviour": "X-64",
+      "by": "stacks/ApiStack.ts:49-53; stacks/tests/ApiStack.test.ts:100-111"
+    },
+    {
+      "behaviour": "X-69",
+      "by": "scripts/adversarial-review-finalize.ts:674-708 (review.json → verification.json → PutCommand)"
+    },
+    {
+      "behaviour": "X-73",
+      "by": "scripts/adversarial-review-finalize.ts:647-709 (unconditional PutObject/PutCommand, no delete), :726-728"
+    },
+    {
+      "behaviour": "X-74",
+      "by": "scripts/adversarial-review-finalize.ts:140-151, :248-287, :505-508"
+    },
+    {
+      "behaviour": "X-75",
+      "by": "scripts/adversarial-review-finalize.ts:160-165, :493-517"
+    },
+    {
+      "behaviour": "X-76",
+      "by": "scripts/adversarial-review-finalize.ts:445-453, :531; scripts/audit-references.ts:114-152 (audit never changes verdict; its own failure is caught)"
+    },
+    {
+      "behaviour": "X-77",
+      "by": "scripts/adversarial-review-finalize.ts:218-238, :461-487"
+    },
+    {
+      "behaviour": "X-78",
+      "by": "scripts/adversarial-review-finalize.ts:240-246"
+    },
+    {
+      "behaviour": "X-79",
+      "by": ".claude/skills/adversarial-code-review/SKILL.md:36 (run_dir built from the branch with / → -)"
+    },
+    {
+      "behaviour": "X-80",
+      "by": ".claude/agents/adversarial-code-blind.md:4, adversarial-test-blind.md:4, adversarial-requirements-blind.md:4 (tools: Read, Grep, Glob, Write); persona sentence present in all eight adversarial-*.md agents"
+    },
+    {
+      "behaviour": "X-83",
+      "by": "scripts/generate-tests.ts:122-138 (conformance/, compat/ cleared), :218-233 (functional/ cleared when the functional step runs); no git invocation"
+    },
+    {
+      "behaviour": "X-84",
+      "by": "scripts/generate-tests.ts:263-285, :288-307 (directive errors; credential never written)"
+    },
+    {
+      "behaviour": "X-85",
+      "by": "scripts/generate-tests.ts:458-463, :519-524"
+    },
+    {
+      "behaviour": "X-86",
+      "by": "scripts/generate-tests.ts:182-211 (attempt budget), :505-516"
+    },
+    {
+      "behaviour": "X-87",
+      "by": "scripts/adversary-exec.ts:33-77; scripts/generate-tests.ts:394-409"
+    },
+    {
+      "behaviour": "X-88",
+      "by": "vitest.config.ts:10-12; pnpm-workspace.yaml `'jsdom>undici': 7.30.0`; packages/web/vite.config.ts"
+    },
+    {
+      "behaviour": "X-89",
+      "by": "packages/web/src/api.ts:32-35; packages/web/tests/api.test.ts:23-32"
+    },
+    {
+      "behaviour": "X-91",
+      "by": "packages/web/src/lib.ts:157-193; packages/web/tests/lib.test.ts:182-193, :209-227"
+    },
+    {
+      "behaviour": "X-99",
+      "by": "packages/web/src/App.tsx:334-339 (conditional render unmounts AdversarialView); packages/web/tests/App.adversarial.test.tsx:50-58"
+    },
+    {
+      "behaviour": "X-100",
+      "by": "scripts/adversarial-review-finalize.ts:696 (kind ADVERSARIAL_*); packages/functions/src/adversarialRuns.ts:36-38; packages/functions/src/repository.ts:519-540 (critic cache under existing bucket)"
+    },
+    {
+      "behaviour": "X-102",
+      "by": "packages/testgen/tests/generate.test.ts:213; packages/adversary/tests/review.test.ts:81; packages/functions/tests/generate.test.ts (two independent repos byte-compared)"
+    },
+    {
+      "behaviour": "X-103",
+      "by": "packages/adversary/tests/mutation.test.ts:67-109 (S06 inverted vs shipped, create/get-ready pair); packages/testgen/tests/generate.test.ts (create/get-ready declared-flow test)"
+    },
+    {
+      "behaviour": "X-104",
+      "by": "packages/functions/tests/functional-gen.adversarial.test.ts:177-221"
+    },
+    {
+      "behaviour": "X-109",
+      "by": "packages/functest/tests/nested-nullable.test.ts:27, :34, :75-80 (mixed nullable / non-nullable fixture); packages/testgen/tests/sibling-items.test.ts"
+    },
+    {
+      "behaviour": "X-110",
+      "by": "packages/functions/src/generate.ts:11-15 and packages/functions/src/functional-gen.ts:13-33 import no github/octokit module"
+    },
+    {
+      "behaviour": "X-112",
+      "by": "packages/adversary/src/subject.ts, text.ts, report.ts import only types and local helpers (no fs/network/clock)"
+    }
+  ],
+  "droppedByPostureLint": 0,
+  "malformed": 0,
+  "blindAccounting": {
+    "total": 112,
+    "covered": [
+      "X-01",
+      "X-02",
+      "X-03",
+      "X-04",
+      "X-05",
+      "X-06",
+      "X-07",
+      "X-08",
+      "X-09",
+      "X-10",
+      "X-11",
+      "X-12",
+      "X-13",
+      "X-14",
+      "X-15",
+      "X-16",
+      "X-17",
+      "X-18",
+      "X-19",
+      "X-20",
+      "X-21",
+      "X-22",
+      "X-23",
+      "X-24",
+      "X-25",
+      "X-26",
+      "X-27",
+      "X-29",
+      "X-30",
+      "X-31",
+      "X-32",
+      "X-33",
+      "X-34",
+      "X-35",
+      "X-36",
+      "X-37",
+      "X-38",
+      "X-39",
+      "X-40",
+      "X-41",
+      "X-42",
+      "X-43",
+      "X-44",
+      "X-45",
+      "X-46",
+      "X-47",
+      "X-48",
+      "X-49",
+      "X-50",
+      "X-51",
+      "X-52",
+      "X-53",
+      "X-54",
+      "X-55",
+      "X-56",
+      "X-57",
+      "X-58",
+      "X-59",
+      "X-60",
+      "X-61",
+      "X-63",
+      "X-64",
+      "X-69",
+      "X-73",
+      "X-74",
+      "X-75",
+      "X-76",
+      "X-77",
+      "X-78",
+      "X-79",
+      "X-80",
+      "X-83",
+      "X-84",
+      "X-85",
+      "X-86",
+      "X-87",
+      "X-88",
+      "X-89",
+      "X-91",
+      "X-99",
+      "X-100",
+      "X-102",
+      "X-103",
+      "X-104",
+      "X-109",
+      "X-110",
+      "X-112"
+    ],
+    "uncovered": [
+      "X-28",
+      "X-62",
+      "X-65",
+      "X-66",
+      "X-67",
+      "X-68",
+      "X-70",
+      "X-71",
+      "X-72",
+      "X-81",
+      "X-82",
+      "X-90",
+      "X-92",
+      "X-93",
+      "X-94",
+      "X-95",
+      "X-96",
+      "X-97",
+      "X-98",
+      "X-101",
+      "X-105",
+      "X-106",
+      "X-107",
+      "X-108",
+      "X-111"
+    ],
+    "notAssessed": [],
+    "unknown": []
+  },
+  "citationAudit": {
+    "checked": 135,
+    "hard": [
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #1",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #1",
+        "ref": "findingsRequestId.current !== id",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #11",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #17",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #17",
+        "ref": "setSelectedRunDir(null);",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #18",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #18",
+        "ref": "{finding.verification && (",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #19",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #19",
+        "ref": "Failed to load runs: {runsError}",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #20",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #20",
+        "ref": "packages/web/tests/adversarial.test.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #20",
+        "ref": "No {reviewKind} review runs found.",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #21",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #22",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #23",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #24",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #27",
+        "ref": "packages/web/src/App.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #32",
+        "ref": "packages/web/tests/adversarial.test.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main finding #32",
+        "ref": "keyboard('{Escape}')",
+        "problem": "quoted text not found anywhere in the repo"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main decision #1",
+        "ref": "packages/web/src/adversarial.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main covered #80",
+        "ref": "packages/web/src/App.ts",
+        "problem": "file does not exist"
+      },
+      {
+        "severity": "hard",
+        "where": ".adversarial-review/20261022-1210_code_main covered #80",
+        "ref": "packages/web/tests/App.adversarial.test.ts",
+        "problem": "file does not exist"
+      }
+    ],
+    "soft": 1
+  },
+  "verification": {
+    "status": "ok",
+    "model": "claude-fable-5-1",
+    "confirmed": 38,
+    "refuted": 0,
+    "unclear": 2,
+    "notVerified": 0
+  }
+}
