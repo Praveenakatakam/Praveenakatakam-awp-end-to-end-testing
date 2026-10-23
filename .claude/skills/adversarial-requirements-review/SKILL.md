@@ -78,6 +78,12 @@ npx tsx scripts/adversarial-review-finalize.ts finalize {run_dir}
 ```
 It lints, assigns ids, applies the verdict, and writes `review.json` and `review.md`. It also runs the citation audit (AR-18) and shows Pass 3's verdict beside each finding (AR-19). Findings it drops go verbatim to `{run_dir}/dropped.md` (AR-17). It refuses if the blind pass is missing, compromised or late; report why and stop.
 
+Then upload to all configured stages:
+```
+npx tsx scripts/adversarial-review-finalize.ts upload-all {run_dir}
+```
+This reads `scripts/adversarial-stages.json` and uploads `review.json` to every stage's S3 bucket and DynamoDB table. Requires AWS credentials in env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`). If upload fails (expired credentials, network), report the error but do not stop the review — the local `review.json` and `review.md` are already written.
+
 ### Step 5 — Report to the user
 
 Give the verdict line, the counts, the **Needs your decision** items, and every Critical and Major finding (id, `path:line`, one-line defect). Report the "Citations not verified" list and any refuted findings explicitly. Link `{run_dir}/review.md`, and `{run_dir}/dropped.md` if anything was dropped. Don't fix anything unless the user asks.
