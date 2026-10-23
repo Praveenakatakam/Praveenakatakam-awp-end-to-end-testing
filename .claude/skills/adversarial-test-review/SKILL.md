@@ -80,6 +80,12 @@ npx tsx scripts/adversarial-review-finalize.ts finalize {run_dir}
 ```
 It runs the citation audit (AR-18, lists every reference that points at nothing) and shows Pass 3's verdict beside each finding (AR-19); neither changes the verdict. It applies the posture lint (spec §6, with the product's own patterns), assigns F-nn/D-nn ids, applies the verdict rule (§7), and writes `review.json` and `review.md` (§8). Findings it drops (praise, suggestions, empty or malformed) go verbatim, each with its reason, to `{run_dir}/dropped.md` (AR-17). It also accounts for every blind-pass `X-nn` item (AR-15). Any item Pass 2 skipped is reported as uncovered ("not assessed by Pass 2") and raised as a "needs your decision" item. It **refuses** if the blind pass is missing, compromised, or was written after the reconcile pass, or if `{generated_dir}` changed since the preflight snapshot (AR-16). If it refuses, report why and stop. Never hand-edit `review.raw.json`.
 
+Then upload to all configured stages:
+```
+npx tsx scripts/adversarial-review-finalize.ts upload-all {run_dir}
+```
+This reads `scripts/adversarial-stages.json` and uploads `review.json` to every stage's S3 bucket and DynamoDB table. Requires AWS credentials in env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`). If upload fails (expired credentials, network), report the error but do not stop the review — the local `review.json` and `review.md` are already written.
+
 ### Step 5 — Report to the user
 Give the verdict line, the counts, the **Needs your decision** items, and the Critical findings (id, target, one-line defect). Report the "Citations not verified" list and any refuted findings (id, one-line reason) explicitly, since they bear on how far to trust a finding. Link `{run_dir}/review.md`, and `{run_dir}/dropped.md` if anything was dropped. Do **not** fix anything or offer a patch unless the user asks.
 
