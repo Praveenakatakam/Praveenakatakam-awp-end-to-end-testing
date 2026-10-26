@@ -62,12 +62,12 @@ describe('Sidebar nav structure (R-25)', () => {
     expect(screen.getAllByRole('navigation')).toHaveLength(4);
   });
 
-  it('renders the Source Pipeline nav with its aria-label', () => {
+  it('renders the Catalog nav with its aria-label', () => {
     // GIVEN
     renderSidebar(readerToken);
     // THEN
     expect(
-      screen.getByRole('navigation', { name: 'Source Pipeline navigation' }),
+      screen.getByRole('navigation', { name: 'Catalog navigation' }),
     ).toBeInTheDocument();
   });
 
@@ -80,17 +80,18 @@ describe('Sidebar nav structure (R-25)', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders all six nav links with their exact labels', () => {
+  it('renders all seven nav links with their exact labels', () => {
     // GIVEN
     renderSidebar(readerToken);
-    // THEN — six links across both area groups
+    // THEN — seven links across both area groups
     const expectedLabels = [
       'Contracts by entity',
       'Contracts by source',
       'Requirements',
-      'Prompt versions',
-      'Run experiments',
-      'Compare results',
+      'Prompts',
+      'Pipelines',
+      'Experiments',
+      'Compare',
     ];
     for (const label of expectedLabels) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
@@ -114,13 +115,14 @@ describe('Sidebar aria-current="page" (R-25 active route)', () => {
   it('does NOT set aria-current="page" on any other link when one is active', () => {
     // GIVEN
     renderSidebar(readerToken, '/source/contracts-by-entity');
-    // THEN — the remaining five links must not be marked active
+    // THEN — the remaining six links must not be marked active
     const inactiveLabels = [
       'Contracts by source',
       'Requirements',
-      'Prompt versions',
-      'Run experiments',
-      'Compare results',
+      'Prompts',
+      'Pipelines',
+      'Experiments',
+      'Compare',
     ];
     for (const label of inactiveLabels) {
       expect(screen.getByRole('link', { name: label })).not.toHaveAttribute(
@@ -131,14 +133,14 @@ describe('Sidebar aria-current="page" (R-25 active route)', () => {
   });
 
   it('correctly marks an experiments link as active when that route matches', () => {
-    // GIVEN — active path is under /experiments
-    renderSidebar(readerToken, '/experiments/prompt-versions');
+    // GIVEN — active path is under /prompts
+    renderSidebar(readerToken, '/prompts');
     // THEN
-    expect(screen.getByRole('link', { name: 'Prompt versions' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Prompts' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    // AND — source pipeline links are not marked
+    // AND — catalog links are not marked
     expect(screen.getByRole('link', { name: 'Contracts by entity' })).not.toHaveAttribute(
       'aria-current',
       'page',

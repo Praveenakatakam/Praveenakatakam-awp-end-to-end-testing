@@ -84,7 +84,7 @@ describe('BySourcePage (T-09a · R-65)', () => {
     renderPage();
     // THEN: exactly two h3 headings in the source view
     const sourceView = screen.getByLabelText('by-source');
-    const headings = within(sourceView).getAllByRole('heading', { level: 3 });
+    const headings = within(sourceView).getAllByRole('heading', { level: 2 });
     expect(headings).toHaveLength(2);
   });
 
@@ -208,7 +208,7 @@ describe('BySourcePage (T-09a · R-65)', () => {
     });
     // THEN
     const sourceView = screen.getByLabelText('by-source');
-    expect(within(sourceView).getAllByRole('heading', { level: 3 })).toHaveLength(1);
+    expect(within(sourceView).getAllByRole('heading', { level: 2 })).toHaveLength(1);
     expect(within(sourceView).getByRole('button', { name: /svc v3 \(valid\)/i })).toBeInTheDocument();
   });
 });

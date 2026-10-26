@@ -13,6 +13,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AppRoutes from '../src/AppRoutes.js';
 import { Outlet } from 'react-router-dom';
 
@@ -70,10 +71,13 @@ const fakeApi = {
 };
 
 function renderAt(initialPath: string, token = readerToken) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <AppRoutes api={fakeApi as any} token={token} />
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <AppRoutes api={fakeApi as any} token={token} />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -88,10 +92,10 @@ beforeEach(() => {
 
 // ── (a) Both area groups and all nav items render ──────────────────────────
 describe('shell navigation — nav structure (R-25a)', () => {
-  it('renders the Source Pipeline nav group', async () => {
+  it('renders the Catalog nav group', async () => {
     renderAt('/source/contracts-by-entity');
     expect(
-      await screen.findByRole('navigation', { name: /source pipeline/i })
+      await screen.findByRole('navigation', { name: /catalog/i })
     ).toBeInTheDocument();
   });
 
@@ -102,11 +106,11 @@ describe('shell navigation — nav structure (R-25a)', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders all Source Pipeline nav links', async () => {
+  it('renders all Catalog nav links', async () => {
     renderAt('/source/contracts-by-entity');
     // Wait for render to settle
-    await screen.findByRole('navigation', { name: /source pipeline/i });
-    const sourceNav = screen.getByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
+    const sourceNav = screen.getByRole('navigation', { name: /catalog/i });
     expect(within(sourceNav).getByRole('link', { name: /contracts by entity/i })).toBeInTheDocument();
     expect(within(sourceNav).getByRole('link', { name: /contracts by source/i })).toBeInTheDocument();
     expect(within(sourceNav).getByRole('link', { name: /^requirements$/i })).toBeInTheDocument();
@@ -116,9 +120,10 @@ describe('shell navigation — nav structure (R-25a)', () => {
     renderAt('/source/contracts-by-entity');
     await screen.findByRole('navigation', { name: /experiments/i });
     const expNav = screen.getByRole('navigation', { name: /experiments/i });
-    expect(within(expNav).getByRole('link', { name: /prompt versions/i })).toBeInTheDocument();
-    expect(within(expNav).getByRole('link', { name: /run experiments/i })).toBeInTheDocument();
-    expect(within(expNav).getByRole('link', { name: /compare results/i })).toBeInTheDocument();
+    expect(within(expNav).getByRole('link', { name: /^prompts$/i })).toBeInTheDocument();
+    expect(within(expNav).getByRole('link', { name: /^pipelines$/i })).toBeInTheDocument();
+    expect(within(expNav).getByRole('link', { name: /^experiments$/i })).toBeInTheDocument();
+    expect(within(expNav).getByRole('link', { name: /^compare$/i })).toBeInTheDocument();
   });
 });
 
@@ -126,7 +131,7 @@ describe('shell navigation — nav structure (R-25a)', () => {
 describe('shell navigation — aria-current=page (R-25b)', () => {
   it('marks only "Contracts by entity" as active at /source/contracts-by-entity', async () => {
     renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     const activeLink = screen.getByRole('link', { name: /contracts by entity/i });
     expect(activeLink).toHaveAttribute('aria-current', 'page');
@@ -139,11 +144,11 @@ describe('shell navigation — aria-current=page (R-25b)', () => {
     expect(otherActive).toHaveLength(0);
   });
 
-  it('marks only "Prompt versions" as active at /experiments/prompt-versions', async () => {
-    renderAt('/experiments/prompt-versions');
+  it('marks only "Prompts" as active at /prompts', async () => {
+    renderAt('/prompts');
     await screen.findByRole('navigation', { name: /experiments/i });
 
-    const activeLink = screen.getByRole('link', { name: /prompt versions/i });
+    const activeLink = screen.getByRole('link', { name: /^prompts$/i });
     expect(activeLink).toHaveAttribute('aria-current', 'page');
 
     const allLinks = screen.getAllByRole('link');
@@ -155,7 +160,7 @@ describe('shell navigation — aria-current=page (R-25b)', () => {
 
   it('marks only "Requirements" as active at /source/requirements', async () => {
     renderAt('/source/requirements');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     const activeLink = screen.getByRole('link', { name: /^requirements$/i });
     expect(activeLink).toHaveAttribute('aria-current', 'page');
@@ -185,7 +190,7 @@ describe('shell navigation — Refresh button (R-25c)', () => {
 
   it('does not show Refresh button for a reader-only token', async () => {
     renderAt('/source/contracts-by-entity', readerToken);
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
   });
 });
@@ -196,14 +201,14 @@ describe('shell navigation — unknown-route redirect (R-25d)', () => {
     renderAt('/totally/unknown');
     // After redirect, sidebar should be visible (no crash)
     expect(
-      await screen.findByRole('navigation', { name: /source pipeline/i })
+      await screen.findByRole('navigation', { name: /catalog/i })
     ).toBeInTheDocument();
   });
 
   it('redirects root path to contracts-by-entity view (sidebar visible)', async () => {
     renderAt('/');
     expect(
-      await screen.findByRole('navigation', { name: /source pipeline/i })
+      await screen.findByRole('navigation', { name: /catalog/i })
     ).toBeInTheDocument();
   });
 });
@@ -214,7 +219,7 @@ describe('[web] Shell — CSS class structure', () => {
     // GIVEN
     const { container } = renderAt('/source/contracts-by-entity');
     // WHEN the shell mounts
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     // THEN a .sidebar element exists (CSS layout target)
     expect(container.querySelector('.sidebar')).toBeInTheDocument();
   });
@@ -223,16 +228,16 @@ describe('[web] Shell — CSS class structure', () => {
     // GIVEN
     const { container } = renderAt('/source/contracts-by-entity');
     // WHEN the shell mounts
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     // THEN the source area exists with the correct data-area attribute
-    expect(container.querySelector('.sidebar-area[data-area="source"]')).toBeInTheDocument();
+    expect(container.querySelector('.sidebar-area[data-area="catalog"]')).toBeInTheDocument();
   });
 
   it('renders .sidebar-area with data-area="experiments"', async () => {
     // GIVEN
     const { container } = renderAt('/source/contracts-by-entity');
     // WHEN the shell mounts
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     // THEN the experiments area exists with the correct data-area attribute
     expect(container.querySelector('.sidebar-area[data-area="experiments"]')).toBeInTheDocument();
   });
@@ -241,9 +246,9 @@ describe('[web] Shell — CSS class structure', () => {
     // GIVEN
     const { container } = renderAt('/source/contracts-by-entity');
     // WHEN the shell mounts
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     // THEN each sidebar-area contains at least one Radix NavigationMenu link
-    const sourceArea = container.querySelector('.sidebar-area[data-area="source"]');
+    const sourceArea = container.querySelector('.sidebar-area[data-area="catalog"]');
     const experimentsArea = container.querySelector('.sidebar-area[data-area="experiments"]');
     expect(sourceArea).not.toBeNull();
     expect(experimentsArea).not.toBeNull();
@@ -255,16 +260,10 @@ describe('[web] Shell — CSS class structure', () => {
 
 // ── Deep-link routing (Section 7 requirements) ────────────────────────────
 describe('shell navigation — deep-linking', () => {
-  it('mounting at /experiments/prompt-versions renders the Experiments area (aria-label)', async () => {
-    renderAt('/experiments/prompt-versions');
-    // ExperimentsPage renders <div aria-label="experiments">
-    expect(await screen.findByLabelText('experiments')).toBeInTheDocument();
-    // and the prompt-versions tab is active in the experiments page
-    const experimentsEl = screen.getByLabelText('experiments');
-    // "Prompt versions" button tab is pressed (disabled when active)
-    expect(
-      within(experimentsEl).getByRole('button', { name: /prompt versions/i })
-    ).toBeDisabled();
+  it('mounting at /prompts renders the Prompts view', async () => {
+    renderAt('/prompts');
+    // PromptPage renders content with prompts aria-label
+    expect(await screen.findByLabelText(/prompts/i)).toBeInTheDocument();
   });
 
   it('mounting at /source/requirements renders the Requirements view', async () => {
@@ -276,7 +275,7 @@ describe('shell navigation — deep-linking', () => {
   it('mounting at /source/contracts-by-source renders the sidebar navigation', async () => {
     renderAt('/source/contracts-by-source');
     expect(
-      await screen.findByRole('navigation', { name: /source pipeline/i })
+      await screen.findByRole('navigation', { name: /catalog/i })
     ).toBeInTheDocument();
   });
 });
@@ -301,7 +300,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('hamburger button is present with aria-label="Open navigation" and aria-expanded="false" by default', async () => {
     // GIVEN the shell is mounted at mobile viewport
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     // WHEN we inspect the hamburger button
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
@@ -315,7 +314,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('sidebar does not have the sidebar-open class by default', async () => {
     // GIVEN the shell mounts
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     // THEN sidebar is closed (no sidebar-open class)
     expect(container.querySelector('.sidebar')).toBeInTheDocument();
@@ -325,7 +324,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('sidebar div has tabIndex=-1 for keyboard accessibility', async () => {
     // GIVEN the shell mounts
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     // THEN the sidebar div is focusable programmatically
     const sidebar = container.querySelector('.sidebar') as HTMLElement;
@@ -335,7 +334,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('overlay backdrop is not in the DOM when sidebar is closed', async () => {
     // GIVEN the shell mounts with sidebar closed
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
 
     // THEN the backdrop is absent
     expect(container.querySelector('.sidebar-overlay-backdrop')).not.toBeInTheDocument();
@@ -345,7 +344,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('clicking hamburger sets aria-expanded="true" and sidebar gets sidebar-open class', async () => {
     // GIVEN the shell is mounted with sidebar closed
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
     expect(hamburger).toHaveAttribute('aria-expanded', 'false');
 
@@ -360,7 +359,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('overlay backdrop is in the DOM when sidebar is open', async () => {
     // GIVEN the shell mounts and the sidebar is opened
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
 
     // WHEN the user opens the sidebar
@@ -373,7 +372,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('clicking the overlay backdrop closes the sidebar', async () => {
     // GIVEN the sidebar is open
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
     await userEvent.click(hamburger);
     expect(container.querySelector('.sidebar-open')).toBeInTheDocument();
@@ -390,7 +389,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('clicking a sidebar nav link closes the overlay', async () => {
     // GIVEN the sidebar is open
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
     await userEvent.click(hamburger);
     expect(container.querySelector('.sidebar-open')).toBeInTheDocument();
@@ -406,7 +405,7 @@ describe('[web] Shell — mobile collapse', () => {
   it('pressing Escape while sidebar is open closes the overlay', async () => {
     // GIVEN the sidebar is open and focus is on the sidebar div
     const { container } = renderAt('/source/contracts-by-entity');
-    await screen.findByRole('navigation', { name: /source pipeline/i });
+    await screen.findByRole('navigation', { name: /catalog/i });
     const hamburger = container.querySelector('.hamburger-btn') as HTMLButtonElement;
     await userEvent.click(hamburger);
     expect(container.querySelector('.sidebar-open')).toBeInTheDocument();

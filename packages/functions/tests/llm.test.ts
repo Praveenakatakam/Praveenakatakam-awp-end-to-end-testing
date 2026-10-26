@@ -28,11 +28,6 @@ function minimalContext(): GroundedContext {
       source: 'publisher',
       section: '3.1',
       earsType: 'event',
-      modality: 'SHALL',
-      earsConforming: true,
-      changedInLastCrawl: false,
-      specHash: 'h',
-      lastCrawledAt: '2026-07-16T00:00:00Z',
     },
     entity: 'org',
     sources: ['publisher'],
@@ -40,18 +35,20 @@ function minimalContext(): GroundedContext {
     apiTargets: [
       {
         source: 'publisher',
-        target: { path: '/orgs', recordsAt: 'orgs', method: 'GET', params: [] },
+        target: { path: '/orgs', recordsAt: 'orgs', baseUrlEnv: 'API_URL', tokenEnv: 'TOKEN' },
       },
     ],
+    inputHash: 'test-hash',
   };
 }
 
-function bedrockToolUseResponse(plan: unknown): Uint8Array {
+function bedrockToolUseResponse(plan: unknown) {
   const payload = {
     content: [{ type: 'tool_use', input: plan }],
     stop_reason: 'tool_use',
   };
-  return new TextEncoder().encode(JSON.stringify(payload));
+  // Real bytes (llm.ts decodes with TextDecoder); cast past the SDK blob-adapter type.
+  return new TextEncoder().encode(JSON.stringify(payload)) as any;
 }
 
 function minimalPlan() {
@@ -119,7 +116,7 @@ describe('createBedrockClient (T-06 · R-08, R-34)', () => {
     // GIVEN — a response with only a text block (refusal-shaped)
     const noToolPayload = new TextEncoder().encode(
       JSON.stringify({ content: [{ type: 'text', text: 'I cannot help.' }], stop_reason: 'end_turn' })
-    );
+    ) as any;
     bedrock.on(InvokeModelCommand).resolves({ body: noToolPayload });
 
     // WHEN / THEN

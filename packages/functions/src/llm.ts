@@ -21,6 +21,26 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { PLAN_SCHEMA_V1, type LlmClient, type GroundedContext } from '@registry/functest';
 
+/** Prompt registry — the version is pinned in the cache key (R-119). */
+const PROMPTS: Record<string, string> = {
+  v1: [
+    'You are a senior test engineer specifying ONE end-to-end, cross-service functional test.',
+    'You are given a single natural-language EARS requirement, the ODCS contract schema for the',
+    'entity it concerns, and the live API coordinates for each service that handles that entity.',
+    '',
+    'Produce a SINGLE test PLAN (never code) for the scenario: the PUBLISHER performs a write that,',
+    'via change-data-capture (CDC), propagates to the CONSUMER, with assertions on the affected side(s).',
+    '',
+    'Rules:',
+    '- Ground every field ONLY in the inputs provided. Never invent an entity, source, endpoint, or',
+    '  field that was not given. `trigger.entity` MUST be the given entity; `trigger.source` MUST be',
+    '  one of the given sources.',
+    '- `trigger.path` should be the write endpoint on the publisher for that entity.',
+    '- Keep `payloadShape` a description of the request body shape, not a literal payload.',
+    '- Assertions describe what a runner must verify after propagation; be specific and grounded.',
+    '- Call the `emit_functional_test_plan` tool exactly once with the plan; do not reply with prose.',
+  ].join('\n'),
+};
 
 function userPrompt(ctx: GroundedContext): string {
   const schema = ctx.schema.map((p) => `  - ${p.name}${p.required ? ' (required)' : ''}: ${p.logicalType ?? 'unknown'}`).join('\n');

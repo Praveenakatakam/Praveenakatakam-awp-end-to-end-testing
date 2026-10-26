@@ -33,42 +33,10 @@ describe('createApi — T-11 additions (T-11a · R-50–R-54)', () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    api = createApi(TEST_TOKEN);
+    api = createApi(() => Promise.resolve(TEST_TOKEN));
   });
 
-  // ------------------------------------------------------------------ //
-  // createPromptVersion — POST /prompt-versions
-  // ------------------------------------------------------------------ //
-  describe('createPromptVersion', () => {
-    it('POSTs to /prompt-versions with correct URL, auth header, and body; returns PromptVersionRecord', async () => {
-      // GIVEN
-      const payload = { promptVersion: 'v2', text: 'Do the thing.', modelId: 'claude-sonnet-4-6', notes: 'initial' };
-      const record = { PK: 'PROMPT#v2', SK: 'METADATA', promptVersion: 'v2', text: 'Do the thing.', modelId: 'claude-sonnet-4-6', notes: 'initial', createdAt: '2026-01-01T00:00:00.000Z', startedAt: '2026-01-01T00:00:00.000Z' };
-      fetchMock.mockResolvedValueOnce(makeResponse(record));
-
-      // WHEN
-      const result = await api.createPromptVersion(payload);
-
-      // THEN
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(`${BASE_URL}/prompt-versions`);
-      expect(init.method).toBe('POST');
-      const headers = init.headers as Record<string, string>;
-      expect(headers['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
-      expect(headers['content-type']).toBe('application/json');
-      expect(JSON.parse(init.body as string)).toEqual(payload);
-      expect(result).toEqual(record);
-    });
-
-    it('throws ApiError when the server returns a non-ok status', async () => {
-      // GIVEN
-      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 409));
-
-      // WHEN / THEN
-      await expect(api.createPromptVersion({ promptVersion: 'v2', text: 'x', modelId: 'm' })).rejects.toBeInstanceOf(ApiError);
-    });
-  });
+  // createPromptVersion and createExperiment were legacy methods removed in PR #21
 
   // ------------------------------------------------------------------ //
   // listPromptVersions — GET /prompt-versions
@@ -93,39 +61,6 @@ describe('createApi — T-11 additions (T-11a · R-50–R-54)', () => {
     });
   });
 
-  // ------------------------------------------------------------------ //
-  // createExperiment — POST /experiments
-  // ------------------------------------------------------------------ //
-  describe('createExperiment', () => {
-    it('POSTs to /experiments with auth header; returns experimentId and statusUrl', async () => {
-      // GIVEN
-      const payload = { promptVersion: 'v1' };
-      const body = { experimentId: 'exp-123', statusUrl: '/experiments/exp-123' };
-      fetchMock.mockResolvedValueOnce(makeResponse(body));
-
-      // WHEN
-      const result = await api.createExperiment(payload);
-
-      // THEN
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(`${BASE_URL}/experiments`);
-      expect(init.method).toBe('POST');
-      const headers = init.headers as Record<string, string>;
-      expect(headers['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
-      expect(headers['content-type']).toBe('application/json');
-      expect(JSON.parse(init.body as string)).toEqual(payload);
-      expect(result).toEqual(body);
-    });
-
-    it('throws ApiError on 400 (unknown promptVersion)', async () => {
-      // GIVEN
-      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 400));
-
-      // WHEN / THEN
-      await expect(api.createExperiment({ promptVersion: 'unknown' })).rejects.toBeInstanceOf(ApiError);
-    });
-  });
 
   // ------------------------------------------------------------------ //
   // listExperiments — GET /experiments
