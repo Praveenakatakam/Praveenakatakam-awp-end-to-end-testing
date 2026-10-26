@@ -54,7 +54,8 @@ function camel(source: string): string {
 
 /** `get-ready` → `GET_READY` (fallback env-var stem for an unmapped trigger source). */
 function upperSnake(source: string): string {
-  return source.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase();
+  // Split + filter instead of a `/^_+|_+$/` trim: linear on any input (CodeQL js/polynomial-redos).
+  return source.split(/[^A-Za-z0-9]/).filter(Boolean).join('_').toUpperCase();
 }
 
 interface EnvPair {
