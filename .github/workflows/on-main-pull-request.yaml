@@ -12,6 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: |
+          cat > ~/.npmrc << EOF
+          @collegeboard-software:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}
+          EOF
+        shell: bash
       - uses: ./.github/actions/setup/repo
         with:
           node_version: ${{ vars.NODE_MAJOR_VERSION }}

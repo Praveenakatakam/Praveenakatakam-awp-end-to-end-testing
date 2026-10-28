@@ -71,6 +71,9 @@ const requirements = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Reset the hash so each test starts at '/' → redirect to /source/contracts-by-entity.
+  // HashRouter persists window.location.hash across testing-library cleanup().
+  window.location.hash = '';
   authState.token = undefined;
   fakeApi.listContracts.mockResolvedValue(entries);
   fakeApi.listRequirements.mockResolvedValue(requirements);
@@ -176,7 +179,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
   it('toggles to a by-source view listing each source and its contracts (AC-65)', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^by source$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
 
     const sourceView = await screen.findByLabelText('by-source');
     // every crawled source is listed as its own group
@@ -193,7 +196,7 @@ describe('App by-source view toggle (T-17 · R-65)', () => {
     fakeApi.getContract.mockResolvedValue({ entry: { id: 'user' }, versions: [{ versionNumber: 2, hash: 'abcdef12' }] });
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^by source$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /contracts by source/i }));
     const sourceView = await screen.findByLabelText('by-source');
     // consumer/user is currentVersion 2 in the fixture
     await userEvent.click(within(sourceView).getByRole('button', { name: /user v2 \(valid\)/i }));
@@ -206,12 +209,68 @@ describe('App Requirements view (T-31 · R-113)', () => {
     authState.token = readerToken;
   });
 
+  it('pretty-prints JSON requirement text and shows Popout button', async () => {
+    const jsonObj = { statement: 'The system SHALL process requests', context: { timeout: 200 } };
+    fakeApi.listRequirements.mockResolvedValue([{
+      source: 'publisher', id: 'R-30',
+      text: JSON.stringify(jsonObj),
+      section: 'API', earsType: 'ubiquitous', modality: 'SHALL',
+      earsConforming: true, changedInLastCrawl: false,
+    }]);
+    render(<App />);
+    await screen.findByText('org');
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
+    const view = await screen.findByLabelText('requirements');
+    await userEvent.click(within(view).getByRole('button', { name: /R-30/i }));
+    const detail = await screen.findByLabelText('requirement-detail');
+    const pre = detail.querySelector('pre');
+    expect(pre).not.toBeNull();
+    expect(pre!.textContent).toContain('"statement"');
+    expect(pre!.textContent).toContain('"context"');
+    expect(pre!.textContent).toContain('\n');
+    expect(within(detail).getByRole('button', { name: /popout/i })).toBeInTheDocument();
+  });
+
+  it('pretty-prints NDJSON (two JSON objects on separate lines)', async () => {
+    // Use the exact real-world data shape from the deployed API
+    const ndjson = '{"requirementIds":["CRE-R-24"],"title":"TaskPublished CDC propagation","assertions":[{"service":"publisher","assertion":"Returns 2xx."}],"inputHash":"abc123"}\n{"requirementIds":["XCT-R-11"],"title":"Cross-service CDC check","assertions":[{"service":"consumer","assertion":"Record ingested."}],"inputHash":"def456"}';
+    fakeApi.listRequirements.mockResolvedValue([{
+      source: 'publisher', id: 'R-31',
+      text: ndjson,
+      section: 'API', earsType: 'ubiquitous', modality: 'SHALL',
+      earsConforming: true, changedInLastCrawl: false,
+    }]);
+    render(<App />);
+    await screen.findByText('org');
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
+    const view = await screen.findByLabelText('requirements');
+    await userEvent.click(within(view).getByRole('button', { name: /R-31/i }));
+    const detail = await screen.findByLabelText('requirement-detail');
+    const pre = detail.querySelector('pre');
+    expect(pre).not.toBeNull();
+    // Both objects pretty-printed — keys are on their own indented lines
+    expect(pre!.textContent).toMatch(/\n\s+"requirementIds"/);  // obj1 formatted
+    expect(pre!.textContent).toMatch(/\n\s+"XCT-R-11"/);        // obj2 formatted (not raw)
+  });
+
+  it('displays plain text in a pre block with no hard overflow', async () => {
+    render(<App />);
+    await screen.findByText('org');
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
+    const view = await screen.findByLabelText('requirements');
+    await userEvent.click(within(view).getByRole('button', { name: /R-10/i }));
+    const detail = await screen.findByLabelText('requirement-detail');
+    const pre = detail.querySelector('pre');
+    expect(pre).not.toBeNull();
+    expect(pre!.textContent).toContain('WHEN a client calls');
+  });
+
   it('toggles to a Requirements view grouped by source and section, badging non-conforming + changed (AC-113)', async () => {
     render(<App />);
     await screen.findByText('org');
     expect(screen.queryByLabelText('requirements')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
 
     // grouped by source + section
@@ -228,7 +287,7 @@ describe('App Requirements view (T-31 · R-113)', () => {
   it('opens a requirement detail panel when a requirement is selected (AC-113)', async () => {
     render(<App />);
     await screen.findByText('org');
-    await userEvent.click(screen.getByRole('button', { name: /^requirements$/i }));
+    await userEvent.click(screen.getByRole('link', { name: /^requirements$/i }));
     const view = await screen.findByLabelText('requirements');
     await userEvent.click(within(view).getByRole('button', { name: /R-10/i }));
     const detail = await screen.findByLabelText('requirement-detail');

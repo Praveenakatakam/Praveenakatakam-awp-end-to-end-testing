@@ -50,4 +50,28 @@ describe('handleAuthorization (T-09 · R-16, R-56, D-21)', () => {
     const res = await handleAuthorization(evt('GET /contracts'), verify as any);
     expect(res.isAuthorized).toBe(false);
   });
+
+  it('denies a reader token on POST /prompt-versions (T-05a · writer-only route)', async () => {
+    const verify = vi.fn(async () => ({ sub: 's3', username: 'reader@demo', 'cognito:groups': ['reader'] }));
+    const res = await handleAuthorization(evt('POST /prompt-versions'), verify as any);
+    expect(res.isAuthorized).toBe(false);
+  });
+
+  it('allows a writer token on POST /prompt-versions (T-05a · writer-only route)', async () => {
+    const verify = vi.fn(async () => ({ sub: 's4', username: 'writer@demo', 'cognito:groups': ['writer', 'reader'] }));
+    const res = await handleAuthorization(evt('POST /prompt-versions'), verify as any);
+    expect(res.isAuthorized).toBe(true);
+  });
+
+  it('denies a reader token on POST /experiments (T-05a · writer-only route)', async () => {
+    const verify = vi.fn(async () => ({ sub: 's5', username: 'reader@demo', 'cognito:groups': ['reader'] }));
+    const res = await handleAuthorization(evt('POST /experiments'), verify as any);
+    expect(res.isAuthorized).toBe(false);
+  });
+
+  it('allows a writer token on POST /experiments (T-05a · writer-only route)', async () => {
+    const verify = vi.fn(async () => ({ sub: 's6', username: 'writer@demo', 'cognito:groups': ['writer', 'reader'] }));
+    const res = await handleAuthorization(evt('POST /experiments'), verify as any);
+    expect(res.isAuthorized).toBe(true);
+  });
 });

@@ -1,4 +1,6 @@
 node_modules
+.env.local
+.env.*.local
 .sst
 .spack-env
 .venv
