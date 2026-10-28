@@ -9,6 +9,7 @@ import {
   type FunctionalGenRepo,
 } from '../src/functional-gen.js';
 import type { CatalogEntry, RequirementRecord, FunctionalJobRecord } from '../src/repository.js';
+import type { PromptVersionRecord } from '@registry/core';
 import type { LlmClient } from '@registry/functest';
 
 // ---- Fakes -----------------------------------------------------------------
@@ -222,6 +223,84 @@ describe('runFunctionalJob (worker)', () => {
     const result = await runFunctionalJob('fj-empty', repo, stubLlm, clock);
     expect(result.status).toBe('succeeded');
     expect(result.planCount).toBe(0);
+  });
+});
+
+// ---- Prompt version resolution in POST handler (T-07a) ---------------------
+
+describe('handleGenerateFunctional — promptVersion resolution', () => {
+  function promptRecord(version: string): PromptVersionRecord {
+    return {
+      promptVersion: version,
+      text: `system prompt for ${version}`,
+      modelId: `custom-model-${version}`,
+      createdAt: '2026-01-01T00:00:00Z',
+      startedAt: '2026-01-01T00:00:00Z',
+      createdBy: 'test',
+    };
+  }
+
+  it("omitting promptVersion defaults to 'v1' and calls getPromptVersion('v1')", async () => {
+    const versions: string[] = [];
+    const repo = fakeRepo({
+      async getPromptVersion(v) {
+        versions.push(v);
+        return promptRecord(v);
+      },
+    });
+    const dispatched: string[] = [];
+    const res = await handleGenerateFunctional(repo, async (id) => void dispatched.push(id), 'fj-default', '2026-07-16T00:00:00Z');
+    // No promptVersion argument → defaults to PROMPT_VERSION ('v1')
+    expect(res.statusCode).toBe(202);
+    expect(versions).toEqual(['v1']);
+    expect(repo.jobs[0]).toMatchObject({ jobId: 'fj-default', promptVersion: 'v1' });
+  });
+
+  it('resolves a supplied promptVersion and stores the returned modelId on the job record', async () => {
+    const versions: string[] = [];
+    const repo = fakeRepo({
+      async getPromptVersion(v) {
+        versions.push(v);
+        return promptRecord(v);
+      },
+    });
+    const dispatched: string[] = [];
+    const res = await handleGenerateFunctional(
+      repo,
+      async (id) => void dispatched.push(id),
+      'fj-custom',
+      '2026-07-16T00:00:00Z',
+      'v2'
+    );
+    expect(res.statusCode).toBe(202);
+    expect(versions).toEqual(['v2']);
+    // modelId must come from the resolved promptRecord, not the module-level MODEL_ID constant
+    expect(repo.jobs[0]).toMatchObject({
+      jobId: 'fj-custom',
+      promptVersion: 'v2',
+      modelId: 'custom-model-v2',
+    });
+    expect(dispatched).toEqual(['fj-custom']);
+  });
+
+  it("returns 400 naming the missing version when getPromptVersion returns undefined", async () => {
+    const repo = fakeRepo({
+      async getPromptVersion(_v) {
+        return undefined;
+      },
+    });
+    const res = await handleGenerateFunctional(
+      repo,
+      async (_id) => {},
+      'fj-bad',
+      '2026-07-16T00:00:00Z',
+      'v-unknown'
+    );
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error).toContain('v-unknown');
+    // No job must have been written for an unknown version
+    expect(repo.jobs).toHaveLength(0);
   });
 });
 

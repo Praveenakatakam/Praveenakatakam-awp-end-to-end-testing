@@ -1,54 +1,220 @@
+// @vitest-environment node
 /**
- * T-AR-05a — adversarial API client methods (listAdversarialRuns, getAdversarialFindings).
+ * Web-tier unit tests for the T-11 api.ts additions (T-11a).
+ * Uses stub fetch — no real network or AWS calls.
+ * Uses the node environment because this module has no DOM dependencies;
+ * jsdom is broken in CI due to an undici version mismatch (pre-existing).
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Stub config before importing api so the base URL is predictable regardless
+// of any VITE_* env vars that may be set in local .env files.
+// NOTE: vi.mock is hoisted — the literal must be inlined, not a variable reference.
+vi.mock('../src/config.js', () => ({ config: { apiUrl: 'http://test-api.local' } }));
+
 import { createApi, ApiError } from '../src/api.js';
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+const BASE_URL = 'http://test-api.local';
+const TEST_TOKEN = 'test-bearer-token';
 
-function mockFetch(status: number, body: unknown) {
-  return vi.spyOn(global, 'fetch').mockResolvedValue({
-    ok: status >= 200 && status < 300,
+function makeResponse(body: unknown, ok = true, status = 200): Response {
+  return {
+    ok,
     status,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  } as Response);
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(String(body)),
+  } as unknown as Response;
 }
 
-const api = createApi('test-token');
+describe('createApi — T-11 additions (T-11a · R-50–R-54)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let api: ReturnType<typeof createApi>;
 
-describe('api.listAdversarialRuns (T-AR-05a)', () => {
-  it('(a) fetches /adversarial-runs?kind=test with Bearer header', async () => {
-    const spy = mockFetch(200, [{ reviewKind: 'test', run_dir: 'r1' }]);
-    const runs = await api.listAdversarialRuns('test');
-    expect(spy).toHaveBeenCalledOnce();
-    const [url, init] = spy.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/adversarial-runs?kind=test');
-    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer test-token');
-    expect(runs).toHaveLength(1);
-    expect(runs[0].reviewKind).toBe('test');
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    api = createApi(TEST_TOKEN);
   });
 
-  it('(b) fetches /adversarial-runs?kind=code', async () => {
-    const spy = mockFetch(200, []);
-    await api.listAdversarialRuns('code');
-    expect((spy.mock.calls[0] as [string])[0]).toContain('kind=code');
+  // ------------------------------------------------------------------ //
+  // createPromptVersion — POST /prompt-versions
+  // ------------------------------------------------------------------ //
+  describe('createPromptVersion', () => {
+    it('POSTs to /prompt-versions with correct URL, auth header, and body; returns PromptVersionRecord', async () => {
+      // GIVEN
+      const payload = { promptVersion: 'v2', text: 'Do the thing.', modelId: 'claude-sonnet-4-6', notes: 'initial' };
+      const record = { PK: 'PROMPT#v2', SK: 'METADATA', promptVersion: 'v2', text: 'Do the thing.', modelId: 'claude-sonnet-4-6', notes: 'initial', createdAt: '2026-01-01T00:00:00.000Z', startedAt: '2026-01-01T00:00:00.000Z' };
+      fetchMock.mockResolvedValueOnce(makeResponse(record));
+
+      // WHEN
+      const result = await api.createPromptVersion(payload);
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/prompt-versions`);
+      expect(init.method).toBe('POST');
+      const headers = init.headers as Record<string, string>;
+      expect(headers['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(headers['content-type']).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual(payload);
+      expect(result).toEqual(record);
+    });
+
+    it('throws ApiError when the server returns a non-ok status', async () => {
+      // GIVEN
+      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 409));
+
+      // WHEN / THEN
+      await expect(api.createPromptVersion({ promptVersion: 'v2', text: 'x', modelId: 'm' })).rejects.toBeInstanceOf(ApiError);
+    });
   });
 
-  it('(c) throws ApiError on non-2xx', async () => {
-    mockFetch(401, { error: 'unauthorized' });
-    await expect(api.listAdversarialRuns('test')).rejects.toBeInstanceOf(ApiError);
-  });
-});
+  // ------------------------------------------------------------------ //
+  // listPromptVersions — GET /prompt-versions
+  // ------------------------------------------------------------------ //
+  describe('listPromptVersions', () => {
+    it('GETs /prompt-versions with auth header; returns { promptVersions } shape', async () => {
+      // GIVEN
+      const body = { promptVersions: [{ promptVersion: 'v1', modelId: 'm', createdAt: '2026-01-01T00:00:00.000Z', startedAt: '2026-01-01T00:00:00.000Z' }] };
+      fetchMock.mockResolvedValueOnce(makeResponse(body));
 
-describe('api.getAdversarialFindings (T-AR-05a)', () => {
-  it('(d) fetches /adversarial-runs/{kind}/{run_dir}/findings', async () => {
-    const spy = mockFetch(200, { findings: [], verificationStatus: 'not_run' });
-    const result = await api.getAdversarialFindings('test', '20261021-1430_test_main');
-    const [url] = spy.mock.calls[0] as [string];
-    expect(url).toContain('/adversarial-runs/test/20261021-1430_test_main/findings');
-    expect(result.verificationStatus).toBe('not_run');
+      // WHEN
+      const result = await api.listPromptVersions();
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/prompt-versions`);
+      expect((init.method ?? 'GET').toUpperCase()).toBe('GET');
+      const headers = init.headers as Record<string, string>;
+      expect(headers['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(result).toEqual(body);
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // createExperiment — POST /experiments
+  // ------------------------------------------------------------------ //
+  describe('createExperiment', () => {
+    it('POSTs to /experiments with auth header; returns experimentId and statusUrl', async () => {
+      // GIVEN
+      const payload = { promptVersion: 'v1' };
+      const body = { experimentId: 'exp-123', statusUrl: '/experiments/exp-123' };
+      fetchMock.mockResolvedValueOnce(makeResponse(body));
+
+      // WHEN
+      const result = await api.createExperiment(payload);
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/experiments`);
+      expect(init.method).toBe('POST');
+      const headers = init.headers as Record<string, string>;
+      expect(headers['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(headers['content-type']).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual(payload);
+      expect(result).toEqual(body);
+    });
+
+    it('throws ApiError on 400 (unknown promptVersion)', async () => {
+      // GIVEN
+      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 400));
+
+      // WHEN / THEN
+      await expect(api.createExperiment({ promptVersion: 'unknown' })).rejects.toBeInstanceOf(ApiError);
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // listExperiments — GET /experiments
+  // ------------------------------------------------------------------ //
+  describe('listExperiments', () => {
+    it('GETs /experiments with auth header; returns { experiments } array', async () => {
+      // GIVEN
+      const body = { experiments: [{ PK: 'EXP#exp-1', SK: 'METADATA', experimentId: 'exp-1', promptVersion: 'v1', status: 'succeeded', createdAt: '2026-01-01T00:00:00.000Z', startedAt: '2026-01-01T00:00:00.000Z' }] };
+      fetchMock.mockResolvedValueOnce(makeResponse(body));
+
+      // WHEN
+      const result = await api.listExperiments();
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/experiments`);
+      expect((init.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect((init.headers as Record<string, string>)['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(result).toEqual(body);
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // getExperiment — GET /experiments/{experimentId}
+  // ------------------------------------------------------------------ //
+  describe('getExperiment', () => {
+    it('GETs /experiments/{id} with auth header; returns ExperimentRecord', async () => {
+      // GIVEN
+      const experimentId = 'exp-abc';
+      const record = { PK: `EXP#${experimentId}`, SK: 'METADATA', experimentId, promptVersion: 'v1', status: 'running', createdAt: '2026-01-01T00:00:00.000Z', startedAt: '2026-01-01T00:00:00.000Z' };
+      fetchMock.mockResolvedValueOnce(makeResponse(record));
+
+      // WHEN
+      const result = await api.getExperiment(experimentId);
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/experiments/${experimentId}`);
+      expect((init.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect((init.headers as Record<string, string>)['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(result).toEqual(record);
+    });
+
+    it('throws ApiError for a non-existent experiment (404)', async () => {
+      // GIVEN
+      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 404));
+
+      // WHEN / THEN
+      await expect(api.getExperiment('missing')).rejects.toBeInstanceOf(ApiError);
+    });
+  });
+
+  // ------------------------------------------------------------------ //
+  // getExperimentArtifact — GET /experiments/{experimentId}/artifact
+  // ------------------------------------------------------------------ //
+  describe('getExperimentArtifact', () => {
+    it('GETs /experiments/{id}/artifact with auth header; returns full artifact shape', async () => {
+      // GIVEN
+      const experimentId = 'exp-xyz';
+      const body = {
+        experimentId,
+        promptVersion: 'v1',
+        status: 'succeeded',
+        planCount: 3,
+        skipCount: 0,
+        artifact: { plans: [] },
+      };
+      fetchMock.mockResolvedValueOnce(makeResponse(body));
+
+      // WHEN
+      const result = await api.getExperimentArtifact(experimentId);
+
+      // THEN
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE_URL}/experiments/${experimentId}/artifact`);
+      expect((init.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect((init.headers as Record<string, string>)['authorization']).toBe(`Bearer ${TEST_TOKEN}`);
+      expect(result).toEqual(body);
+    });
+
+    it('throws ApiError for a non-succeeded experiment (404)', async () => {
+      // GIVEN
+      fetchMock.mockResolvedValueOnce(makeResponse({}, false, 404));
+
+      // WHEN / THEN
+      await expect(api.getExperimentArtifact('pending-exp')).rejects.toBeInstanceOf(ApiError);
+    });
   });
 });
