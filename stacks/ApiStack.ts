@@ -265,6 +265,10 @@ export function ApiStack({ stack }: StackContext) {
       'GET /runs/{runId}/artifact': 'packages/functions/src/read.runArtifact',
       // Per-step record + input snapshot + output (v0.5.0 · R-75, D-29).
       'GET /runs/{runId}/steps/{stepIndex}': 'packages/functions/src/read.runStep',
+      // Adversarial review (T-AR-02 · R-8, R-9, R-35). Reader access.
+      'GET /adversarial-runs': 'packages/functions/src/adversarialRuns.listAdversarialRuns',
+      'GET /adversarial-runs/{kind}/{run_dir}/findings': 'packages/functions/src/adversarialRuns.getAdversarialFindings',
+      'GET /adversarial-runs/{kind}/{run_dir}/metadata': 'packages/functions/src/adversarialRuns.getAdversarialRunMetadata',
     },
   });
 

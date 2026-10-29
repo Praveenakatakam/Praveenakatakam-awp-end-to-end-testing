@@ -3,7 +3,7 @@
  * on every call, matching the HTTP API's Lambda authorizer.
  */
 import { config } from './config.js';
-import type { Entry, RequirementEntry } from './lib.js';
+import type { Entry, RequirementEntry, AdversarialFinding, AdversarialRunSummary, VerificationStatus } from './lib.js';
 import type { PromptVersionRecord, ExperimentRecord } from '@registry/core';
 import type {
   PipelineConfig,
@@ -321,6 +321,49 @@ export function createApi(getToken: () => Promise<string>) {
     listRuns: async (nextToken?: string): Promise<{ items: PipelineRun[]; nextToken?: string }> => {
       const res = await (await req(`/runs${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ''}`)).json();
       return { items: res.items ?? [], nextToken: res.nextToken };
+    },
+
+    // -------------------------------------------------------------------------
+    // Adversarial review API (auto-polling support)
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /adversarial-runs?kind={test|code}
+     * Lists adversarial review runs for the given kind, newest first.
+     */
+    listAdversarialRuns: async (kind: 'test' | 'code' | 'requirements'): Promise<AdversarialRunSummary[]> => {
+      const res = await (await req(`/adversarial-runs?kind=${encodeURIComponent(kind)}`)).json();
+      return Array.isArray(res) ? res : [];
+    },
+
+    /**
+     * GET /adversarial-runs/{kind}/{run_dir}/findings
+     * Fetches findings for a specific adversarial review run.
+     */
+    getAdversarialFindings: async (
+      kind: 'test' | 'code' | 'requirements',
+      runDir: string
+    ): Promise<{ findings: AdversarialFinding[]; verificationStatus: VerificationStatus }> => {
+      const res = await (await req(`/adversarial-runs/${encodeURIComponent(kind)}/${encodeURIComponent(runDir)}/findings`)).json();
+      return res;
+    },
+
+    /**
+     * GET /adversarial-runs/{kind}/{run_dir}/metadata
+     * Gets metadata about a run, including lastModified timestamp for polling detection.
+     * Used to detect when review.json has been updated without fetching the full findings.
+     */
+    getAdversarialRunMetadata: async (
+      kind: 'test' | 'code' | 'requirements',
+      runDir: string
+    ): Promise<{ lastModified: number; sha256: string; updatedAt?: string }> => {
+      try {
+        const res = await (await req(`/adversarial-runs/${encodeURIComponent(kind)}/${encodeURIComponent(runDir)}/metadata`)).json();
+        return res;
+      } catch {
+        // Fallback if metadata endpoint doesn't exist
+        return { lastModified: Date.now(), sha256: '', updatedAt: new Date().toISOString() };
+      }
     },
   };
 }

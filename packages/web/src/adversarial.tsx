@@ -5,6 +5,9 @@
  * RunSelector     — dropdown of runs; triggers findings load.
  * FindingsTable   — sortable, filterable table of findings.
  * FindingDetail   — drawer showing full finding fields.
+ *
+ * Features: auto-polling for new runs, auto-detection of review.json changes,
+ * real-time updates when findings are modified, auto-selection of newest run.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Api } from './api.js';
@@ -204,7 +207,12 @@ interface FindingsState {
   findings: AdversarialFinding[];
   verificationStatus: VerificationStatus;
   error?: string;
+  lastFetchedAt?: number; // timestamp to detect changes
 }
+
+// Polling configuration
+const POLL_RUNS_INTERVAL_MS = 5000; // poll for new runs every 5 seconds
+const POLL_FINDINGS_INTERVAL_MS = 3000; // poll for findings updates every 3 seconds
 
 export function AdversarialView({ api }: { api: Api }) {
   const [reviewKind, setReviewKind] = useState<'test' | 'code' | 'requirements'>('test');
@@ -214,53 +222,151 @@ export function AdversarialView({ api }: { api: Api }) {
   const [selectedRunDir, setSelectedRunDir] = useState<string | null>(null);
   const [findingsState, setFindingsState] = useState<FindingsState>({ state: 'idle', findings: [], verificationStatus: 'not_run' });
   const [drawerFinding, setDrawerFinding] = useState<AdversarialFinding | null>(null);
+  const [autoPollingEnabled, setAutoPollingEnabled] = useState(true);
+  const [lastRunsChecksum, setLastRunsChecksum] = useState<string | null>(null); // detect run list changes
 
   // requestId guard: prevents stale responses from overwriting newer state (R-20, R-24)
   const runsRequestId = useRef(0);
   const findingsRequestId = useRef(0);
 
+  // polling timers
+  const runsPollTimer = useRef<NodeJS.Timeout | null>(null);
+  const findingsPollTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Load runs and set up auto-polling
   useEffect(() => {
-    const id = ++runsRequestId.current;
-    setRunsState('loading');
-    setRuns([]);
-    setSelectedRunDir(null);
-    setFindingsState({ state: 'idle', findings: [], verificationStatus: 'not_run' });
-    api.listAdversarialRuns(reviewKind).then((result) => {
-      if (runsRequestId.current !== id) return;
-      setRuns(result);
-      setRunsState('loaded');
-    }).catch((err) => {
-      if (runsRequestId.current !== id) return;
-      setRunsError((err as Error).message);
-      setRunsState('error');
-    });
-  }, [api, reviewKind]);
+    const loadRuns = async () => {
+      const id = ++runsRequestId.current;
+      try {
+        const result = await api.listAdversarialRuns(reviewKind);
+        if (runsRequestId.current !== id) return;
+
+        // Detect if run list changed by comparing checksums
+        const checksum = JSON.stringify(result.map(r => `${r.run_dir}:${r.verdict}`)).slice(0, 50);
+        const hasNewRuns = checksum !== lastRunsChecksum;
+        setLastRunsChecksum(checksum);
+
+        setRuns(result);
+        setRunsError('');
+        setRunsState('loaded');
+
+        // Auto-select newest run on first load or when new runs appear
+        if (selectedRunDir === null && result.length > 0) {
+          selectRun(result[0]!.run_dir);
+        } else if (hasNewRuns && selectedRunDir === null && result.length > 0) {
+          selectRun(result[0]!.run_dir);
+        }
+      } catch (err) {
+        if (runsRequestId.current !== id) return;
+        setRunsError((err as Error).message);
+        setRunsState('error');
+      }
+    };
+
+    if (runsState === 'idle' || runsState === 'loaded') {
+      // Initial load
+      setRunsState(runsState === 'idle' ? 'loading' : 'loaded');
+      loadRuns();
+
+      // Set up auto-polling if enabled
+      if (autoPollingEnabled) {
+        if (runsPollTimer.current) clearInterval(runsPollTimer.current);
+        runsPollTimer.current = setInterval(() => {
+          loadRuns();
+        }, POLL_RUNS_INTERVAL_MS);
+
+        return () => {
+          if (runsPollTimer.current) clearInterval(runsPollTimer.current);
+        };
+      }
+    }
+
+    return () => {
+      if (runsPollTimer.current) clearInterval(runsPollTimer.current);
+    };
+  }, [api, reviewKind, autoPollingEnabled]);
 
   function selectRun(runDir: string) {
     setSelectedRunDir(runDir);
+    setDrawerFinding(null); // close drawer when switching runs (R-33)
     const id = ++findingsRequestId.current;
     setFindingsState({ state: 'loading', findings: [], verificationStatus: 'not_run' });
     api.getAdversarialFindings(reviewKind, runDir).then((result) => {
       if (findingsRequestId.current !== id) return;
-      setFindingsState({ state: 'loaded', findings: result.findings as AdversarialFinding[], verificationStatus: result.verificationStatus });
+      setFindingsState({
+        state: 'loaded',
+        findings: result.findings as AdversarialFinding[],
+        verificationStatus: result.verificationStatus,
+        lastFetchedAt: Date.now(),
+      });
     }).catch((err) => {
       if (findingsRequestId.current !== id) return;
       setFindingsState({ state: 'error', findings: [], verificationStatus: 'not_run', error: (err as Error).message });
     });
   }
 
+  // Auto-poll findings for changes when a run is selected
+  useEffect(() => {
+    if (!selectedRunDir || !autoPollingEnabled) {
+      if (findingsPollTimer.current) clearInterval(findingsPollTimer.current);
+      return;
+    }
+
+    const pollFindings = () => {
+      const id = ++findingsRequestId.current;
+      api.getAdversarialFindings(reviewKind, selectedRunDir).then((result) => {
+        if (findingsRequestId.current !== id) return;
+
+        // Check if findings have changed
+        const newChecksum = JSON.stringify(result.findings.map(f => f.id)).slice(0, 100);
+        const oldChecksum = JSON.stringify(findingsState.findings.map(f => f.id)).slice(0, 100);
+
+        if (newChecksum !== oldChecksum || result.verificationStatus !== findingsState.verificationStatus) {
+          setFindingsState({
+            state: 'loaded',
+            findings: result.findings as AdversarialFinding[],
+            verificationStatus: result.verificationStatus,
+            lastFetchedAt: Date.now(),
+          });
+        }
+      }).catch((err) => {
+        // Don't update error state on polling failures, just log
+        console.warn('Polling findings failed:', err);
+      });
+    };
+
+    // Poll immediately after selection and then at regular intervals
+    const timer = setInterval(pollFindings, POLL_FINDINGS_INTERVAL_MS);
+
+    return () => {
+      if (findingsPollTimer.current) clearInterval(findingsPollTimer.current);
+      clearInterval(timer);
+    };
+  }, [selectedRunDir, reviewKind, autoPollingEnabled, api]);
+
   return (
     <section aria-label="Adversarial review">
-      <nav aria-label="review kind">
-        <button aria-pressed={reviewKind === 'test'} disabled={reviewKind === 'test'} onClick={() => setReviewKind('test')}>
-          Test review
-        </button>
-        <button aria-pressed={reviewKind === 'code'} disabled={reviewKind === 'code'} onClick={() => setReviewKind('code')}>
-          Code review
-        </button>
-        <button aria-pressed={reviewKind === 'requirements'} disabled={reviewKind === 'requirements'} onClick={() => setReviewKind('requirements')}>
-          Requirements review
-        </button>
+      <nav aria-label="review kind" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+        <div>
+          <button aria-pressed={reviewKind === 'test'} disabled={reviewKind === 'test'} onClick={() => setReviewKind('test')}>
+            Test review
+          </button>
+          <button aria-pressed={reviewKind === 'code'} disabled={reviewKind === 'code'} onClick={() => setReviewKind('code')}>
+            Code review
+          </button>
+          <button aria-pressed={reviewKind === 'requirements'} disabled={reviewKind === 'requirements'} onClick={() => setReviewKind('requirements')}>
+            Requirements review
+          </button>
+        </div>
+        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginLeft: 'auto' }}>
+          <input
+            type="checkbox"
+            checked={autoPollingEnabled}
+            onChange={(e) => setAutoPollingEnabled(e.target.checked)}
+            aria-label="Auto-polling enabled"
+          />
+          Auto-polling {autoPollingEnabled ? '🔄' : '⏸️'}
+        </label>
       </nav>
 
       {runsState === 'loading' && <p role="status">Loading runs…</p>}
@@ -273,11 +379,18 @@ export function AdversarialView({ api }: { api: Api }) {
       {findingsState.state === 'loading' && <p role="status">Loading findings…</p>}
       {findingsState.state === 'error' && <p role="alert">Failed to load findings: {findingsState.error}</p>}
       {findingsState.state === 'loaded' && (
-        <FindingsTable
-          findings={findingsState.findings}
-          verificationStatus={findingsState.verificationStatus}
-          onOpenFinding={setDrawerFinding}
-        />
+        <>
+          {findingsState.lastFetchedAt && (
+            <p style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.5rem' }}>
+              Last updated: {new Date(findingsState.lastFetchedAt).toLocaleTimeString()} {autoPollingEnabled && '🔄'}
+            </p>
+          )}
+          <FindingsTable
+            findings={findingsState.findings}
+            verificationStatus={findingsState.verificationStatus}
+            onOpenFinding={setDrawerFinding}
+          />
+        </>
       )}
 
       <Drawer finding={drawerFinding} onClose={() => setDrawerFinding(null)} />

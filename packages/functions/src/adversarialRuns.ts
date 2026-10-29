@@ -98,3 +98,25 @@ export async function getAdversarialFindings(event: APIGatewayProxyEventV2): Pro
 
   return json(200, { findings: review.findings, verificationStatus });
 }
+
+/** GET /adversarial-runs/{kind}/{run_dir}/metadata — efficient polling support. */
+export async function getAdversarialRunMetadata(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const { kind, run_dir } = event.pathParameters ?? {};
+  const kindAttr = kind ? KIND_ATTR[kind] : undefined;
+  if (!kindAttr || !run_dir) return notFound();
+
+  // Fetch metadata from DynamoDB
+  const dbResult = await ddb.send(
+    new GetCommand({
+      TableName: TABLE,
+      Key: { PK: `ADV#${kindAttr}`, SK: run_dir },
+    }),
+  );
+  if (!dbResult.Item) return notFound(`run ${run_dir} not found`);
+
+  return json(200, {
+    sha256: dbResult.Item['reviewSha256'] as string,
+    updatedAt: dbResult.Item['startedAt'] as string,
+    lastModified: new Date(dbResult.Item['startedAt'] as string).getTime(),
+  });
+}
